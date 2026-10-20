@@ -20,6 +20,13 @@ pub fn run() {
             commands::vault::vault_lock,
             commands::generator::generate_password,
             commands::generator::generate_login,
+            commands::storage::storage_read_file,
+            commands::storage::storage_write_atomic,
+            commands::storage::storage_exists,
+            commands::storage::storage_mkdir,
+            commands::storage::storage_stat,
+            commands::storage::storage_list_dir,
+            commands::storage::storage_remove_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");

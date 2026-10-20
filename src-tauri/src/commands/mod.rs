@@ -1,4 +1,5 @@
 pub mod generator;
+pub mod storage;
 pub mod vault;
 
 use serde::Serialize;
