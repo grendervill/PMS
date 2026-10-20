@@ -20,6 +20,16 @@ pub enum VaultError {
     BadPayload,
     #[error("invalid credentials")]
     InvalidCredentials,
+    #[error("empty secret")]
+    EmptySecret,
+    #[error("keyfile passphrase required")]
+    KeyfilePassphraseRequired,
+    #[error("keyfile passphrase invalid")]
+    KeyfilePassphraseInvalid,
+    #[error("public key cannot be used as a vault keyfile")]
+    KeyfilePublicKey,
+    #[error("unsupported keyfile format")]
+    UnsupportedKeyfile,
     #[error("vault id mismatch")]
     VaultIdMismatch,
     #[error("cryptographic failure")]
@@ -42,6 +52,11 @@ impl VaultError {
             Self::TooManySlots => "too_many_slots",
             Self::BadPayload => "bad_payload",
             Self::InvalidCredentials => "invalid_credentials",
+            Self::EmptySecret => "empty_secret",
+            Self::KeyfilePassphraseRequired => "keyfile_passphrase_required",
+            Self::KeyfilePassphraseInvalid => "keyfile_passphrase_invalid",
+            Self::KeyfilePublicKey => "keyfile_public_key",
+            Self::UnsupportedKeyfile => "unsupported_keyfile",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",
