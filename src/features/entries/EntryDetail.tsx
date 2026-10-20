@@ -15,6 +15,7 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { IconButton } from "@/components/ui/IconButton";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
+import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
 import { hostFromUrl, monogram, safeHttpUrl } from "@/features/entries/entries";
 import { errorText } from "@/features/vault/errors";
 import type { Entry } from "@/features/vault/types";
@@ -189,6 +190,7 @@ export function EntryDetail({
             </p>
           </div>
         </div>
+        <AttachmentsSection entry={entry} />
       </div>
 
       <div className="border-t border-[var(--border)] px-5 py-3.5 sm:px-7">

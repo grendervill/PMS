@@ -9,6 +9,7 @@ import { SecretInput } from "@/components/ui/SecretInput";
 import { Textarea } from "@/components/ui/Textarea";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
+import { AttachmentPicker } from "@/features/attachments/AttachmentPicker";
 import { errorText } from "@/features/vault/errors";
 import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
@@ -350,6 +351,11 @@ export function EntryEditor({
             rows={3}
           />
         </Field>
+
+        <AttachmentPicker
+          ids={draft.attachmentIds}
+          onChange={(attachmentIds) => update("attachmentIds", attachmentIds)}
+        />
       </div>
 
       {generatorMode ? (

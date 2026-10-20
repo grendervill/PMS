@@ -18,6 +18,7 @@ export type VaultStorage = {
   statVault(folder: string): Promise<{ size: number; mtimeMs: number | null }>;
   exists(path: string): Promise<boolean>;
   mkdir(path: string, mode?: number): Promise<void>;
+  saveFile(path: string, bytes: Uint8Array): Promise<void>;
   readBlob(folder: string, id: string): Promise<Uint8Array>;
   writeBlob(folder: string, id: string, bytes: Uint8Array): Promise<void>;
   deleteBlob(folder: string, id: string): Promise<void>;

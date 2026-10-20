@@ -52,6 +52,8 @@ describe("entries", () => {
       password: "s3cret",
       url: "",
       comment: "",
+      attachmentIds: [],
+      totp: null,
     });
   });
 

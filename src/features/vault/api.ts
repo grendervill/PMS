@@ -7,6 +7,7 @@ import type {
   VaultErrorInfo,
   VaultPublicInfo,
   CipherSuite,
+  AttachmentMeta,
 } from "@/features/vault/types";
 import type {
   LoginOptions,
@@ -119,6 +120,36 @@ export const vaultApi = {
   async generateLogin(options: LoginOptions): Promise<string> {
     return call<string>("generate_login", { options });
   },
-};
 
+  async sealAttachment(
+    sessionId: string,
+    name: string,
+    mime: string,
+    bytes: Uint8Array,
+  ): Promise<{ blob: Uint8Array; meta: AttachmentMeta }> {
+    const response = await call<{ blobB64: string; meta: AttachmentMeta }>(
+      "attachment_seal",
+      {
+        sessionId,
+        name,
+        mime,
+        b64: toBase64(bytes),
+      },
+    );
+    return { blob: fromBase64(response.blobB64), meta: response.meta };
+  },
+
+  async openAttachment(
+    sessionId: string,
+    attachmentId: string,
+    blob: Uint8Array,
+  ): Promise<Uint8Array> {
+    const response = await call<{ b64: string }>("attachment_open", {
+      sessionId,
+      attachmentId,
+      blobB64: toBase64(blob),
+    });
+    return fromBase64(response.b64);
+  },
+};
 export { fromBase64, toBase64 };

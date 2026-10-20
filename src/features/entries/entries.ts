@@ -1,4 +1,4 @@
-import type { Entry, HistoryItem } from "@/features/vault/types";
+import type { Entry, HistoryItem, TotpConfig } from "@/features/vault/types";
 
 export type EntryDraft = {
   name: string;
@@ -6,6 +6,8 @@ export type EntryDraft = {
   password: string;
   url: string;
   comment: string;
+  attachmentIds: string[];
+  totp: TotpConfig | null;
 };
 
 export type UpdateEntryResult = {
@@ -23,6 +25,8 @@ export const emptyEntryDraft: EntryDraft = {
   password: "",
   url: "",
   comment: "",
+  attachmentIds: [],
+  totp: null,
 };
 
 export function entryToDraft(entry: Entry): EntryDraft {
@@ -32,6 +36,8 @@ export function entryToDraft(entry: Entry): EntryDraft {
     password: entry.password,
     url: entry.url,
     comment: entry.comment,
+    attachmentIds: [...entry.attachmentIds],
+    totp: entry.totp ?? null,
   };
 }
 
@@ -48,8 +54,8 @@ export function createEntry(
     password: draft.password,
     url: draft.url.trim(),
     comment: draft.comment,
-    totp: null,
-    attachmentIds: [],
+    totp: draft.totp,
+    attachmentIds: [...draft.attachmentIds],
     sshKeyIds: [],
     loginHistory: [],
     passwordHistory: [],
@@ -89,6 +95,8 @@ export function updateEntry(
       password: draft.password,
       url: draft.url.trim(),
       comment: draft.comment,
+      totp: draft.totp,
+      attachmentIds: [...draft.attachmentIds],
       loginHistory,
       passwordHistory,
       updatedAt: now,

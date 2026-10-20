@@ -109,6 +109,14 @@ export const desktopStorage: VaultStorage = {
     await invoke("storage_mkdir", { path, mode });
   },
 
+  async saveFile(path, bytes) {
+    await invoke("storage_write_atomic", {
+      path,
+      b64: toBase64(bytes),
+      mode: 0o600,
+    });
+  },
+
   async readBlob(folder, id) {
     const response = await invoke<{ b64: string }>("storage_read_file", {
       path: await blobPath(folder, id),

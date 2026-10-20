@@ -16,6 +16,7 @@ import type {
   VaultErrorInfo,
   VaultPublicInfo,
   VaultStatus,
+  AttachmentMeta,
 } from "@/features/vault/types";
 
 export type VaultStateData = {
@@ -42,6 +43,7 @@ export type VaultActions = {
     draft: EntryDraft,
   ) => Promise<{ ok: boolean; blockedReason?: "old-password" }>;
   deleteEntry: (id: string) => Promise<boolean>;
+  addAttachmentMeta: (meta: AttachmentMeta) => Promise<boolean>;
   removeDraft: (id: string) => Promise<boolean>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
@@ -284,6 +286,16 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     const data = get().data;
     if (!data) return false;
     return get().save(removeDraftFromData(data, id));
+  },
+
+  async addAttachmentMeta(meta) {
+    const data = get().data;
+    if (!data) return false;
+    return get().save({
+      ...data,
+      attachments: [meta, ...data.attachments.filter((item) => item.id !== meta.id)],
+      updatedAt: new Date().toISOString(),
+    });
   },
 
   async lock() {
