@@ -1,6 +1,44 @@
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 
-export async function copySecret(value: string): Promise<void> {
-  if (!value) return;
-  await writeText(value);
+let clearTimer: ReturnType<typeof setTimeout> | null = null;
+
+export type CopyOptions = {
+  clearAfterMs?: number;
+};
+
+/**
+ * Copies a secret and best-effort clears the clipboard later only if the
+ * clipboard still contains our value. Returns a cleanup function.
+ */
+export function copySecret(value: string, options: CopyOptions = {}): () => void {
+  if (!value) return () => undefined;
+
+  if (clearTimer) {
+    clearTimeout(clearTimer);
+    clearTimer = null;
+  }
+
+  void writeText(value);
+
+  const delay = options.clearAfterMs ?? 30_000;
+  clearTimer = setTimeout(() => {
+    clearTimer = null;
+    void (async () => {
+      try {
+        const current = await readText();
+        if (current === value) {
+          await writeText("");
+        }
+      } catch {
+        // Clipboard may be unavailable; clearing is best-effort.
+      }
+    })();
+  }, delay);
+
+  return () => {
+    if (clearTimer) {
+      clearTimeout(clearTimer);
+      clearTimer = null;
+    }
+  };
 }

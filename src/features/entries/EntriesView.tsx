@@ -8,22 +8,43 @@ import { HistoryDialog } from "@/features/entries/HistoryDialog";
 import {
   searchEntries,
   sortEntries,
+  type EntryDraft,
   type SortMode,
 } from "@/features/entries/entries";
 import { useVaultStore } from "@/features/vault/store";
 import type { Entry } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
-export function EntriesView({ initialEntryId }: { initialEntryId?: string | null }) {
+export function EntriesView({
+  initialEntryId,
+  initialDraft,
+}: {
+  initialEntryId?: string | null;
+  initialDraft?: { id: string; payload: EntryDraft } | null;
+}) {
   const data = useVaultStore((state) => state.data);
   const deleteEntry = useVaultStore((state) => state.deleteEntry);
-  const [selectedId, setSelectedId] = useState<string | null>(initialEntryId ?? null);
+  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialDraft?.id ?? initialEntryId ?? null,
+  );
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("name");
-  const [editor, setEditor] = useState<{ entry: Entry | null } | null>(null);
+  const [editor, setEditor] = useState<{
+    entry: Entry | null;
+    initialDraft?: EntryDraft;
+    draftId?: string;
+  } | null>(() => {
+    if (!initialDraft) return null;
+    const entry = entries.find((item) => item.id === initialDraft.id) ?? null;
+    return {
+      entry,
+      initialDraft: initialDraft.payload,
+      draftId: initialDraft.id,
+    };
+  });
   const [historyEntry, setHistoryEntry] = useState<Entry | null>(null);
 
-  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
   const visibleEntries = useMemo(
     () => sortEntries(searchEntries(entries, query), sort),
     [entries, query, sort],
@@ -92,6 +113,8 @@ export function EntriesView({ initialEntryId }: { initialEntryId?: string | null
       {editor ? (
         <EntryEditor
           entry={editor.entry}
+          initialDraft={editor.initialDraft}
+          draftId={editor.draftId}
           onClose={() => setEditor(null)}
           onSaved={onSaved}
         />

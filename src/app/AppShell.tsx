@@ -1,11 +1,16 @@
-import { Settings2, ShieldCheck, Wand2 } from "lucide-react";
+import { Settings2, ShieldCheck, Wand2, FileWarning } from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/toast-context";
 import { AuditView } from "@/features/audit/AuditView";
 import { EntriesView } from "@/features/entries/EntriesView";
+import { useEditorDraftStore } from "@/features/entries/draftRegistry";
+import type { EntryDraft } from "@/features/entries/entries";
 import { GeneratorView } from "@/features/generator/GeneratorView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
+import { saveDraft } from "@/features/vault/drafts";
 import { navItems, type AppSection } from "@/features/vault/navigation";
 import { useVaultStore } from "@/features/vault/store";
 import { useAutoLock } from "@/features/vault/useAutoLock";
@@ -44,12 +49,47 @@ const sectionEmpty = {
 export function AppShell() {
   const [active, setActive] = useState<AppSection>("entries");
   const [entryToOpen, setEntryToOpen] = useState<string | null>(null);
+  const [draftToRestore, setDraftToRestore] = useState<{
+    id: string;
+    payload: EntryDraft;
+  } | null>(null);
+  const [restoreVersion, setRestoreVersion] = useState(0);
   const data = useVaultStore((state) => state.data);
   const lock = useVaultStore((state) => state.lock);
-  useAutoLock({ enabled: true, onLock: () => void lock() });
+  const removeDraft = useVaultStore((state) => state.removeDraft);
+  const toast = useToast();
+
+  const saveDraftAndLock = async () => {
+    const snapshot = useEditorDraftStore.getState().snapshot;
+    if (snapshot) {
+      const current = useVaultStore.getState().data;
+      if (current) {
+        const next = saveDraft(current, {
+          id: snapshot.id,
+          kind: "entry",
+          payload: snapshot.payload,
+        });
+        const saved = await useVaultStore.getState().save(next);
+        if (!saved) {
+          toast.show({
+            title: "Не удалось сохранить черновик",
+            description: "Хранилище осталось открытым. Проверьте доступ к папке.",
+            tone: "error",
+          });
+          return;
+        }
+      }
+    }
+    await lock();
+  };
+
+  useAutoLock({ enabled: true, onLock: () => void saveDraftAndLock() });
 
   const meta = sectionMeta[active];
   const empty = sectionEmpty[active];
+  const drafts = data?.drafts ?? [];
+  const pendingDraft = drafts[0] ?? null;
+  const pendingPayload = pendingDraft?.payload as Partial<EntryDraft> | undefined;
 
   const navigate = (section: AppSection) => {
     setActive(section);
@@ -61,6 +101,13 @@ export function AppShell() {
     setActive("entries");
   };
 
+  const restoreDraft = (id: string, payload: EntryDraft) => {
+    setDraftToRestore({ id, payload });
+    setRestoreVersion((current) => current + 1);
+    setEntryToOpen(null);
+    setActive("entries");
+  };
+
   return (
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <VaultSidebar
@@ -68,7 +115,7 @@ export function AppShell() {
         onNavigate={navigate}
         vaultName={data?.name}
         status="unlocked"
-        onLock={() => void lock()}
+        onLock={() => void saveDraftAndLock()}
       />
 
       <main className="flex h-screen min-w-0 flex-1 flex-col pb-20 lg:pb-0">
@@ -84,8 +131,45 @@ export function AppShell() {
           </div>
         </header>
 
+        {pendingDraft ? (
+          <div className="shrink-0 border-b border-[var(--warning)]/25 bg-[var(--warning)]/5 px-5 py-2.5 sm:px-7">
+            <div className="mx-auto flex max-w-5xl items-center gap-3">
+              <FileWarning size={15} className="shrink-0 text-[var(--warning)]" />
+              <p className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--text-soft)]">
+                Несохранённый черновик
+                {pendingPayload?.name ? `: ${pendingPayload.name}` : " записи"}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => restoreDraft(pendingDraft.id, pendingDraft.payload as EntryDraft)}
+              >
+                Восстановить
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void removeDraft(pendingDraft.id);
+                  if (draftToRestore?.id === pendingDraft.id) setDraftToRestore(null);
+                }}
+              >
+                Удалить
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {active === "entries" ? (
-          <EntriesView key={entryToOpen ?? "entries"} initialEntryId={entryToOpen} />
+          <EntriesView
+            key={
+              draftToRestore
+                ? `${draftToRestore.id}-${restoreVersion}`
+                : (entryToOpen ?? "entries")
+            }
+            initialEntryId={entryToOpen}
+            initialDraft={draftToRestore}
+          />
         ) : active === "generator" ? (
           <GeneratorView />
         ) : active === "audit" ? (

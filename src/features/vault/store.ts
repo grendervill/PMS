@@ -8,6 +8,7 @@ import {
   updateEntry as applyEntryUpdate,
   type EntryDraft,
 } from "@/features/entries/entries";
+import { removeDraft as removeDraftFromData } from "@/features/vault/drafts";
 import type {
   CreateVaultInput,
   UnlockSecret,
@@ -41,6 +42,7 @@ export type VaultActions = {
     draft: EntryDraft,
   ) => Promise<{ ok: boolean; blockedReason?: "old-password" }>;
   deleteEntry: (id: string) => Promise<boolean>;
+  removeDraft: (id: string) => Promise<boolean>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
   clearError: () => void;
@@ -277,6 +279,12 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       entries: removeEntry(data.entries, id),
       updatedAt: new Date().toISOString(),
     });
+  },
+
+  async removeDraft(id) {
+    const data = get().data;
+    if (!data) return false;
+    return get().save(removeDraftFromData(data, id));
   },
 
   async lock() {

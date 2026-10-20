@@ -16,16 +16,21 @@ import {
   findDuplicatePasswords,
   type EntryDraft,
 } from "@/features/entries/entries";
+import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import { useVaultStore } from "@/features/vault/store";
 import type { Entry } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
 export function EntryEditor({
   entry,
+  initialDraft,
+  draftId,
   onClose,
   onSaved,
 }: {
   entry?: Entry | null;
+  initialDraft?: EntryDraft;
+  draftId?: string;
   onClose: () => void;
   onSaved?: () => void;
 }) {
@@ -33,13 +38,21 @@ export function EntryEditor({
   const busy = useVaultStore((state) => state.busy);
   const addEntry = useVaultStore((state) => state.addEntry);
   const updateEntry = useVaultStore((state) => state.updateEntry);
+  const removeDraft = useVaultStore((state) => state.removeDraft);
   const toast = useToast();
+  const setSnapshot = useEditorDraftStore((state) => state.setSnapshot);
+  const clearSnapshot = useEditorDraftStore((state) => state.clear);
 
-  const initialDraft = useMemo<EntryDraft>(
-    () => (entry ? entryToDraft(entry) : { ...emptyEntryDraft }),
-    [entry],
+  const initialDraftValue = useMemo<EntryDraft>(
+    () =>
+      entry
+        ? entryToDraft(entry)
+        : initialDraft
+          ? { ...initialDraft }
+          : { ...emptyEntryDraft },
+    [entry, initialDraft],
   );
-  const [draft, setDraft] = useState<EntryDraft>(initialDraft);
+  const [draft, setDraft] = useState<EntryDraft>(initialDraftValue);
   const [nameError, setNameError] = useState<string | null>(null);
   const [blockedError, setBlockedError] = useState<string | null>(null);
   const [strength, setStrength] = useState<PasswordStrength | null>(null);
@@ -75,9 +88,21 @@ export function EntryEditor({
   };
 
   const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(initialDraft),
-    [draft, initialDraft],
+    () => JSON.stringify(draft) !== JSON.stringify(initialDraftValue),
+    [draft, initialDraftValue],
   );
+
+  useEffect(() => {
+    if (!dirty) {
+      clearSnapshot();
+      return;
+    }
+    setSnapshot({
+      id: draftId ?? entry?.id ?? "new",
+      payload: draft,
+    });
+    return () => clearSnapshot();
+  }, [draft, dirty, draftId, entry?.id, setSnapshot, clearSnapshot]);
 
   const requestClose = () => {
     if (dirty && !window.confirm("Не сохранять изменения в записи?")) return;
@@ -100,6 +125,7 @@ export function EntryEditor({
           return;
         }
         if (result.ok) {
+          if (draftId) await removeDraft(draftId);
           toast.show({ title: "Запись обновлена", tone: "success" });
           onSaved?.();
           onClose();
@@ -107,6 +133,7 @@ export function EntryEditor({
       } else {
         const ok = await addEntry(draft);
         if (ok) {
+          if (draftId) await removeDraft(draftId);
           toast.show({ title: "Запись создана", tone: "success" });
           onSaved?.();
           onClose();
