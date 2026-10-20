@@ -2,6 +2,7 @@
 
 pub mod crypto;
 pub mod error;
+pub mod generator;
 pub mod models;
 pub mod session;
 pub mod vault;

@@ -12,7 +12,8 @@ use super::models::{
 };
 use super::vault_file::{VaultFile, parse_vault_file, serialize_vault_file};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateVaultConfig {
     pub name: String,
     pub kdf_profile: KdfProfile,
