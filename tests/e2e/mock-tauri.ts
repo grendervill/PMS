@@ -16,11 +16,13 @@ export async function installMockTauri(page: Page) {
       };
       session: string | null;
       files: Map<string, string>;
+      attachments: Map<string, string>;
       passwordIndex: number;
     } = {
       vault: null,
       session: null,
       files: new Map(),
+      attachments: new Map(),
       passwordIndex: 0,
     };
 
@@ -67,7 +69,14 @@ export async function installMockTauri(page: Page) {
         case "plugin:path|join":
           return paths.join("/");
         case "plugin:dialog|open":
-          return options?.directory ? "/tmp/pms-e2e-vault" : null;
+          if (options?.directory) return "/tmp/pms-e2e-vault";
+          state.files.set(
+            "/tmp/pms-e2e-attachment.txt",
+            "aGVsbG8gYXR0YWNobWVudA==",
+          );
+          return "/tmp/pms-e2e-attachment.txt";
+        case "plugin:dialog|save":
+          return "/tmp/pms-e2e-download.txt";
         case "plugin:clipboard-manager|write_text":
           w.__E2E_CLIPBOARD__ = text;
           return null;
@@ -155,11 +164,50 @@ export async function installMockTauri(page: Page) {
           return { fileB64: "ZmFrZQ==" };
         case "vault_remove_slot":
           return { fileB64: "ZmFrZQ==" };
+        case "attachment_seal": {
+          const attachmentId = "attachment-1";
+          state.attachments.set(attachmentId, b64);
+          return {
+            blobB64: b64,
+            meta: {
+              id: attachmentId,
+              name: args.name,
+              mime: args.mime,
+              size: Math.floor((b64.length * 3) / 4),
+              sha256: "hash",
+              kind: String(args.mime).startsWith("image/")
+                ? "image"
+                : String(args.mime) === "application/pdf"
+                  ? "pdf"
+                  : String(args.mime).startsWith("text/")
+                    ? "text"
+                    : "other",
+              createdAt: new Date().toISOString(),
+            },
+          };
+        }
+        case "attachment_open":
+          return { b64: state.attachments.get(String(args.attachmentId)) ?? "" };
+        case "totp_inspect":
+          return {
+            secret: String(args.input).startsWith("otpauth")
+              ? new URL(String(args.input)).searchParams.get("secret")
+              : String(args.input),
+            algorithm: "SHA1",
+            digits: 6,
+            period: 30,
+            issuer: "E2E",
+            account: "alex",
+          };
+        case "totp_code":
+          return { code: "123456", remaining: 30 };
         default:
           throw { code: "unknown_command", message: command };
       }
     };
 
-    Object.assign(window, { __TAURI_INTERNALS__: { invoke } });
+    Object.assign(window, {
+      __TAURI_INTERNALS__: { invoke },
+    });
   });
 }

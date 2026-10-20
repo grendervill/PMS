@@ -16,6 +16,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
+import { TotpCode } from "@/features/totp/TotpCode";
 import { hostFromUrl, monogram, safeHttpUrl } from "@/features/entries/entries";
 import { errorText } from "@/features/vault/errors";
 import type { Entry } from "@/features/vault/types";
@@ -177,9 +178,7 @@ export function EntryDetail({
           {entry.totp ? (
             <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
               <span className="text-[11.5px] text-[var(--muted)]">TOTP</span>
-              <span className="text-[12.5px] text-[var(--text-soft)]">
-                Настроен · {entry.totp.digits} цифр, {entry.totp.period} с
-              </span>
+              <TotpCode config={entry.totp} />
             </div>
           ) : null}
 

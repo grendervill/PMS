@@ -10,6 +10,8 @@
 - Argon2id + XChaCha20-Poly1305 или AES-256-GCM; параметры KDF хранятся
   в заголовке и не перезатираются.
 - Записи: имя, логин, пароль, URL, комментарий; скрытие/показ и копирование.
+- TOTP-секреты: `otpauth://` или base32, живые коды с таймером, общий экран TOTP.
+- Зашифрованные вложения: фото, PDF, текст и другие файлы; превью, скачивание.
 - История логинов и паролей; повторное использование старого пароля
   блокируется.
 - Генераторы логина и пароля с длиной, наборами символов, своими символами
@@ -21,9 +23,10 @@
 
 ## Чего пока нет
 
-Это первый срез. В следующих планах: вложения, TOTP-коды, SSH-ключи,
-Android SAF, экспорт/импорт `.pmsvault`, резервные копии и проверка конфликтов,
-финальная полировка Windows/Linux. Дизайн и план лежат в `docs/superpowers/`.
+Это первый срез. В следующих планах: SSH-ключи, Android SAF, экспорт/импорт
+`.pmsvault`, резервные копии и проверка конфликтов, экран настроек, favicon
+сайтов, финальная полировка Windows/Linux. Дизайн и планы лежат в
+`docs/superpowers/`.
 
 ## Разработка
 
@@ -36,8 +39,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 73 frontend-теста
-pnpm test:e2e      # 3 Playwright-сценария, мок Tauri IPC
+pnpm test          # 77 frontend-тестов
+pnpm test:e2e      # 4 Playwright-сценария, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg

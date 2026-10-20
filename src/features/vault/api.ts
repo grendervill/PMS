@@ -8,6 +8,7 @@ import type {
   VaultPublicInfo,
   CipherSuite,
   AttachmentMeta,
+  TotpConfig,
 } from "@/features/vault/types";
 import type {
   LoginOptions,
@@ -150,6 +151,14 @@ export const vaultApi = {
       blobB64: toBase64(blob),
     });
     return fromBase64(response.b64);
+  },
+
+  async inspectTotp(input: string): Promise<TotpConfig> {
+    return call<TotpConfig>("totp_inspect", { input });
+  },
+
+  async totpCode(config: TotpConfig): Promise<{ code: string; remaining: number }> {
+    return call<{ code: string; remaining: number }>("totp_code", { config });
   },
 };
 export { fromBase64, toBase64 };

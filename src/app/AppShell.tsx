@@ -1,4 +1,4 @@
-import { Settings2, ShieldCheck, Wand2, FileWarning } from "lucide-react";
+import { Settings2, ShieldCheck, Timer, Wand2, FileWarning } from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,7 @@ import { EntriesView } from "@/features/entries/EntriesView";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import type { EntryDraft } from "@/features/entries/entries";
 import { GeneratorView } from "@/features/generator/GeneratorView";
+import { TOTPView } from "@/features/totp/TOTPView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
 import { saveDraftBeforeLock } from "@/features/vault/lockFlow";
 import { navItems, type AppSection } from "@/features/vault/navigation";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/cn";
 
 const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   entries: { title: "Записи", subtitle: "Логины, пароли и всё, что нужно помнить" },
+  totp: { title: "TOTP", subtitle: "Живые коды двухфакторной аутентификации" },
   generator: { title: "Генератор", subtitle: "Пароли и логины с настраиваемыми правилами" },
   audit: { title: "Проверка", subtitle: "Слабые и повторяющиеся пароли" },
   settings: { title: "Настройки", subtitle: "Хранилище, безопасность и оформление" },
@@ -29,6 +31,11 @@ const sectionEmpty = {
     icon: KeyRound,
     title: "Здесь появятся записи",
     description: "Создайте хранилище, и первая карточка станет началом вашего сейфа.",
+  },
+  totp: {
+    icon: Timer,
+    title: "TOTP пока нет",
+    description: "Добавьте TOTP-секрет в запись — коды появятся здесь.",
   },
   generator: {
     icon: Wand2,
@@ -178,6 +185,8 @@ export function AppShell() {
           />
         ) : active === "generator" ? (
           <GeneratorView />
+        ) : active === "totp" ? (
+          <TOTPView onOpenEntry={openEntry} />
         ) : active === "audit" ? (
           <AuditView onOpenEntry={openEntry} />
         ) : (

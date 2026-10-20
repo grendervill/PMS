@@ -1,9 +1,10 @@
-import { KeyRound, Settings2, ShieldCheck, Wand2 } from "lucide-react";
+import { KeyRound, Settings2, ShieldCheck, Timer, Wand2 } from "lucide-react";
 
-export type AppSection = "entries" | "generator" | "audit" | "settings";
+export type AppSection = "entries" | "totp" | "generator" | "audit" | "settings";
 
 export const navItems = [
   { id: "entries", label: "Записи", icon: KeyRound },
+  { id: "totp", label: "TOTP", icon: Timer },
   { id: "generator", label: "Генератор", icon: Wand2 },
   { id: "audit", label: "Проверка", icon: ShieldCheck },
   { id: "settings", label: "Настройки", icon: Settings2 },

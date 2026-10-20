@@ -79,6 +79,34 @@ test("saves a draft on manual lock and restores it after unlock", async ({ page 
   await page.getByRole("button", { name: "Отменить" }).click();
 });
 
+test("adds an attachment and a TOTP code", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("GitHub");
+  await page.getByLabel("Логин", { exact: true }).fill("alex");
+  await page.getByLabel("Пароль", { exact: true }).fill("s3cret");
+  await page.getByLabel("TOTP", { exact: true }).fill("JBSWY3DPEHPK3PXP");
+  await page.getByLabel("TOTP", { exact: true }).press("Tab");
+  await expect(page.getByText("123 456")).toBeVisible();
+  await page.getByRole("button", { name: "Добавить", exact: true }).click();
+  await expect(page.getByText("pms-e2e-attachment.txt")).toBeVisible();
+  await page.getByRole("button", { name: "Сохранить" }).click();
+
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
+  await expect(page.getByText("123 456")).toBeVisible();
+
+  await page.getByRole("button", { name: /pms-e2e-attachment.txt/ }).click();
+  const preview = page.getByRole("dialog", { name: "pms-e2e-attachment.txt" });
+  await expect(preview).toBeVisible();
+  await expect(preview.getByText("hello attachment")).toBeVisible();
+  await preview.getByRole("button", { name: "Закрыть" }).click();
+
+  await page.getByRole("button", { name: "TOTP", exact: true }).click();
+  await expect(page.getByText("GitHub")).toBeVisible();
+  await expect(page.getByText("123 456")).toBeVisible();
+});
+
 test("blocks reusing a historical password and warns about duplicates", async ({ page }) => {
   await createVault(page);
 

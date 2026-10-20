@@ -12,6 +12,8 @@ import { useToast } from "@/components/ui/toast-context";
 import { AttachmentPicker } from "@/features/attachments/AttachmentPicker";
 import { errorText } from "@/features/vault/errors";
 import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
+import { TotpCode } from "@/features/totp/TotpCode";
+import { vaultApi } from "@/features/vault/api";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import {
   emptyEntryDraft,
@@ -21,7 +23,7 @@ import {
 } from "@/features/entries/entries";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import { useVaultStore } from "@/features/vault/store";
-import type { Entry } from "@/features/vault/types";
+import type { Entry, TotpConfig } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
 export function EntryEditor({
@@ -65,6 +67,8 @@ export function EntryEditor({
   const [strength, setStrength] = useState<PasswordStrength | null>(null);
   const [saving, setSaving] = useState(false);
   const [generatorMode, setGeneratorMode] = useState<"password" | "login" | null>(null);
+  const [totpInput, setTotpInput] = useState(initialDraftValue.totp?.secret ?? "");
+  const [totpError, setTotpError] = useState<string | null>(null);
 
   const duplicates = useMemo(
     () => findDuplicatePasswords(data?.entries ?? [], draft.password, entry?.id),
@@ -134,6 +138,23 @@ export function EntryEditor({
     });
   };
 
+  const parseTotp = async (): Promise<TotpConfig | null> => {
+    if (!totpInput.trim()) {
+      setTotpError(null);
+      update("totp", null);
+      return null;
+    }
+    try {
+      const config = await vaultApi.inspectTotp(totpInput);
+      setTotpError(null);
+      update("totp", config);
+      return config;
+    } catch {
+      setTotpError("Не удалось разобрать TOTP. Проверьте base32-секрет или otpauth:// ссылку.");
+      return null;
+    }
+  };
+
   const save = async () => {
     if (!draft.name.trim()) {
       setNameError("Введите название записи");
@@ -143,8 +164,17 @@ export function EntryEditor({
     setSaving(true);
     setBlockedError(null);
     try {
+      let payload = draft;
+      if (totpInput.trim()) {
+        const config = await parseTotp();
+        if (!config) return;
+        payload = { ...draft, totp: config };
+      } else {
+        payload = { ...draft, totp: null };
+      }
+
       if (entry) {
-        const result = await updateEntry(entry.id, draft);
+        const result = await updateEntry(entry.id, payload);
         if (result.blockedReason === "old-password") {
           setBlockedError("Этот пароль уже использовался в этой записи. Выберите другой.");
           return;
@@ -158,7 +188,7 @@ export function EntryEditor({
           reportSaveFailure();
         }
       } else {
-        const ok = await addEntry(draft);
+        const ok = await addEntry(payload);
         if (ok) {
           if (draftId) await removeDraft(draftId);
           toast.show({ title: "Запись создана", tone: "success" });
@@ -226,6 +256,30 @@ export function EntryEditor({
             placeholder="https://example.com"
             inputMode="url"
           />
+        </Field>
+
+        <Field
+          label="TOTP"
+          htmlFor="entry-totp"
+          error={totpError ?? undefined}
+          hint="Секрет base32 или otpauth://totp/…; можно оставить пустым."
+        >
+          <SecretInput
+            id="entry-totp"
+            value={totpInput}
+            onChange={(event) => {
+              setTotpInput(event.target.value);
+              setTotpError(null);
+              if (draft.totp) update("totp", null);
+            }}
+            onBlur={() => void parseTotp()}
+            placeholder="JBSWY3DPEHPK3PXP или otpauth://…"
+          />
+          {draft.totp ? (
+            <div className="mt-1.5">
+              <TotpCode config={draft.totp} />
+            </div>
+          ) : null}
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
