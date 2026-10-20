@@ -36,6 +36,10 @@ pub enum VaultError {
     KeyfilePublicKey,
     #[error("unsupported keyfile format")]
     UnsupportedKeyfile,
+    #[error("file too large")]
+    FileTooLarge,
+    #[error("empty name")]
+    EmptyName,
     #[error("empty character set")]
     EmptyCharset,
     #[error("vault id mismatch")]
@@ -69,6 +73,8 @@ impl VaultError {
             Self::KeyfilePublicKey => "keyfile_public_key",
             Self::UnsupportedKeyfile => "unsupported_keyfile",
             Self::EmptyCharset => "empty_charset",
+            Self::FileTooLarge => "file_too_large",
+            Self::EmptyName => "empty_name",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",

@@ -35,6 +35,10 @@ impl VaultSession {
     pub fn cipher(&self) -> CipherSuite {
         self.header.cipher
     }
+
+    pub(crate) fn vault_key(&self) -> &[u8; 32] {
+        &self.vault_key
+    }
 }
 
 pub fn create_vault(

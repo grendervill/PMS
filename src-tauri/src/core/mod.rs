@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod attachments;
 pub mod crypto;
 pub mod error;
 pub mod generator;

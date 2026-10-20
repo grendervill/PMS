@@ -20,6 +20,8 @@ pub fn run() {
             commands::vault::vault_lock,
             commands::generator::generate_password,
             commands::generator::generate_login,
+            commands::attachments::attachment_seal,
+            commands::attachments::attachment_open,
             commands::storage::storage_read_file,
             commands::storage::storage_write_atomic,
             commands::storage::storage_exists,

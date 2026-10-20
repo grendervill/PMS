@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod generator;
 pub mod storage;
 pub mod vault;
