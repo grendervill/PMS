@@ -26,6 +26,36 @@ export const desktopStorage: VaultStorage = {
     return typeof selected === "string" ? selected : null;
   },
 
+  async pickFile() {
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      title: "Выберите ключ-файл",
+    });
+    return typeof selected === "string" ? selected : null;
+  },
+
+  async readFile(path) {
+    const response = await invoke<{ b64: string }>("storage_read_file", { path });
+    return fromBase64(response.b64);
+  },
+
+  async vaultExists(folder) {
+    return invoke<boolean>("storage_exists", { path: await vaultPath(folder) });
+  },
+
+  async ensureLayout(folder) {
+    await invoke("storage_mkdir", { path: folder, mode: 0o700 });
+    await invoke("storage_mkdir", {
+      path: await join(folder, ATTACHMENTS_DIR),
+      mode: 0o700,
+    });
+    await invoke("storage_mkdir", {
+      path: await join(folder, BACKUPS_DIR),
+      mode: 0o700,
+    });
+  },
+
   async readVault(folder) {
     const response = await invoke<{ b64: string }>("storage_read_file", {
       path: await vaultPath(folder),

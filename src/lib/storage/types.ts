@@ -7,6 +7,10 @@ export type RecentVault = {
 
 export type VaultStorage = {
   pickFolder(): Promise<string | null>;
+  pickFile(): Promise<string | null>;
+  readFile(path: string): Promise<Uint8Array>;
+  vaultExists(folder: string): Promise<boolean>;
+  ensureLayout(folder: string): Promise<void>;
   readVault(folder: string): Promise<Uint8Array>;
   writeVault(folder: string, bytes: Uint8Array): Promise<void>;
   writeBackup(folder: string, name: string, bytes: Uint8Array): Promise<void>;

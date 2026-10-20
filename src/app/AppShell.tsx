@@ -6,6 +6,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
 import { navItems, type AppSection } from "@/features/vault/navigation";
+import { useVaultStore } from "@/features/vault/store";
+import { useAutoLock } from "@/features/vault/useAutoLock";
 import { cn } from "@/lib/cn";
 
 const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
@@ -40,12 +42,22 @@ const sectionEmpty = {
 
 export function AppShell() {
   const [active, setActive] = useState<AppSection>("entries");
+  const data = useVaultStore((state) => state.data);
+  const lock = useVaultStore((state) => state.lock);
+  useAutoLock({ enabled: true, onLock: () => void lock() });
+
   const meta = sectionMeta[active];
   const empty = sectionEmpty[active];
 
   return (
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      <VaultSidebar active={active} onNavigate={setActive} status="demo" />
+      <VaultSidebar
+        active={active}
+        onNavigate={setActive}
+        vaultName={data?.name}
+        status="unlocked"
+        onLock={() => void lock()}
+      />
 
       <main className="flex min-w-0 flex-1 flex-col pb-20 lg:pb-0">
         <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg)]/90 px-5 py-4 backdrop-blur-md sm:px-7">
