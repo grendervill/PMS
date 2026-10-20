@@ -34,3 +34,6 @@ Thumbs.db
 
 # tauri generated schemas
 src-tauri/gen/schemas/
+
+# local worktrees
+.worktrees/
