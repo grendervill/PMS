@@ -20,6 +20,12 @@ pub enum VaultError {
     BadPayload,
     #[error("invalid credentials")]
     InvalidCredentials,
+    #[error("session not found")]
+    SessionNotFound,
+    #[error("cannot remove the last unlock method")]
+    LastUnlockMethod,
+    #[error("unlock slot not found")]
+    SlotNotFound,
     #[error("empty secret")]
     EmptySecret,
     #[error("keyfile passphrase required")]
@@ -52,6 +58,9 @@ impl VaultError {
             Self::TooManySlots => "too_many_slots",
             Self::BadPayload => "bad_payload",
             Self::InvalidCredentials => "invalid_credentials",
+            Self::SessionNotFound => "session_not_found",
+            Self::LastUnlockMethod => "last_unlock_method",
+            Self::SlotNotFound => "slot_not_found",
             Self::EmptySecret => "empty_secret",
             Self::KeyfilePassphraseRequired => "keyfile_passphrase_required",
             Self::KeyfilePassphraseInvalid => "keyfile_passphrase_invalid",

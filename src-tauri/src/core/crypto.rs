@@ -11,7 +11,7 @@ use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
 use super::error::VaultError;
-use super::models::{CipherSuite, KdfParams, KdfSlot, VaultHeader, WrapData};
+use super::models::{CipherSuite, KdfParams, KdfSlot, KdfSlotKind, VaultHeader, WrapData};
 
 #[derive(Debug, Clone)]
 pub enum UnlockSecretInput {
@@ -22,6 +22,15 @@ pub enum UnlockSecretInput {
         bytes: Vec<u8>,
         passphrase: Option<String>,
     },
+}
+
+impl UnlockSecretInput {
+    pub fn kind(&self) -> KdfSlotKind {
+        match self {
+            Self::Passphrase { .. } => KdfSlotKind::Passphrase,
+            Self::Keyfile { .. } => KdfSlotKind::Keyfile,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
