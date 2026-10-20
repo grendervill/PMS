@@ -1,6 +1,7 @@
 pub mod attachments;
 pub mod generator;
 pub mod storage;
+pub mod totp;
 pub mod vault;
 
 use serde::Serialize;

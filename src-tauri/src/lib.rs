@@ -22,6 +22,8 @@ pub fn run() {
             commands::generator::generate_login,
             commands::attachments::attachment_seal,
             commands::attachments::attachment_open,
+            commands::totp::totp_inspect,
+            commands::totp::totp_code,
             commands::storage::storage_read_file,
             commands::storage::storage_write_atomic,
             commands::storage::storage_exists,

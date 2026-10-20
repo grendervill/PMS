@@ -40,6 +40,8 @@ pub enum VaultError {
     FileTooLarge,
     #[error("empty name")]
     EmptyName,
+    #[error("invalid TOTP secret or URI")]
+    InvalidTotp,
     #[error("empty character set")]
     EmptyCharset,
     #[error("vault id mismatch")]
@@ -75,6 +77,7 @@ impl VaultError {
             Self::EmptyCharset => "empty_charset",
             Self::FileTooLarge => "file_too_large",
             Self::EmptyName => "empty_name",
+            Self::InvalidTotp => "invalid_totp",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",
