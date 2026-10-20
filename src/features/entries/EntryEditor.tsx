@@ -1,12 +1,14 @@
-import { AlertTriangle, Loader2, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Loader2, Save, ShieldCheck, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
+import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/toast-context";
+import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import {
   emptyEntryDraft,
@@ -42,6 +44,7 @@ export function EntryEditor({
   const [blockedError, setBlockedError] = useState<string | null>(null);
   const [strength, setStrength] = useState<PasswordStrength | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generatorMode, setGeneratorMode] = useState<"password" | "login" | null>(null);
 
   const duplicates = useMemo(
     () => findDuplicatePasswords(data?.entries ?? [], draft.password, entry?.id),
@@ -160,13 +163,24 @@ export function EntryEditor({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Логин" htmlFor="entry-login">
-            <Input
-              id="entry-login"
-              value={draft.login}
-              onChange={(event) => update("login", event.target.value)}
-              placeholder="Можно оставить пустым"
-              autoComplete="off"
-            />
+            <div className="relative">
+              <Input
+                id="entry-login"
+                value={draft.login}
+                onChange={(event) => update("login", event.target.value)}
+                placeholder="Можно оставить пустым"
+                className="pr-10"
+                autoComplete="off"
+              />
+              <IconButton
+                label="Сгенерировать логин"
+                size="sm"
+                className="absolute right-1 top-1/2 -translate-y-1/2"
+                onClick={() => setGeneratorMode("login")}
+              >
+                <Wand2 size={14} />
+              </IconButton>
+            </div>
           </Field>
           <Field label="Пароль" htmlFor="entry-password">
             <SecretInput
@@ -174,6 +188,15 @@ export function EntryEditor({
               value={draft.password}
               onChange={(event) => update("password", event.target.value)}
               placeholder="Можно оставить пустым"
+              action={
+                <IconButton
+                  label="Сгенерировать пароль"
+                  size="sm"
+                  onClick={() => setGeneratorMode("password")}
+                >
+                  <Wand2 size={14} />
+                </IconButton>
+              }
             />
           </Field>
         </div>
@@ -253,6 +276,21 @@ export function EntryEditor({
           />
         </Field>
       </div>
+
+      {generatorMode ? (
+        <GeneratorDialog
+          key={generatorMode}
+          mode={generatorMode}
+          open
+          onOpenChange={(open) => {
+            if (!open) setGeneratorMode(null);
+          }}
+          onUse={(value) => {
+            update(generatorMode === "login" ? "login" : "password", value);
+            setGeneratorMode(null);
+          }}
+        />
+      ) : null}
     </Modal>
   );
 }

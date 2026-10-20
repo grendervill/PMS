@@ -8,6 +8,10 @@ import type {
   VaultPublicInfo,
   CipherSuite,
 } from "@/features/vault/types";
+import type {
+  LoginOptions,
+  PasswordOptions,
+} from "@/features/generator/types";
 
 export class VaultApiError extends Error {
   readonly code: string;
@@ -106,6 +110,14 @@ export const vaultApi = {
 
   async lock(sessionId: string): Promise<void> {
     await call<void>("vault_lock", { sessionId });
+  },
+
+  async generatePassword(options: PasswordOptions): Promise<string> {
+    return call<string>("generate_password", { options });
+  },
+
+  async generateLogin(options: LoginOptions): Promise<string> {
+    return call<string>("generate_login", { options });
   },
 };
 

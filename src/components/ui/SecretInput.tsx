@@ -1,12 +1,14 @@
 import { Eye, EyeOff } from "lucide-react";
-import { forwardRef, useState, type InputHTMLAttributes } from "react";
+import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 
-export type SecretInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type">;
+export type SecretInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  action?: ReactNode;
+};
 
 export const SecretInput = forwardRef<HTMLInputElement, SecretInputProps>(
-  ({ className, ...props }, ref) => {
+  ({ className, action, ...props }, ref) => {
     const [visible, setVisible] = useState(false);
 
     return (
@@ -14,12 +16,15 @@ export const SecretInput = forwardRef<HTMLInputElement, SecretInputProps>(
         <Input
           ref={ref}
           type={visible ? "text" : "password"}
-          className={`pr-10 ${className ?? ""}`}
+          className={`${action ? "pr-16" : "pr-10"} ${className ?? ""}`}
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
           {...props}
         />
+        {action ? (
+          <span className="absolute right-9 top-1/2 -translate-y-1/2">{action}</span>
+        ) : null}
         <IconButton
           label={visible ? "Скрыть" : "Показать"}
           size="sm"

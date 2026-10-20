@@ -138,6 +138,17 @@ export function findDuplicatePasswords(
   );
 }
 
+export function groupDuplicateEntries(entries: Entry[]): Entry[][] {
+  const groups = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    if (!entry.password) continue;
+    const group = groups.get(entry.password) ?? [];
+    group.push(entry);
+    groups.set(entry.password, group);
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
 export function searchEntries(entries: Entry[], query: string): Entry[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return entries;

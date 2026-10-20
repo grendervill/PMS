@@ -2,7 +2,9 @@ import { Settings2, ShieldCheck, Wand2 } from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { AuditView } from "@/features/audit/AuditView";
 import { EntriesView } from "@/features/entries/EntriesView";
+import { GeneratorView } from "@/features/generator/GeneratorView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
 import { navItems, type AppSection } from "@/features/vault/navigation";
 import { useVaultStore } from "@/features/vault/store";
@@ -41,6 +43,7 @@ const sectionEmpty = {
 
 export function AppShell() {
   const [active, setActive] = useState<AppSection>("entries");
+  const [entryToOpen, setEntryToOpen] = useState<string | null>(null);
   const data = useVaultStore((state) => state.data);
   const lock = useVaultStore((state) => state.lock);
   useAutoLock({ enabled: true, onLock: () => void lock() });
@@ -48,11 +51,21 @@ export function AppShell() {
   const meta = sectionMeta[active];
   const empty = sectionEmpty[active];
 
+  const navigate = (section: AppSection) => {
+    setActive(section);
+    if (section !== "entries") setEntryToOpen(null);
+  };
+
+  const openEntry = (id: string) => {
+    setEntryToOpen(id);
+    setActive("entries");
+  };
+
   return (
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <VaultSidebar
         active={active}
-        onNavigate={setActive}
+        onNavigate={navigate}
         vaultName={data?.name}
         status="unlocked"
         onLock={() => void lock()}
@@ -72,7 +85,11 @@ export function AppShell() {
         </header>
 
         {active === "entries" ? (
-          <EntriesView />
+          <EntriesView key={entryToOpen ?? "entries"} initialEntryId={entryToOpen} />
+        ) : active === "generator" ? (
+          <GeneratorView />
+        ) : active === "audit" ? (
+          <AuditView onOpenEntry={openEntry} />
         ) : (
           <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
             <div key={active} className="pms-rise mx-auto w-full max-w-5xl">

@@ -14,10 +14,10 @@ import { useVaultStore } from "@/features/vault/store";
 import type { Entry } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
-export function EntriesView() {
+export function EntriesView({ initialEntryId }: { initialEntryId?: string | null }) {
   const data = useVaultStore((state) => state.data);
   const deleteEntry = useVaultStore((state) => state.deleteEntry);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialEntryId ?? null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("name");
   const [editor, setEditor] = useState<{ entry: Entry | null } | null>(null);
