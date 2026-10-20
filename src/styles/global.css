@@ -1,17 +1,12 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
 :root {
-  color-scheme: dark;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --pms-bg: #121614;
-  --pms-surface: #191f1c;
-  --pms-text: #e9eeeb;
-  --pms-muted: #98a69e;
-  --pms-accent: #43a47c;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -26,12 +21,116 @@ body,
 
 body {
   margin: 0;
-  background: var(--pms-bg);
-  color: var(--pms-text);
+  background: var(--bg);
+  color: var(--text);
 }
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--text);
+}
+
+.pms-display {
+  font-family: var(--font-display);
+}
+
+.pms-mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.pms-seam {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--seal) 45%, transparent) 12%,
+    color-mix(in srgb, var(--seal) 45%, transparent) 88%,
+    transparent
+  );
+}
+
+.pms-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.pms-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.pms-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-pill);
+}
+
+@keyframes pms-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pms-modal-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes pms-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pms-overlay[data-state="open"] {
+  animation: pms-fade-in var(--motion-base) var(--ease-out);
+}
+
+.pms-modal[data-state="open"] {
+  animation: pms-modal-in var(--motion-slow) var(--ease-out);
+}
+
+.pms-rise {
+  animation: pms-rise-in var(--motion-slow) var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
