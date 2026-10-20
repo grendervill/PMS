@@ -1,0 +1,184 @@
+import {
+  ArrowLeft,
+  Calendar,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  History,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Button } from "@/components/ui/Button";
+import { CopyButton } from "@/components/ui/CopyButton";
+import { IconButton } from "@/components/ui/IconButton";
+import { hostFromUrl, monogram, safeHttpUrl } from "@/features/entries/entries";
+import type { Entry } from "@/features/vault/types";
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+export function EntryDetail({
+  entry,
+  onBack,
+  onEdit,
+  onDelete,
+  onHistory,
+}: {
+  entry: Entry;
+  onBack: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onHistory: () => void;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const host = entry.url ? hostFromUrl(entry.url) : "";
+  const httpUrl = entry.url ? safeHttpUrl(entry.url) : null;
+
+  const openSite = async () => {
+    if (!httpUrl) return;
+    if (!window.confirm(`Открыть ${host || httpUrl} во внешнем браузере?`)) return;
+    await openUrl(httpUrl);
+  };
+
+  return (
+    <div className="pms-scrollbar flex h-full min-h-0 flex-col overflow-y-auto">
+      <div className="border-b border-[var(--border)] px-5 py-5 sm:px-7">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <button
+              type="button"
+              onClick={onBack}
+              className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] lg:hidden"
+              aria-label="Назад к списку"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div className="grid size-12 shrink-0 place-items-center rounded-[13px] border border-[var(--border-strong)] bg-[var(--surface-2)] text-lg font-medium text-[var(--accent-soft)]">
+              {monogram(entry.name)}
+            </div>
+            <div className="min-w-0">
+              <h2 className="pms-display break-words text-[27px] leading-tight tracking-tight">
+                {entry.name}
+              </h2>
+              {host ? (
+                <button
+                  type="button"
+                  onClick={() => void openSite()}
+                  className="mt-1 flex max-w-full items-center gap-1.5 text-[11.5px] text-[var(--muted)] transition-colors hover:text-[var(--accent-soft)]"
+                >
+                  <span className="truncate">{host}</span>
+                  <ExternalLink size={11} className="shrink-0" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            <IconButton label="Редактировать" onClick={onEdit}>
+              <Pencil size={15} />
+            </IconButton>
+            <IconButton label="История" onClick={onHistory}>
+              <History size={15} />
+            </IconButton>
+            <IconButton label="Удалить" onClick={onDelete} className="hover:text-[var(--danger)]">
+              <Trash2 size={15} />
+            </IconButton>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 px-5 py-5 sm:px-7">
+        <div className="mx-auto max-w-2xl divide-y divide-[var(--border)]">
+          <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+            <span className="text-[11.5px] text-[var(--muted)]">Логин</span>
+            {entry.login ? (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="pms-mono min-w-0 break-all text-[13px] text-[var(--text-soft)]">
+                  {entry.login}
+                </span>
+                <CopyButton value={entry.login} label="Копировать логин" />
+              </div>
+            ) : (
+              <span className="text-[12.5px] text-[var(--muted)]/60">Не указан</span>
+            )}
+          </div>
+
+          <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+            <span className="text-[11.5px] text-[var(--muted)]">Пароль</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              {entry.password ? (
+                <>
+                  <span className="pms-mono min-w-0 break-all text-[13px] text-[var(--text-soft)]">
+                    {revealed ? entry.password : "•".repeat(Math.min(32, entry.password.length))}
+                  </span>
+                  <IconButton
+                    label={revealed ? "Скрыть пароль" : "Показать пароль"}
+                    size="sm"
+                    onClick={() => setRevealed((current) => !current)}
+                  >
+                    {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </IconButton>
+                  <CopyButton value={entry.password} label="Копировать пароль" />
+                </>
+              ) : (
+                <span className="text-[12.5px] text-[var(--muted)]/60">Не указан</span>
+              )}
+            </div>
+          </div>
+
+          {entry.url ? (
+            <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+              <span className="text-[11.5px] text-[var(--muted)]">Сайт</span>
+              <button
+                type="button"
+                onClick={() => void openSite()}
+                className="flex min-w-0 items-center gap-1.5 text-left text-[12.5px] text-[var(--accent-soft)] hover:underline"
+              >
+                <span className="truncate">{entry.url}</span>
+                <ExternalLink size={12} className="shrink-0" />
+              </button>
+            </div>
+          ) : null}
+
+          {entry.totp ? (
+            <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+              <span className="text-[11.5px] text-[var(--muted)]">TOTP</span>
+              <span className="text-[12.5px] text-[var(--text-soft)]">
+                Настроен · {entry.totp.digits} цифр, {entry.totp.period} с
+              </span>
+            </div>
+          ) : null}
+
+          <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+            <span className="text-[11.5px] text-[var(--muted)]">Комментарий</span>
+            <p className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-[var(--text-soft)]">
+              {entry.comment || <span className="text-[var(--muted)]/60">Нет комментария</span>}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--border)] px-5 py-3.5 sm:px-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="flex items-center gap-1.5 text-[10.5px] text-[var(--muted)]">
+            <Calendar size={12} />
+            Изменено {formatDate(entry.updatedAt)}
+          </span>
+          <Button size="sm" variant="secondary" onClick={onEdit}>
+            <Pencil size={14} />
+            Редактировать
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

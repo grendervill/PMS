@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { addRecent, getStorage, listRecent, removeRecent } from "@/lib/storage";
 import type { RecentVault } from "@/lib/storage";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
+import {
+  createEntry,
+  removeEntry,
+  updateEntry as applyEntryUpdate,
+  type EntryDraft,
+} from "@/features/entries/entries";
 import type {
   CreateVaultInput,
   UnlockSecret,
@@ -29,6 +35,12 @@ export type VaultActions = {
   openVault: (path: string) => Promise<boolean>;
   unlock: (secret: UnlockSecret) => Promise<boolean>;
   save: (data: VaultData) => Promise<boolean>;
+  addEntry: (draft: EntryDraft) => Promise<boolean>;
+  updateEntry: (
+    id: string,
+    draft: EntryDraft,
+  ) => Promise<{ ok: boolean; blockedReason?: "old-password" }>;
+  deleteEntry: (id: string) => Promise<boolean>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
   clearError: () => void;
@@ -225,6 +237,46 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       set({ busy: false, error: toErrorInfo(error) });
       return false;
     }
+  },
+
+  async addEntry(draft) {
+    const data = get().data;
+    if (!data) return false;
+    const entry = createEntry(draft);
+    return get().save({
+      ...data,
+      entries: [entry, ...data.entries],
+      updatedAt: new Date().toISOString(),
+    });
+  },
+
+  async updateEntry(id, draft) {
+    const data = get().data;
+    if (!data) return { ok: false };
+    const current = data.entries.find((entry) => entry.id === id);
+    if (!current) return { ok: false };
+
+    const result = applyEntryUpdate(current, draft);
+    if (result.blockedReason) {
+      return { ok: false, blockedReason: result.blockedReason };
+    }
+
+    const saved = await get().save({
+      ...data,
+      entries: data.entries.map((entry) => (entry.id === id ? result.entry : entry)),
+      updatedAt: result.entry.updatedAt,
+    });
+    return { ok: saved };
+  },
+
+  async deleteEntry(id) {
+    const data = get().data;
+    if (!data) return false;
+    return get().save({
+      ...data,
+      entries: removeEntry(data.entries, id),
+      updatedAt: new Date().toISOString(),
+    });
   },
 
   async lock() {

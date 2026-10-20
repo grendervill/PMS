@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getStorage } from "@/lib/storage";
 import { addRecent } from "@/lib/storage/recent";
 import type { RecentVault, VaultStorage } from "@/lib/storage";
+import { createEntry } from "@/features/entries/entries";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
 import { initialVaultState, useVaultStore } from "./store";
 import { defaultVaultSettings, type VaultData, type VaultPublicInfo } from "./types";
@@ -244,5 +245,73 @@ describe("vault store", () => {
     expect(useVaultStore.getState().status).toBe("welcome");
     expect(useVaultStore.getState().vaultPath).toBeNull();
     expect(useVaultStore.getState().data).toBeNull();
+  });
+
+  it("adds an entry through save", async () => {
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: vaultData,
+    });
+    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
+
+    const saved = await useVaultStore.getState().addEntry({
+      name: "GitHub",
+      login: "alex",
+      password: "s3cret",
+      url: "",
+      comment: "",
+    });
+
+    expect(saved).toBe(true);
+    expect(useVaultStore.getState().data?.entries[0]?.name).toBe("GitHub");
+    expect(storage.writeVault).toHaveBeenCalled();
+  });
+
+  it("blocks a historical password through the store", async () => {
+    const entry = {
+      ...createEntry(
+        { name: "GitHub", login: "alex", password: "current", url: "", comment: "" },
+        createdAt,
+      ),
+      passwordHistory: [{ value: "old", changedAt: createdAt }],
+    };
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: { ...vaultData, entries: [entry] },
+    });
+
+    const result = await useVaultStore.getState().updateEntry(entry.id, {
+      name: "GitHub",
+      login: "alex",
+      password: "old",
+      url: "",
+      comment: "",
+    });
+
+    expect(result.blockedReason).toBe("old-password");
+    expect(vaultApi.save).not.toHaveBeenCalled();
+  });
+
+  it("deletes an entry through save", async () => {
+    const entry = createEntry(
+      { name: "GitHub", login: "", password: "", url: "", comment: "" },
+      createdAt,
+    );
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: { ...vaultData, entries: [entry] },
+    });
+    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
+
+    const deleted = await useVaultStore.getState().deleteEntry(entry.id);
+
+    expect(deleted).toBe(true);
+    expect(useVaultStore.getState().data?.entries).toEqual([]);
   });
 });

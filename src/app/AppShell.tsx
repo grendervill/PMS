@@ -1,9 +1,8 @@
-import { Plus, Search, Settings2, ShieldCheck, Wand2 } from "lucide-react";
+import { Settings2, ShieldCheck, Wand2 } from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Input } from "@/components/ui/Input";
+import { EntriesView } from "@/features/entries/EntriesView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
 import { navItems, type AppSection } from "@/features/vault/navigation";
 import { useVaultStore } from "@/features/vault/store";
@@ -59,49 +58,32 @@ export function AppShell() {
         onLock={() => void lock()}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col pb-20 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg)]/90 px-5 py-4 backdrop-blur-md sm:px-7">
+      <main className="flex h-screen min-w-0 flex-1 flex-col pb-20 lg:pb-0">
+        <header className="shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 px-5 py-4 backdrop-blur-md sm:px-7">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <h1 className="pms-display text-[24px] leading-tight tracking-tight">{meta.title}</h1>
               <p className="mt-0.5 truncate text-[12.5px] text-[var(--muted)]">{meta.subtitle}</p>
             </div>
-
-            <div className="flex items-center gap-2">
-              <div className="relative hidden w-64 md:block">
-                <Search
-                  size={15}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]"
-                />
-                <Input
-                  aria-label="Поиск по записям"
-                  placeholder="Поиск"
-                  className="h-9 pl-9"
-                  disabled
-                />
-              </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled
-                title="Станет доступно после создания хранилища"
-              >
-                <Plus size={15} />
-                Новая запись
-              </Button>
-            </div>
+            <span className="hidden text-[10.5px] text-[var(--muted)] sm:block">
+              {data?.name ?? "Хранилище"}
+            </span>
           </div>
         </header>
 
-        <div className="flex-1 px-5 py-6 sm:px-7">
-          <div key={active} className="pms-rise mx-auto w-full max-w-5xl">
-            <EmptyState
-              icon={empty.icon}
-              title={empty.title}
-              description={empty.description}
-            />
+        {active === "entries" ? (
+          <EntriesView />
+        ) : (
+          <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
+            <div key={active} className="pms-rise mx-auto w-full max-w-5xl">
+              <EmptyState
+                icon={empty.icon}
+                title={empty.title}
+                description={empty.description}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </main>
 
       <nav
