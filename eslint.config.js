@@ -4,7 +4,16 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 
 export default tseslint.config(
-  { ignores: ["dist", "src-tauri/target", "src-tauri/gen"] },
+  {
+    ignores: [
+      "dist",
+      "src-tauri/target",
+      "src-tauri/gen",
+      ".worktrees",
+      "test-results",
+      "playwright-report",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
