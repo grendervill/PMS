@@ -1,0 +1,51 @@
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum VaultError {
+    #[error("bad file magic")]
+    BadMagic,
+    #[error("unsupported vault version")]
+    UnsupportedVersion,
+    #[error("truncated vault file")]
+    Truncated,
+    #[error("bad vault header")]
+    BadHeader,
+    #[error("bad KDF parameters")]
+    BadParams,
+    #[error("vault has no unlock slots")]
+    NoSlots,
+    #[error("vault has too many unlock slots")]
+    TooManySlots,
+    #[error("bad vault payload")]
+    BadPayload,
+    #[error("invalid credentials")]
+    InvalidCredentials,
+    #[error("vault id mismatch")]
+    VaultIdMismatch,
+    #[error("cryptographic failure")]
+    Crypto,
+    #[error("invalid JSON")]
+    Serde,
+    #[error("storage failure: {0}")]
+    Storage(String),
+}
+
+impl VaultError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::BadMagic => "bad_magic",
+            Self::UnsupportedVersion => "unsupported_version",
+            Self::Truncated => "truncated",
+            Self::BadHeader => "bad_header",
+            Self::BadParams => "bad_params",
+            Self::NoSlots => "no_slots",
+            Self::TooManySlots => "too_many_slots",
+            Self::BadPayload => "bad_payload",
+            Self::InvalidCredentials => "invalid_credentials",
+            Self::VaultIdMismatch => "vault_id_mismatch",
+            Self::Crypto => "crypto",
+            Self::Serde => "serde",
+            Self::Storage(_) => "storage",
+        }
+    }
+}

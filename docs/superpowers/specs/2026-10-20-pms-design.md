@@ -209,10 +209,14 @@ UI-слой выбирает `DesktopStorage` или `AndroidSafStorage` по `p
 
 ```
 magic: "PMSV1"
-header_len: u32
+header_len: u32 LE
+payload_len: u64 LE
 header: JSON
 payload: version u8 || salt[32] || nonce[24|12] || ciphertext || tag
 ```
+
+- `payload_len` позволяет отличить обрезку от мусора в конце и не полагаться на AEAD для проверки целостности контейнера.
+- Общий размер файла = `5 + 4 + 8 + header_len + payload_len`; любое расхождение — `Truncated` или `BadPayload`.
 
 Заголовок (не секрет, но целостность важна):
 
