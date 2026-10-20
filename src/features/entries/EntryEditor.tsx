@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, Save, ShieldCheck, Wand2 } from "lucide-react";
+import { AlertTriangle, Loader2, Lock, Save, ShieldCheck, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { Textarea } from "@/components/ui/Textarea";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
+import { errorText } from "@/features/vault/errors";
 import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import {
@@ -27,28 +29,32 @@ export function EntryEditor({
   draftId,
   onClose,
   onSaved,
+  onRequestLock,
 }: {
   entry?: Entry | null;
   initialDraft?: EntryDraft;
   draftId?: string;
   onClose: () => void;
   onSaved?: () => void;
+  onRequestLock?: () => void;
 }) {
   const data = useVaultStore((state) => state.data);
   const busy = useVaultStore((state) => state.busy);
+  const storeError = useVaultStore((state) => state.error);
   const addEntry = useVaultStore((state) => state.addEntry);
   const updateEntry = useVaultStore((state) => state.updateEntry);
   const removeDraft = useVaultStore((state) => state.removeDraft);
   const toast = useToast();
+  const confirm = useConfirm();
   const setSnapshot = useEditorDraftStore((state) => state.setSnapshot);
   const clearSnapshot = useEditorDraftStore((state) => state.clear);
 
   const initialDraftValue = useMemo<EntryDraft>(
     () =>
-      entry
-        ? entryToDraft(entry)
-        : initialDraft
-          ? { ...initialDraft }
+      initialDraft
+        ? { ...initialDraft }
+        : entry
+          ? entryToDraft(entry)
           : { ...emptyEntryDraft },
     [entry, initialDraft],
   );
@@ -104,9 +110,27 @@ export function EntryEditor({
     return () => clearSnapshot();
   }, [draft, dirty, draftId, entry?.id, setSnapshot, clearSnapshot]);
 
-  const requestClose = () => {
-    if (dirty && !window.confirm("Не сохранять изменения в записи?")) return;
+  const requestClose = async () => {
+    if (
+      dirty &&
+      !(await confirm({
+        title: "Не сохранять изменения?",
+        description: "Введённые данные будут потеряны.",
+        confirmLabel: "Не сохранять",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
     onClose();
+  };
+
+  const reportSaveFailure = () => {
+    toast.show({
+      title: "Не удалось сохранить запись",
+      description: errorText(useVaultStore.getState().error),
+      tone: "error",
+    });
   };
 
   const save = async () => {
@@ -129,6 +153,8 @@ export function EntryEditor({
           toast.show({ title: "Запись обновлена", tone: "success" });
           onSaved?.();
           onClose();
+        } else {
+          reportSaveFailure();
         }
       } else {
         const ok = await addEntry(draft);
@@ -137,6 +163,8 @@ export function EntryEditor({
           toast.show({ title: "Запись создана", tone: "success" });
           onSaved?.();
           onClose();
+        } else {
+          reportSaveFailure();
         }
       }
     } finally {
@@ -150,14 +178,25 @@ export function EntryEditor({
     <Modal
       open
       onOpenChange={(open) => {
-        if (!open) requestClose();
+        if (!open) void requestClose();
       }}
       title={entry ? "Редактировать запись" : "Новая запись"}
       description={entry ? entry.name : "Название обязательно, остальное можно добавить позже."}
       className="w-[min(92vw,680px)]"
       footer={
         <>
-          <Button variant="ghost" onClick={requestClose} disabled={saving}>
+          {onRequestLock ? (
+            <Button
+              variant="ghost"
+              onClick={onRequestLock}
+              disabled={saving}
+              className="mr-auto"
+            >
+              <Lock size={14} />
+              Заблокировать
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={() => void requestClose()} disabled={saving}>
             Отменить
           </Button>
           <Button onClick={() => void save()} disabled={saving || busy}>
@@ -290,6 +329,15 @@ export function EntryEditor({
             className="rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-[11.5px] text-[var(--danger)]"
           >
             {blockedError}
+          </p>
+        ) : null}
+
+        {storeError ? (
+          <p
+            role="alert"
+            className="rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-[11.5px] text-[var(--danger)]"
+          >
+            {errorText(storeError)}
           </p>
         ) : null}
 

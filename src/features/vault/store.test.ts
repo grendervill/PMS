@@ -247,6 +247,24 @@ describe("vault store", () => {
     expect(useVaultStore.getState().data).toBeNull();
   });
 
+  it("does not forget a recent vault when opening fails", async () => {
+    addRecent({
+      path: "/vaults/missing",
+      name: "Пропавшее",
+      vaultId: "vault-1",
+      lastOpenedAt: createdAt,
+    });
+    vi.mocked(storage.readVault).mockRejectedValue(
+      new VaultApiError("storage", "Не удалось прочитать папку"),
+    );
+
+    const opened = await useVaultStore.getState().openVault("/vaults/missing");
+
+    expect(opened).toBe(false);
+    expect(useVaultStore.getState().recent).toHaveLength(1);
+    expect(useVaultStore.getState().error?.code).toBe("storage");
+  });
+
   it("adds an entry through save", async () => {
     useVaultStore.setState({
       status: "unlocked",

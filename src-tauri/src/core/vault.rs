@@ -57,7 +57,7 @@ pub fn create_vault(
     header.kdf_slots.push(slot);
 
     let data = empty_vault_data(&config.name, vault_id, &timestamp);
-    let plaintext = serde_json::to_vec(&data).map_err(|_| VaultError::Serde)?;
+    let plaintext = Zeroizing::new(serde_json::to_vec(&data).map_err(|_| VaultError::Serde)?);
     let payload = seal_payload(
         &vault_key,
         header.cipher,
@@ -102,12 +102,12 @@ pub fn unlock_vault(
     }
 
     let vault_key = vault_key.ok_or(VaultError::InvalidCredentials)?;
-    let plaintext = open_payload(
+    let plaintext = Zeroizing::new(open_payload(
         &vault_key,
         parsed.header.cipher,
         &header_core_aad(&parsed.header),
         &parsed.payload,
-    )?;
+    )?);
     let data: VaultData = serde_json::from_slice(&plaintext).map_err(|_| VaultError::Serde)?;
     if data.id != parsed.header.vault_id {
         return Err(VaultError::VaultIdMismatch);
@@ -131,7 +131,7 @@ pub fn save_vault(
         return Err(VaultError::VaultIdMismatch);
     }
 
-    let plaintext = serde_json::to_vec(data).map_err(|_| VaultError::Serde)?;
+    let plaintext = Zeroizing::new(serde_json::to_vec(data).map_err(|_| VaultError::Serde)?);
     let payload = seal_payload(
         &session.vault_key,
         session.header.cipher,

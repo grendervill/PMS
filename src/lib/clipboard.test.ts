@@ -21,7 +21,7 @@ describe("copySecret", () => {
     writeMock.mockResolvedValue(undefined);
     readMock.mockResolvedValue("secret");
 
-    copySecret("secret", { clearAfterMs: 1000 });
+    await copySecret("secret", { clearAfterMs: 1000 });
     expect(writeMock).toHaveBeenCalledWith("secret");
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -35,7 +35,7 @@ describe("copySecret", () => {
     writeMock.mockResolvedValue(undefined);
     readMock.mockResolvedValue("something else");
 
-    copySecret("secret", { clearAfterMs: 1000 });
+    await copySecret("secret", { clearAfterMs: 1000 });
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(writeMock).toHaveBeenCalledTimes(1);
@@ -46,9 +46,9 @@ describe("copySecret", () => {
     writeMock.mockResolvedValue(undefined);
     readMock.mockResolvedValue("first");
 
-    copySecret("first", { clearAfterMs: 1000 });
+    await copySecret("first", { clearAfterMs: 1000 });
     await vi.advanceTimersByTimeAsync(500);
-    copySecret("second", { clearAfterMs: 1000 });
+    await copySecret("second", { clearAfterMs: 1000 });
     await vi.advanceTimersByTimeAsync(600);
 
     expect(readMock).not.toHaveBeenCalled();

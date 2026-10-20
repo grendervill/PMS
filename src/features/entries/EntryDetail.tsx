@@ -8,12 +8,15 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { IconButton } from "@/components/ui/IconButton";
+import { useConfirm } from "@/components/ui/confirm-context";
+import { useToast } from "@/components/ui/toast-context";
 import { hostFromUrl, monogram, safeHttpUrl } from "@/features/entries/entries";
+import { errorText } from "@/features/vault/errors";
 import type { Entry } from "@/features/vault/types";
 
 function formatDate(value: string) {
@@ -40,13 +43,34 @@ export function EntryDetail({
   onHistory: () => void;
 }) {
   const [revealed, setRevealed] = useState(false);
+  const confirm = useConfirm();
+  const toast = useToast();
   const host = entry.url ? hostFromUrl(entry.url) : "";
   const httpUrl = entry.url ? safeHttpUrl(entry.url) : null;
 
+  useEffect(() => {
+    if (!revealed) return;
+    const timer = setTimeout(() => setRevealed(false), 30_000);
+    return () => clearTimeout(timer);
+  }, [revealed]);
+
   const openSite = async () => {
     if (!httpUrl) return;
-    if (!window.confirm(`Открыть ${host || httpUrl} во внешнем браузере?`)) return;
-    await openUrl(httpUrl);
+    const allowed = await confirm({
+      title: "Открыть сайт?",
+      description: host || httpUrl,
+      confirmLabel: "Открыть",
+    });
+    if (!allowed) return;
+    try {
+      await openUrl(httpUrl);
+    } catch (error) {
+      toast.show({
+        title: "Не удалось открыть сайт",
+        description: errorText(error),
+        tone: "error",
+      });
+    }
   };
 
   return (

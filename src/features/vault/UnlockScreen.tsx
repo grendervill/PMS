@@ -15,34 +15,13 @@ import { IconButton } from "@/components/ui/IconButton";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { toBase64 } from "@/lib/base64";
 import { getStorage } from "@/lib/storage";
+import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { KdfSlotKind, UnlockSecret } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
 function basename(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? "Хранилище";
-}
-
-function errorMessage(code: string, fallback: string) {
-  switch (code) {
-    case "invalid_credentials":
-      return "Не удалось разблокировать. Проверьте пароль-фразу или ключ-файл.";
-    case "keyfile_passphrase_required":
-      return "У ключа есть парольная фраза. Введите её.";
-    case "keyfile_passphrase_invalid":
-      return "Неверная парольная фраза ключа.";
-    case "keyfile_public_key":
-      return "Это публичный ключ. Выберите приватный ключ-файл.";
-    case "unsupported_keyfile":
-      return "Этот формат ключ-файла пока не поддерживается. Используйте OpenSSH или незашифрованный PEM/PKCS#8.";
-    case "truncated":
-    case "bad_header":
-    case "bad_payload":
-    case "bad_magic":
-      return "Файл хранилища повреждён или это не хранилище PMS.";
-    default:
-      return fallback;
-  }
 }
 
 export function UnlockScreen() {
@@ -120,7 +99,7 @@ export function UnlockScreen() {
   const message = localError
     ? localError
     : error
-      ? errorMessage(error.code, error.message)
+      ? errorText(error)
       : null;
 
   return (

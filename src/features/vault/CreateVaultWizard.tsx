@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/Input";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import { getStorage } from "@/lib/storage";
+import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import {
   buildSecrets,
@@ -337,6 +338,11 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
                         SSH-ключ или любой файл. Если это зашифрованный SSH-ключ,
                         укажите его парольную фразу ниже.
                       </p>
+                      <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--warning)]">
+                        Содержимое обычного ключ-файла должно остаться неизменным.
+                        Пересохранение, синхронизация или редактирование файла
+                        сделают вход невозможным.
+                      </p>
                     </div>
                     {draft.keyfile ? (
                       <IconButton
@@ -481,7 +487,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
 
           {storeError ? (
             <p role="alert" className="mt-5 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-xs text-[var(--danger)]">
-              {storeError.message}
+              {errorText(storeError)}
             </p>
           ) : null}
 

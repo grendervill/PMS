@@ -16,8 +16,9 @@ impl SessionManager {
     }
 
     pub fn put(&self, session: VaultSession) {
-        let mut inner = self.inner.lock().expect("session mutex poisoned");
-        *inner = Some(session);
+        if let Ok(mut inner) = self.inner.lock() {
+            *inner = Some(session);
+        }
     }
 
     pub fn is_unlocked(&self) -> bool {

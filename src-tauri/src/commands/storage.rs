@@ -123,7 +123,11 @@ pub fn storage_exists(path: String) -> bool {
 #[tauri::command]
 pub fn storage_mkdir(path: String, mode: Option<u32>) -> ApiResult<()> {
     let path = Path::new(&path);
+    let existed = path.exists();
     fs::create_dir_all(path).map_err(storage_error)?;
+    if existed {
+        return Ok(());
+    }
     set_mode(path, mode)
 }
 
@@ -206,6 +210,22 @@ mod tests {
 
         assert!(write_atomic(&target, b"data", None).is_err());
         assert!(target.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mkdir_does_not_chmod_an_existing_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let existing = dir.path().join("existing");
+        fs::create_dir(&existing).unwrap();
+        fs::set_permissions(&existing, fs::Permissions::from_mode(0o755)).unwrap();
+
+        storage_mkdir(existing.to_string_lossy().into_owned(), Some(0o700)).unwrap();
+
+        let mode = fs::metadata(&existing).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
     }
 
     #[test]

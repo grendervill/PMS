@@ -99,8 +99,12 @@ fn validate_header(header: &VaultHeader) -> Result<(), VaultError> {
     }
 
     let mut ids = HashSet::with_capacity(header.kdf_slots.len());
+    let mut kinds = HashSet::with_capacity(header.kdf_slots.len());
     for slot in &header.kdf_slots {
         if !ids.insert(slot.id) {
+            return Err(VaultError::BadHeader);
+        }
+        if !kinds.insert(slot.kind) {
             return Err(VaultError::BadHeader);
         }
 
@@ -277,6 +281,18 @@ mod tests {
     fn rejects_unknown_cipher() {
         let mut value = header_value();
         value["cipher"] = serde_json::json!("rot13");
+        let header_json = serde_json::to_vec(&value).unwrap();
+        let bytes = raw_file(&header_json, &[7u8; 128]);
+
+        assert_eq!(parse_vault_file(&bytes), Err(VaultError::BadHeader));
+    }
+
+    #[test]
+    fn rejects_duplicate_slot_kinds() {
+        let mut value = header_value();
+        let mut slot = value["kdfSlots"][0].clone();
+        slot["id"] = serde_json::json!("2b3c4d5e-6f7a-4b5c-8d9e-0f1a2b3c4d5e");
+        value["kdfSlots"] = serde_json::Value::Array(vec![value["kdfSlots"][0].clone(), slot]);
         let header_json = serde_json::to_vec(&value).unwrap();
         let bytes = raw_file(&header_json, &[7u8; 128]);
 

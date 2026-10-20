@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { addRecent, getStorage, listRecent, removeRecent } from "@/lib/storage";
+import { addRecent, getStorage, listRecent } from "@/lib/storage";
 import type { RecentVault } from "@/lib/storage";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
 import {
@@ -175,14 +175,13 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       });
       return true;
     } catch (error) {
-      const recent = removeRecent(path);
       set({
         status: "welcome",
         vaultPath: null,
         publicInfo: null,
         sessionId: null,
         data: null,
-        recent,
+        recent: listRecent(),
         busy: false,
         error: toErrorInfo(error),
       });

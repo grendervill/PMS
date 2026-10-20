@@ -10,7 +10,10 @@ export type CopyOptions = {
  * Copies a secret and best-effort clears the clipboard later only if the
  * clipboard still contains our value. Returns a cleanup function.
  */
-export function copySecret(value: string, options: CopyOptions = {}): () => void {
+export async function copySecret(
+  value: string,
+  options: CopyOptions = {},
+): Promise<() => void> {
   if (!value) return () => undefined;
 
   if (clearTimer) {
@@ -18,7 +21,7 @@ export function copySecret(value: string, options: CopyOptions = {}): () => void
     clearTimer = null;
   }
 
-  void writeText(value);
+  await writeText(value);
 
   const delay = options.clearAfterMs ?? 30_000;
   clearTimer = setTimeout(() => {

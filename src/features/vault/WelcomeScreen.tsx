@@ -3,6 +3,7 @@ import { ChevronRight, FolderOpen, Lock, Plus, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/Button";
 import { getStorage } from "@/lib/storage";
 import { CreateVaultWizard } from "@/features/vault/CreateVaultWizard";
+import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 
 function formatDate(value: string) {
@@ -109,7 +110,7 @@ export function WelcomeScreen() {
                 role="alert"
                 className="mt-4 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2.5 text-[12px] leading-relaxed text-[var(--danger)]"
               >
-                {error.message}
+                {errorText(error)}
               </div>
             ) : null}
 

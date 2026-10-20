@@ -1,6 +1,8 @@
 import { KeyRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useConfirm } from "@/components/ui/confirm-context";
+import { useToast } from "@/components/ui/toast-context";
 import { EntryDetail } from "@/features/entries/EntryDetail";
 import { EntryEditor } from "@/features/entries/EntryEditor";
 import { EntryList } from "@/features/entries/EntryList";
@@ -12,18 +14,23 @@ import {
   type SortMode,
 } from "@/features/entries/entries";
 import { useVaultStore } from "@/features/vault/store";
+import { errorText } from "@/features/vault/errors";
 import type { Entry } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
 export function EntriesView({
   initialEntryId,
   initialDraft,
+  onRequestLock,
 }: {
   initialEntryId?: string | null;
   initialDraft?: { id: string; payload: EntryDraft } | null;
+  onRequestLock?: () => void;
 }) {
   const data = useVaultStore((state) => state.data);
   const deleteEntry = useVaultStore((state) => state.deleteEntry);
+  const confirm = useConfirm();
+  const toast = useToast();
   const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialDraft?.id ?? initialEntryId ?? null,
@@ -52,9 +59,23 @@ export function EntriesView({
   const selected = entries.find((entry) => entry.id === selectedId) ?? null;
 
   const remove = async (entry: Entry) => {
-    if (!window.confirm(`Удалить запись «${entry.name}»? Это действие необратимо.`)) return;
+    const allowed = await confirm({
+      title: `Удалить запись «${entry.name}»?`,
+      description: "Это действие необратимо. Резервная копия хранилища останется.",
+      confirmLabel: "Удалить",
+      tone: "danger",
+    });
+    if (!allowed) return;
+
     const ok = await deleteEntry(entry.id);
     if (ok && selectedId === entry.id) setSelectedId(null);
+    if (!ok) {
+      toast.show({
+        title: "Не удалось удалить запись",
+        description: errorText(useVaultStore.getState().error),
+        tone: "error",
+      });
+    }
   };
 
   const onSaved = () => {
@@ -92,6 +113,7 @@ export function EntriesView({
       >
         {selected ? (
           <EntryDetail
+            key={selected.id}
             entry={selected}
             onBack={() => setSelectedId(null)}
             onEdit={() => setEditor({ entry: selected })}
@@ -117,6 +139,7 @@ export function EntriesView({
           draftId={editor.draftId}
           onClose={() => setEditor(null)}
           onSaved={onSaved}
+          onRequestLock={onRequestLock}
         />
       ) : null}
 

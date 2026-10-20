@@ -18,6 +18,7 @@ use crate::core::vault_file::parse_vault_file;
 pub enum UnlockSecretDto {
     Passphrase { value: String },
     Keyfile {
+        #[serde(rename = "bytesB64")]
         bytes_b64: String,
         passphrase: Option<String>,
     },
@@ -222,6 +223,25 @@ mod tests {
             UnlockSecretInput::Keyfile { bytes, passphrase } => {
                 assert_eq!(bytes, b"keyfile");
                 assert_eq!(passphrase.as_deref(), Some("pass"));
+            }
+            _ => panic!("expected keyfile"),
+        }
+    }
+
+    #[test]
+    fn keyfile_dto_accepts_the_frontend_wire_format() {
+        let value = serde_json::json!({
+            "kind": "keyfile",
+            "bytesB64": "a2V5ZmlsZQ==",
+            "passphrase": "ssh-pass"
+        });
+        let dto: UnlockSecretDto = serde_json::from_value(value).unwrap();
+        let converted = UnlockSecretInput::try_from(dto).unwrap();
+
+        match converted {
+            UnlockSecretInput::Keyfile { bytes, passphrase } => {
+                assert_eq!(bytes, b"keyfile");
+                assert_eq!(passphrase.as_deref(), Some("ssh-pass"));
             }
             _ => panic!("expected keyfile"),
         }

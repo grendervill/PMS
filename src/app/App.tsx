@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { ToastProvider } from "@/components/ui/Toast";
+import { ConfirmProvider } from "@/components/ui/ConfirmProvider";
 import { AppShell } from "@/app/AppShell";
 import { useVaultStore } from "@/features/vault/store";
 import { WelcomeScreen } from "@/features/vault/WelcomeScreen";
@@ -15,13 +16,15 @@ export default function App() {
 
   return (
     <ToastProvider>
-      {status === "unlocked" ? (
-        <AppShell />
-      ) : status === "welcome" ? (
-        <WelcomeScreen />
-      ) : (
-        <UnlockScreen />
-      )}
+      <ConfirmProvider>
+        {status === "unlocked" ? (
+          <AppShell />
+        ) : status === "welcome" ? (
+          <WelcomeScreen />
+        ) : (
+          <UnlockScreen />
+        )}
+      </ConfirmProvider>
     </ToastProvider>
   );
 }

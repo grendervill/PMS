@@ -15,6 +15,7 @@ export function CopyButton({
   const toast = useToast();
 
   const copy = async () => {
+    if (!value) return;
     try {
       await copySecret(value);
       setCopied(true);

@@ -49,6 +49,36 @@ test("creates a vault, adds an entry, generates a password and unlocks again", a
   await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
 });
 
+test("saves a draft on manual lock and restores it after unlock", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("GitHub");
+  await page.getByLabel("Логин", { exact: true }).fill("alex");
+  await page.getByLabel("Пароль", { exact: true }).fill("s3cret");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Редактировать" }).first().click();
+  await page.getByLabel("Название").fill("GitHub draft");
+  const editor = page.getByRole("dialog", { name: "Редактировать запись" });
+  await editor.getByRole("button", { name: "Заблокировать" }).click();
+
+  const lockDialog = page.getByRole("dialog", { name: "Заблокировать хранилище?" });
+  await expect(lockDialog).toBeVisible();
+  await lockDialog.getByRole("button", { name: "Сохранить черновик" }).click();
+
+  await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible();
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+
+  await expect(page.getByText(/Несохранённый черновик: GitHub draft/)).toBeVisible();
+  await page.getByRole("button", { name: "Восстановить" }).click();
+  await expect(page.getByRole("dialog", { name: "Редактировать запись" })).toBeVisible();
+  await expect(page.getByLabel("Название")).toHaveValue("GitHub draft");
+  await page.getByRole("button", { name: "Отменить" }).click();
+});
+
 test("blocks reusing a historical password and warns about duplicates", async ({ page }) => {
   await createVault(page);
 
@@ -81,4 +111,20 @@ test("blocks reusing a historical password and warns about duplicates", async ({
   await expect(page.getByText(/Этот пароль уже используется в:/)).toBeVisible();
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByRole("heading", { name: "GitLab" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Удалить" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Удалить запись «GitLab»?" });
+  await expect(deleteDialog).toBeVisible();
+  await deleteDialog.getByRole("button", { name: "Удалить" }).click();
+  await expect(page.getByRole("heading", { name: "GitLab" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /GitHub/ }).first().click();
+  await page.getByRole("button", { name: "Редактировать" }).first().click();
+  await page.getByLabel("Название").fill("GitHub changed");
+  await page.getByRole("button", { name: "Отменить" }).click();
+  const discardDialog = page.getByRole("dialog", { name: "Не сохранять изменения?" });
+  await expect(discardDialog).toBeVisible();
+  await discardDialog.getByRole("button", { name: "Не сохранять" }).click();
+  await expect(page.getByRole("heading", { name: "GitHub changed" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
 });

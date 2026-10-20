@@ -284,6 +284,7 @@ pub fn canonical_secret(secret: &UnlockSecretInput) -> Result<Zeroizing<Vec<u8>>
                 return Err(VaultError::EmptySecret);
             }
             let (domain, material) = keyfile_material(bytes, passphrase.as_deref())?;
+            let material = Zeroizing::new(material);
             let mut hasher = Sha256::new();
             if domain == "file" {
                 hasher.update(b"PMS-KEYFILE-FILE-v1");
@@ -292,7 +293,7 @@ pub fn canonical_secret(secret: &UnlockSecretInput) -> Result<Zeroizing<Vec<u8>>
                 hasher.update((domain.len() as u32).to_le_bytes());
                 hasher.update(domain.as_bytes());
             }
-            hasher.update(&material);
+            hasher.update(&*material);
             Ok(Zeroizing::new(hasher.finalize().to_vec()))
         }
     }

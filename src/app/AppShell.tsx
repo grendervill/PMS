@@ -3,6 +3,7 @@ import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/toast-context";
 import { AuditView } from "@/features/audit/AuditView";
 import { EntriesView } from "@/features/entries/EntriesView";
@@ -10,7 +11,7 @@ import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import type { EntryDraft } from "@/features/entries/entries";
 import { GeneratorView } from "@/features/generator/GeneratorView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
-import { saveDraft } from "@/features/vault/drafts";
+import { saveDraftBeforeLock } from "@/features/vault/lockFlow";
 import { navItems, type AppSection } from "@/features/vault/navigation";
 import { useVaultStore } from "@/features/vault/store";
 import { useAutoLock } from "@/features/vault/useAutoLock";
@@ -54,33 +55,37 @@ export function AppShell() {
     payload: EntryDraft;
   } | null>(null);
   const [restoreVersion, setRestoreVersion] = useState(0);
+  const [lockDialogOpen, setLockDialogOpen] = useState(false);
   const data = useVaultStore((state) => state.data);
   const lock = useVaultStore((state) => state.lock);
   const removeDraft = useVaultStore((state) => state.removeDraft);
   const toast = useToast();
 
-  const saveDraftAndLock = async () => {
-    const snapshot = useEditorDraftStore.getState().snapshot;
-    if (snapshot) {
-      const current = useVaultStore.getState().data;
-      if (current) {
-        const next = saveDraft(current, {
-          id: snapshot.id,
-          kind: "entry",
-          payload: snapshot.payload,
-        });
-        const saved = await useVaultStore.getState().save(next);
-        if (!saved) {
-          toast.show({
-            title: "Не удалось сохранить черновик",
-            description: "Хранилище осталось открытым. Проверьте доступ к папке.",
-            tone: "error",
-          });
-          return;
-        }
-      }
+  const saveDraftAndLock = async (): Promise<boolean> => {
+    const ok = await saveDraftBeforeLock({
+      snapshot: useEditorDraftStore.getState().snapshot
+        ? { ...useEditorDraftStore.getState().snapshot!, kind: "entry" }
+        : null,
+      getData: () => useVaultStore.getState().data,
+      save: (nextData) => useVaultStore.getState().save(nextData),
+      lock,
+    });
+    if (!ok) {
+      toast.show({
+        title: "Не удалось сохранить черновик",
+        description: "Хранилище осталось открытым. Проверьте доступ к папке.",
+        tone: "error",
+      });
     }
-    await lock();
+    return ok;
+  };
+
+  const requestLock = () => {
+    if (useEditorDraftStore.getState().snapshot) {
+      setLockDialogOpen(true);
+      return;
+    }
+    void saveDraftAndLock();
   };
 
   useAutoLock({ enabled: true, onLock: () => void saveDraftAndLock() });
@@ -115,7 +120,7 @@ export function AppShell() {
         onNavigate={navigate}
         vaultName={data?.name}
         status="unlocked"
-        onLock={() => void saveDraftAndLock()}
+        onLock={requestLock}
       />
 
       <main className="flex h-screen min-w-0 flex-1 flex-col pb-20 lg:pb-0">
@@ -169,6 +174,7 @@ export function AppShell() {
             }
             initialEntryId={entryToOpen}
             initialDraft={draftToRestore}
+            onRequestLock={requestLock}
           />
         ) : active === "generator" ? (
           <GeneratorView />
@@ -211,6 +217,49 @@ export function AppShell() {
           );
         })}
       </nav>
+
+      <Modal
+        open={lockDialogOpen}
+        onOpenChange={setLockDialogOpen}
+        title="Заблокировать хранилище?"
+        description="В форме есть несохранённые изменения."
+        className="w-[min(92vw,560px)]"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLockDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                void (async () => {
+                  useEditorDraftStore.getState().clear();
+                  await lock();
+                  setLockDialogOpen(false);
+                })();
+              }}
+            >
+              Без сохранения
+            </Button>
+            <Button
+              onClick={() => {
+                void (async () => {
+                  const ok = await saveDraftAndLock();
+                  if (ok) setLockDialogOpen(false);
+                })();
+              }}
+            >
+              Сохранить черновик
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[12px] leading-relaxed text-[var(--muted)]">
+          Черновик будет сохранён в зашифрованном хранилище и предложен после
+          следующего входа. Если заблокировать без сохранения, введённые данные
+          пропадут.
+        </p>
+      </Modal>
     </div>
   );
 }
