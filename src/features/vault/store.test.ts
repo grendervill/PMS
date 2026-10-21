@@ -3,6 +3,7 @@ import { getStorage } from "@/lib/storage";
 import { addRecent } from "@/lib/storage/recent";
 import type { RecentVault, VaultStorage } from "@/lib/storage";
 import { createEntry } from "@/features/entries/entries";
+import { isBiometricEnabled } from "@/features/vault/biometric";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
 import { initialVaultState, useVaultStore } from "./store";
 import { defaultVaultSettings, type VaultData, type VaultPublicInfo } from "./types";
@@ -23,6 +24,10 @@ vi.mock("./api", async (importOriginal) => {
       save: vi.fn(),
       rewrap: vi.fn(),
       lock: vi.fn(),
+      biometricStatus: vi.fn(),
+      biometricEnroll: vi.fn(),
+      biometricDisable: vi.fn(),
+      biometricUnlock: vi.fn(),
     },
   };
 });
@@ -413,4 +418,61 @@ describe("vault store", () => {
     expect(useVaultStore.getState().data?.sshKeys).toEqual([]);
     expect(useVaultStore.getState().data?.entries[0]?.sshKeyIds).toEqual([]);
   });
+  it("unlocks through biometrics and updates the session", async () => {
+    useVaultStore.setState({
+      status: "locked",
+      sessionId: null,
+      vaultPath: "/vaults/personal",
+      publicInfo,
+    });
+    vi.mocked(storage.readVault).mockResolvedValue(new Uint8Array([1]));
+    vi.mocked(vaultApi.biometricUnlock).mockResolvedValue({
+      sessionId: "session-bio",
+      data: vaultData,
+    });
+    vi.mocked(vaultApi.inspect).mockResolvedValue(publicInfo);
+
+    const result = await useVaultStore.getState().unlockBiometric();
+
+    expect(result).toEqual({ ok: true });
+    expect(useVaultStore.getState().status).toBe("unlocked");
+    expect(useVaultStore.getState().sessionId).toBe("session-bio");
+    expect(useVaultStore.getState().data).toEqual(vaultData);
+  });
+
+  it("keeps the vault locked after a failed biometric attempt", async () => {
+    useVaultStore.setState({
+      status: "locked",
+      vaultPath: "/vaults/personal",
+      publicInfo,
+    });
+    vi.mocked(storage.readVault).mockResolvedValue(new Uint8Array([1]));
+    vi.mocked(vaultApi.biometricUnlock).mockRejectedValue(
+      new VaultApiError("biometric_failed", "Отпечаток не распознан"),
+    );
+
+    const result = await useVaultStore.getState().unlockBiometric();
+
+    expect(result).toEqual({ ok: false, code: "biometric_failed" });
+    expect(useVaultStore.getState().status).toBe("locked");
+    expect(useVaultStore.getState().data).toBeNull();
+  });
+
+  it("stores and clears the local biometric flag", async () => {
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: vaultData,
+    });
+    vi.mocked(vaultApi.biometricEnroll).mockResolvedValue(undefined);
+    vi.mocked(vaultApi.biometricDisable).mockResolvedValue(undefined);
+
+    expect(await useVaultStore.getState().enrollBiometric()).toBe(true);
+    expect(isBiometricEnabled("vault-1")).toBe(true);
+
+    expect(await useVaultStore.getState().disableBiometric()).toBe(true);
+    expect(isBiometricEnabled("vault-1")).toBe(false);
+  });
+
 });

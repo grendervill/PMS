@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { addRecent, getStorage, listRecent } from "@/lib/storage";
 import type { RecentVault } from "@/lib/storage";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
+import { setBiometricEnabled } from "@/features/vault/biometric";
 import {
   createEntry,
   removeEntry,
@@ -37,6 +38,9 @@ export type VaultActions = {
   createVault: (input: CreateVaultInput) => Promise<boolean>;
   openVault: (path: string) => Promise<boolean>;
   unlock: (secret: UnlockSecret) => Promise<boolean>;
+  unlockBiometric: () => Promise<{ ok: boolean; code?: string }>;
+  enrollBiometric: () => Promise<boolean>;
+  disableBiometric: () => Promise<boolean>;
   save: (data: VaultData) => Promise<boolean>;
   addEntry: (draft: EntryDraft) => Promise<boolean>;
   updateEntry: (
@@ -229,6 +233,76 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
         busy: false,
         error: toErrorInfo(error),
       });
+      return false;
+    }
+  },
+
+  async unlockBiometric() {
+    const path = get().vaultPath;
+    const vaultId = get().publicInfo?.vaultId;
+    if (!path || !vaultId) {
+      return { ok: false, code: "biometric_unavailable" };
+    }
+
+    set({ status: "unlocking", busy: true, error: null });
+    try {
+      const file = await getStorage().readVault(path);
+      const unlocked = await vaultApi.biometricUnlock(file, vaultId);
+      const info = await vaultApi.inspect(file);
+      const recent = addRecent(
+        recentEntry(path, unlocked.data.name, unlocked.data.id),
+      );
+      set({
+        status: "unlocked",
+        sessionId: unlocked.sessionId,
+        data: unlocked.data,
+        publicInfo: info,
+        recent,
+        busy: false,
+        error: null,
+      });
+      return { ok: true };
+    } catch (error) {
+      set({
+        status: "locked",
+        sessionId: null,
+        data: null,
+        busy: false,
+        error: null,
+      });
+      return {
+        ok: false,
+        code: error instanceof VaultApiError ? error.code : "biometric_failed",
+      };
+    }
+  },
+
+  async enrollBiometric() {
+    const { sessionId, data } = get();
+    if (!sessionId || !data) return false;
+    set({ busy: true, error: null });
+    try {
+      await vaultApi.biometricEnroll(sessionId);
+      setBiometricEnabled(data.id, true);
+      set({ busy: false, error: null });
+      return true;
+    } catch (error) {
+      set({ busy: false, error: toErrorInfo(error) });
+      return false;
+    }
+  },
+
+  async disableBiometric() {
+    const vaultId = get().data?.id ?? get().publicInfo?.vaultId;
+    if (!vaultId) return false;
+    set({ busy: true, error: null });
+    try {
+      await vaultApi.biometricDisable(vaultId);
+      setBiometricEnabled(vaultId, false);
+      set({ busy: false, error: null });
+      return true;
+    } catch (error) {
+      set({ busy: false, error: toErrorInfo(error) });
       return false;
     }
   },

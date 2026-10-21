@@ -106,6 +106,21 @@ pub fn unlock_vault(
     }
 
     let vault_key = vault_key.ok_or(VaultError::InvalidCredentials)?;
+    unlock_parsed(parsed, *vault_key)
+}
+
+pub fn unlock_vault_with_key(
+    file_bytes: &[u8],
+    vault_key: &[u8; 32],
+) -> Result<(VaultSession, VaultData), VaultError> {
+    let parsed = parse_vault_file(file_bytes)?;
+    unlock_parsed(parsed, *vault_key)
+}
+
+fn unlock_parsed(
+    parsed: VaultFile,
+    vault_key: [u8; 32],
+) -> Result<(VaultSession, VaultData), VaultError> {
     let plaintext = Zeroizing::new(open_payload(
         &vault_key,
         parsed.header.cipher,
@@ -120,7 +135,7 @@ pub fn unlock_vault(
     let session = VaultSession {
         id: Uuid::new_v4(),
         header: parsed.header,
-        vault_key,
+        vault_key: Zeroizing::new(vault_key),
         payload: parsed.payload,
     };
 
@@ -426,6 +441,25 @@ mod tests {
                 "https://second.example".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn unlock_with_raw_key_roundtrips() {
+        let (file, session, data) =
+            create_vault(&config("Bio"), &passphrase("correct horse")).unwrap();
+        let key = *session.vault_key();
+        let (_, unlocked) = unlock_vault_with_key(&file, &key).unwrap();
+        assert_eq!(unlocked, data);
+    }
+
+    #[test]
+    fn wrong_raw_key_is_rejected() {
+        let (file, _, _) =
+            create_vault(&config("Bio"), &passphrase("correct horse")).unwrap();
+        assert!(matches!(
+            unlock_vault_with_key(&file, &[0u8; 32]),
+            Err(VaultError::BadPayload)
+        ));
     }
 
     #[test]

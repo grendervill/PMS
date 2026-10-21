@@ -1,4 +1,5 @@
 pub mod attachments;
+pub mod biometric;
 pub mod generator;
 pub mod storage;
 pub mod ssh;

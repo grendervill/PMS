@@ -234,3 +234,52 @@ test("stores and searches several urls in one entry", async ({ page }) => {
   await page.getByLabel("Поиск по записям").fill("b.example");
   await expect(page.getByRole("button", { name: /Multi/ })).toBeVisible();
 });
+
+test("enables Touch ID, auto unlocks and falls back after five failures", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  const toggle = page.getByRole("switch", {
+    name: "Всегда разблокировать при помощи биометрии",
+  });
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  await expect(page.getByText("Биометрия включена")).toBeVisible();
+  await expect(toggle).toHaveAttribute("data-state", "checked");
+
+  await page.evaluate(() => {
+    (window as unknown as { __E2E_BIOMETRIC_FAILURES__?: number }).__E2E_BIOMETRIC_FAILURES__ = 1;
+  });
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await expect(page.getByText("Осталось 4 попытки")).toBeVisible();
+  await page.getByRole("button", { name: "Повторить" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as unknown as { __E2E_BIOMETRIC_FAILURES__?: number }).__E2E_BIOMETRIC_FAILURES__ = 5;
+  });
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await expect(page.getByText("Осталось 4 попытки")).toBeVisible();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.getByRole("button", { name: "Повторить" }).click();
+  }
+  await expect(page.getByText("Попытки закончились")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Войти по отпечатку" })).toHaveCount(0);
+
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as unknown as { __E2E_BIOMETRIC_CANCEL__?: boolean }).__E2E_BIOMETRIC_CANCEL__ = true;
+  });
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await expect(page.getByText("Вход по отпечатку отменён")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Войти по отпечатку" })).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as unknown as { __E2E_BIOMETRIC_CANCEL__?: boolean }).__E2E_BIOMETRIC_CANCEL__ = false;
+  });
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+});

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   FileKey,
+  Fingerprint,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -15,6 +16,8 @@ import { IconButton } from "@/components/ui/IconButton";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { toBase64 } from "@/lib/base64";
 import { getStorage } from "@/lib/storage";
+import { vaultApi } from "@/features/vault/api";
+import { isBiometricEnabled } from "@/features/vault/biometric";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { KdfSlotKind, UnlockSecret } from "@/features/vault/types";
@@ -30,6 +33,7 @@ export function UnlockScreen() {
   const busy = useVaultStore((state) => state.busy);
   const error = useVaultStore((state) => state.error);
   const unlock = useVaultStore((state) => state.unlock);
+  const unlockBiometric = useVaultStore((state) => state.unlockBiometric);
   const reset = useVaultStore((state) => state.reset);
   const clearError = useVaultStore((state) => state.clearError);
 
@@ -47,6 +51,84 @@ export function UnlockScreen() {
   const [keyfilePassphrase, setKeyfilePassphrase] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [readingKeyfile, setReadingKeyfile] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState<boolean | null>(null);
+  const [bioEnabled, setBioEnabled] = useState(() =>
+    isBiometricEnabled(publicInfo?.vaultId),
+  );
+  const [bioAttemptsLeft, setBioAttemptsLeft] = useState(5);
+  const [bioBusy, setBioBusy] = useState(false);
+  const [bioNotice, setBioNotice] = useState<string | null>(null);
+  const [bioStopped, setBioStopped] = useState(false);
+  const autoTried = useRef(false);
+
+  const vaultId = publicInfo?.vaultId;
+
+  useEffect(() => {
+    if (!vaultId) return;
+    let active = true;
+    void vaultApi
+      .biometricStatus()
+      .then((status) => {
+        if (!active) return;
+        setBioAvailable(status.available);
+        setBioEnabled(isBiometricEnabled(vaultId) && status.available);
+      })
+      .catch(() => {
+        if (active) {
+          setBioAvailable(false);
+          setBioEnabled(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [vaultId]);
+
+  const attemptBiometric = useCallback(async () => {
+    if (bioBusy || bioStopped || bioAttemptsLeft <= 0) return;
+    setBioBusy(true);
+    setBioNotice(null);
+    const result = await unlockBiometric();
+    setBioBusy(false);
+    if (result.ok) return;
+
+    if (result.code === "biometric_cancelled") {
+      setBioStopped(true);
+      setBioNotice("Вход по отпечатку отменён. Введите пароль-фразу.");
+      return;
+    }
+    if (result.code === "biometric_failed") {
+      const left = Math.max(0, bioAttemptsLeft - 1);
+      setBioAttemptsLeft(left);
+      if (left === 0) {
+        setBioStopped(true);
+        setBioNotice("Попытки закончились. Введите пароль-фразу.");
+      } else {
+        setBioNotice(
+          `Отпечаток не распознан. Осталось ${left} ${left === 1 ? "попытка" : "попытки"}.`,
+        );
+      }
+      return;
+    }
+
+    setBioStopped(true);
+    setBioNotice(
+      result.code === "biometric_lockout"
+        ? "Биометрия временно заблокирована. Введите пароль-фразу."
+        : "Биометрия недоступна. Введите пароль-фразу.",
+    );
+  }, [bioAttemptsLeft, bioBusy, bioStopped, unlockBiometric]);
+
+  useEffect(() => {
+    if (autoTried.current || !bioEnabled || bioAvailable !== true || bioStopped) {
+      return;
+    }
+    autoTried.current = true;
+    const timer = setTimeout(() => {
+      void attemptBiometric();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [attemptBiometric, bioAvailable, bioEnabled, bioStopped]);
 
   const chooseMethod = (kind: KdfSlotKind) => {
     setMethod(kind);
@@ -142,6 +224,42 @@ export function UnlockScreen() {
           </div>
 
           <div className="px-6 py-5">
+            {bioEnabled && bioAvailable === true && !bioStopped ? (
+              <div className="mb-4">
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => void attemptBiometric()}
+                  disabled={bioBusy || busy}
+                >
+                  {bioBusy ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Fingerprint size={16} />
+                  )}
+                  {bioBusy
+                    ? "Проверяем отпечаток…"
+                    : bioNotice
+                      ? "Повторить"
+                      : "Войти по отпечатку"}
+                </Button>
+                {bioNotice ? (
+                  <p
+                    role="status"
+                    className="mt-2 text-center text-[10.5px] text-[var(--warning)]"
+                  >
+                    {bioNotice}
+                  </p>
+                ) : null}
+              </div>
+            ) : bioNotice ? (
+              <p
+                role="status"
+                className="mb-4 text-center text-[10.5px] leading-relaxed text-[var(--muted)]"
+              >
+                {bioNotice}
+              </p>
+            ) : null}
             {slotKinds.length > 1 ? (
               <div className="mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-1">
                 {slotKinds.map((kind) => (

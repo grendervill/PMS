@@ -66,6 +66,10 @@ export type UnlockedVault = {
   data: VaultData;
 };
 
+export type BiometricStatus = {
+  available: boolean;
+};
+
 export type SshGenerateOptions = {
   keyType: SshKeyType;
   rsaBits?: number | null;
@@ -235,6 +239,25 @@ export const vaultApi = {
 
   async sshCheck(directory: string, name: string): Promise<SshPermissionStatus> {
     return call<SshPermissionStatus>("ssh_check", { directory, name });
+  },
+
+  async biometricStatus(): Promise<BiometricStatus> {
+    return call<BiometricStatus>("biometric_status");
+  },
+
+  async biometricEnroll(sessionId: string): Promise<void> {
+    await call<void>("biometric_enroll", { sessionId });
+  },
+
+  async biometricDisable(vaultId: string): Promise<void> {
+    await call<void>("biometric_disable", { vaultId });
+  },
+
+  async biometricUnlock(file: Uint8Array, vaultId: string): Promise<UnlockedVault> {
+    return call<UnlockedVault>("biometric_unlock", {
+      fileB64: toBase64(file),
+      vaultId,
+    });
   },
 };
 export { fromBase64, toBase64 };

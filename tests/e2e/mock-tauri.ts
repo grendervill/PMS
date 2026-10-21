@@ -18,12 +18,16 @@ export async function installMockTauri(page: Page) {
       files: Map<string, string>;
       attachments: Map<string, string>;
       passwordIndex: number;
+      biometricAvailable: boolean;
+      biometricFailures: number;
     } = {
       vault: null,
       session: null,
       files: new Map(),
       attachments: new Map(),
       passwordIndex: 0,
+      biometricAvailable: true,
+      biometricFailures: 0,
     };
 
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -254,6 +258,28 @@ export async function installMockTauri(page: Page) {
             ownedByCurrentUser: true,
             ok: true,
           };
+        case "biometric_status":
+          return { available: state.biometricAvailable };
+        case "biometric_enroll":
+          return null;
+        case "biometric_disable":
+          return null;
+        case "biometric_unlock": {
+          const w = window as unknown as {
+            __E2E_BIOMETRIC_FAILURES__?: number;
+            __E2E_BIOMETRIC_CANCEL__?: boolean;
+          };
+          if (w.__E2E_BIOMETRIC_CANCEL__) {
+            throw { code: "biometric_cancelled", message: "Отменено" };
+          }
+          if ((w.__E2E_BIOMETRIC_FAILURES__ ?? 0) > 0) {
+            w.__E2E_BIOMETRIC_FAILURES__ = (w.__E2E_BIOMETRIC_FAILURES__ ?? 0) - 1;
+            throw { code: "biometric_failed", message: "Не распознано" };
+          }
+          const vault = requireVault();
+          state.session = "session-e2e";
+          return { sessionId: state.session, data: clone(vault.data) };
+        }
         default:
           throw { code: "unknown_command", message: command };
       }

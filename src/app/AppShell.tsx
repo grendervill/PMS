@@ -10,6 +10,7 @@ import { EntriesView } from "@/features/entries/EntriesView";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import type { EntryDraft } from "@/features/entries/entries";
 import { GeneratorView } from "@/features/generator/GeneratorView";
+import { SettingsView } from "@/features/settings/SettingsView";
 import { SSHView } from "@/features/ssh/SSHView";
 import { TOTPView } from "@/features/totp/TOTPView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
@@ -198,6 +199,8 @@ export function AppShell() {
           <SSHView onOpenEntry={openEntry} />
         ) : active === "audit" ? (
           <AuditView onOpenEntry={openEntry} />
+        ) : active === "settings" ? (
+          <SettingsView />
         ) : (
           <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
             <div key={active} className="pms-rise mx-auto w-full max-w-5xl">

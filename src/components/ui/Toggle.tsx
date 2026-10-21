@@ -33,9 +33,22 @@ export function Toggle({
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
-        className="relative h-5 w-9 shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface-3)] outline-none transition-colors data-[state=checked]:border-[var(--accent)] data-[state=checked]:bg-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 disabled:cursor-not-allowed"
+        aria-label={label}
+        className={cn(
+          "relative h-5 w-9 shrink-0 rounded-full border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 disabled:cursor-not-allowed",
+          checked
+            ? "border-[var(--accent)] bg-[var(--accent)]"
+            : "border-[var(--border)] bg-[var(--surface-3)]",
+        )}
       >
-        <RadixSwitch.Thumb className="block size-3.5 translate-x-0.5 rounded-full bg-[var(--text-soft)] transition-transform data-[state=checked]:translate-x-[18px] data-[state=checked]:bg-[#08110d]" />
+        <RadixSwitch.Thumb
+          className={cn(
+            "block size-3.5 rounded-full transition-transform",
+            checked
+              ? "translate-x-[18px] bg-[#08110d]"
+              : "translate-x-0.5 bg-[var(--text-soft)]",
+          )}
+        />
       </RadixSwitch.Root>
     </label>
   );
