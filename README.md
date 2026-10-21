@@ -28,6 +28,8 @@
   и пересозданием.
 - Предупреждения о слабых и повторяющихся паролях; экран «Проверка».
 - Автоблокировка и зашифрованные черновики несохранённых форм.
+- Бэкапы хранилища: авто по расписанию 1/7/30 дней, хранение 1/7/30 дней,
+  ручное создание; самый свежий бэкап не удаляется никогда.
 - Атомарная запись vault-файла, права 600/700 на macOS/Linux.
 - Три значка приложения с выбором в настройках; по умолчанию — зелёный замок.
 - Сборка macOS Apple Silicon: `.app` и `.dmg`.
@@ -50,7 +52,7 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 101 frontend-тест
+pnpm test          # 105 frontend-тестов
 pnpm test:e2e      # 12 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings

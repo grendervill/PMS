@@ -3,6 +3,7 @@ import { addRecent, getStorage, listRecent } from "@/lib/storage";
 import type { RecentVault } from "@/lib/storage";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
 import { setBiometricEnabled } from "@/features/vault/biometric";
+import { cleanupBackups, createBackup } from "@/features/vault/backups";
 import {
   createEntry,
   removeEntry,
@@ -224,6 +225,8 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
         busy: false,
         error: null,
       });
+      await createBackup(path, unlocked.data.settings).catch(() => false);
+      await cleanupBackups(path, unlocked.data.settings.backupRetentionDays).catch(() => 0);
       return true;
     } catch (error) {
       set({
@@ -319,6 +322,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
 
     set({ busy: true, error: null });
     try {
+      await createBackup(vaultPath, data.settings).catch(() => false);
       const file = await vaultApi.save(sessionId, data);
       await getStorage().writeVault(vaultPath, file);
       set({ data, busy: false, error: null });

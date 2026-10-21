@@ -87,7 +87,8 @@ pub struct VaultHeader {
 pub struct VaultSettings {
     pub auto_lock_minutes: u32,
     pub clipboard_clear_seconds: u32,
-    pub backup_count: u32,
+    pub backup_retention_days: u32,
+    pub auto_backup_days: u32,
     pub favicon_fetch: bool,
     pub max_attachment_mb: u32,
 }
@@ -97,7 +98,8 @@ impl Default for VaultSettings {
         Self {
             auto_lock_minutes: 5,
             clipboard_clear_seconds: 30,
-            backup_count: 20,
+            backup_retention_days: 7,
+            auto_backup_days: 1,
             favicon_fetch: true,
             max_attachment_mb: 50,
         }

@@ -79,6 +79,12 @@ export const desktopStorage: VaultStorage = {
     });
   },
 
+  async deleteBackup(folder, name) {
+    await invoke("storage_remove_file", {
+      path: await join(folder, BACKUPS_DIR, name),
+    });
+  },
+
   async listBackups(folder) {
     try {
       const entries = await invoke<Array<{ name: string; isFile: boolean }>>("storage_list_dir", {

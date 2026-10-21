@@ -67,6 +67,7 @@ function makeStorage(): VaultStorage {
     writeVault: vi.fn(),
     writeBackup: vi.fn(),
     listBackups: vi.fn(),
+    deleteBackup: vi.fn(),
     statVault: vi.fn(),
     exists: vi.fn(),
     mkdir: vi.fn(),

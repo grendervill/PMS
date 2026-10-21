@@ -1,10 +1,15 @@
-import { Check, Fingerprint, KeyRound, Loader2, Palette, ShieldCheck, Upload } from "lucide-react";
+import { Archive, Check, Fingerprint, KeyRound, Loader2, Palette, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/toast-context";
 import { ImportWizard } from "@/features/import/ImportWizard";
+import {
+  cleanupBackups,
+  createManualBackup,
+  lastBackupAt,
+} from "@/features/vault/backups";
 import {
   APP_ICONS,
   getSelectedAppIcon,
@@ -25,12 +30,15 @@ export function SettingsView() {
   const enrollBiometric = useVaultStore((state) => state.enrollBiometric);
   const disableBiometric = useVaultStore((state) => state.disableBiometric);
   const openVault = useVaultStore((state) => state.openVault);
+  const saveVault = useVaultStore((state) => state.save);
   const lock = useVaultStore((state) => state.lock);
   const toast = useToast();
   const [importOpen, setImportOpen] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [selectedIcon, setSelectedIcon] = useState<AppIconId>(() => getSelectedAppIcon());
   const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [lastBackup, setLastBackup] = useState<Date | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(true);
   const [enabled, setEnabled] = useState(() => isBiometricEnabled(data?.id));
@@ -52,6 +60,71 @@ export function SettingsView() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!vaultPath) return;
+    let active = true;
+    void lastBackupAt(vaultPath)
+      .then((date) => {
+        if (active) setLastBackup(date);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [vaultPath]);
+
+  const updateBackupSetting = async (
+    key: "backupRetentionDays" | "autoBackupDays",
+    value: number,
+  ) => {
+    if (!data) return;
+    setBackupBusy(true);
+    try {
+      const saved = await saveVault({
+        ...data,
+        settings: { ...data.settings, [key]: value },
+      });
+      if (!saved) {
+        toast.show({
+          title: "Не удалось сохранить настройку",
+          description: errorText(useVaultStore.getState().error),
+          tone: "error",
+        });
+        return;
+      }
+      if (vaultPath) {
+        await cleanupBackups(
+          vaultPath,
+          key === "backupRetentionDays" ? value : data.settings.backupRetentionDays,
+        );
+      }
+      setLastBackup(vaultPath ? await lastBackupAt(vaultPath) : null);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const backupNow = async () => {
+    if (!data || !vaultPath) return;
+    setBackupBusy(true);
+    try {
+      const created = await createManualBackup(vaultPath, data.settings);
+      setLastBackup(await lastBackupAt(vaultPath));
+      toast.show({
+        title: created ? "Резервная копия создана" : "Резервная копия уже свежая",
+        tone: "success",
+      });
+    } catch (error) {
+      toast.show({
+        title: "Не удалось создать резервную копию",
+        description: errorText(error),
+        tone: "error",
+      });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
 
   const changeBiometric = async (next: boolean) => {
     if (next) {
@@ -238,6 +311,77 @@ export function SettingsView() {
               Значок в Dock меняется сразу. После перезапуска приложение восстановит
               выбранный вариант.
             </p>
+          </div>
+        </section>
+
+        <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+            <Archive size={15} className="text-[var(--accent-soft)]" />
+            <h2 className="pms-display text-lg">Резервные копии</h2>
+          </div>
+          <div className="grid gap-3 px-4 py-4">
+            <p className="text-[10.5px] leading-relaxed text-[var(--muted)]">
+              Бэкапы хранятся в папке <span className="pms-mono">backups/</span>. Самый
+              свежий не удаляется автоматически никогда.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-[11px] text-[var(--text-soft)]">
+                Хранить бэкапы
+                <select
+                  value={data?.settings.backupRetentionDays ?? 7}
+                  onChange={(event) =>
+                    void updateBackupSetting(
+                      "backupRetentionDays",
+                      Number(event.target.value),
+                    )
+                  }
+                  disabled={backupBusy}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[12px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                >
+                  <option value={1}>1 день</option>
+                  <option value={7}>7 дней</option>
+                  <option value={30}>30 дней</option>
+                </select>
+              </label>
+              <label className="grid gap-1.5 text-[11px] text-[var(--text-soft)]">
+                Автобекап
+                <select
+                  value={data?.settings.autoBackupDays ?? 1}
+                  onChange={(event) =>
+                    void updateBackupSetting("autoBackupDays", Number(event.target.value))
+                  }
+                  disabled={backupBusy}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[12px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                >
+                  <option value={0}>Выключен</option>
+                  <option value={1}>Раз в день</option>
+                  <option value={7}>Раз в 7 дней</option>
+                  <option value={30}>Раз в 30 дней</option>
+                </select>
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10.5px] text-[var(--muted)]">
+                Последний:{" "}
+                {lastBackup
+                  ? lastBackup.toLocaleString("ru-RU", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "ещё нет"}
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => void backupNow()} disabled={backupBusy}>
+                {backupBusy ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Archive size={14} />
+                )}
+                Создать бэкап сейчас
+              </Button>
+            </div>
           </div>
         </section>
 

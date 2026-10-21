@@ -74,7 +74,8 @@ export type Draft = {
 export type VaultSettings = {
   autoLockMinutes: number;
   clipboardClearSeconds: number;
-  backupCount: number;
+  backupRetentionDays: number;
+  autoBackupDays: number;
   faviconFetch: boolean;
   maxAttachmentMb: number;
 };
@@ -131,7 +132,8 @@ export function defaultVaultSettings(): VaultSettings {
   return {
     autoLockMinutes: 5,
     clipboardClearSeconds: 30,
-    backupCount: 20,
+    backupRetentionDays: 7,
+    autoBackupDays: 1,
     faviconFetch: true,
     maxAttachmentMb: 50,
   };
