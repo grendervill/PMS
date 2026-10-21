@@ -23,10 +23,6 @@ import { useVaultStore } from "@/features/vault/store";
 import type { KdfSlotKind, UnlockSecret } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
 
-function basename(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? "Хранилище";
-}
-
 export function UnlockScreen() {
   const publicInfo = useVaultStore((state) => state.publicInfo);
   const vaultPath = useVaultStore((state) => state.vaultPath);
@@ -151,7 +147,7 @@ export function UnlockScreen() {
       if (!path) return;
       const bytes = await getStorage().readFile(path);
       setKeyfileBytes(bytes);
-      setKeyfileName(basename(path));
+      setKeyfileName(getStorage().displayName(path));
     } catch {
       setLocalError("Не удалось прочитать ключ-файл.");
     } finally {
@@ -203,7 +199,7 @@ export function UnlockScreen() {
       : null;
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--bg)] px-4 py-8 text-[var(--text)]">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--bg)] px-4 pb-8 pt-[calc(2rem+env(safe-area-inset-top))] text-[var(--text)]">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-18rem] size-[36rem] -translate-x-1/2 rounded-full border border-[var(--border)]/40" />
         <div className="absolute left-1/2 top-[-14rem] size-[28rem] -translate-x-1/2 rounded-full border border-[var(--border)]/30" />
@@ -232,11 +228,11 @@ export function UnlockScreen() {
             </div>
             <h1 className="pms-display mt-4 text-[26px] leading-tight">Открыть хранилище</h1>
             <p className="mt-1 truncate text-[11.5px] text-[var(--muted)]">
-              {publicInfo ? basename(vaultPath ?? "") : "Выберите хранилище"}
+              {publicInfo && vaultPath ? getStorage().displayName(vaultPath) : "Выберите хранилище"}
             </p>
             {vaultPath ? (
               <p className="mx-auto mt-1 max-w-[330px] truncate text-[10px] text-[var(--muted)]/65">
-                {vaultPath}
+                {vaultPath.startsWith("pms-android-") ? "Папка Android (SAF)" : vaultPath}
               </p>
             ) : null}
           </div>

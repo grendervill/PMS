@@ -28,6 +28,12 @@ import {
 } from "@/features/vault/api";
 import { useVaultStore } from "@/features/vault/store";
 import { getStorage } from "@/lib/storage";
+import {
+  cleanupCacheDirectory,
+  installNativeArchive,
+  stageVaultForTransfer,
+} from "@/lib/storage/archive";
+import { isAndroidPlatform } from "@/lib/platform";
 import { cn } from "@/lib/cn";
 
 type Tab = "send" | "receive";
@@ -76,11 +82,17 @@ export function TransferView() {
         if (archive.replaceCurrent) {
           await lock();
         }
-        const installed = await vaultApi.transferInstall(
-          archive.archivePath,
-          archive.destination,
-          archive.replaceCurrent,
-        );
+        const installed = isAndroidPlatform()
+          ? await installNativeArchive(
+              archive.archivePath,
+              archive.destination,
+              archive.replaceCurrent,
+            )
+          : await vaultApi.transferInstall(
+              archive.archivePath,
+              archive.destination,
+              archive.replaceCurrent,
+            );
         setReceived(null);
         setReceiveStarted(null);
         toast.show({
@@ -135,8 +147,12 @@ export function TransferView() {
     }
     setSending(true);
     setError(null);
+    let staged: string | null = null;
     try {
-      await vaultApi.transferSend(selectedPeer.host, selectedPeer.port, code.trim(), vaultPath);
+      const source = isAndroidPlatform()
+        ? (staged = await stageVaultForTransfer(vaultPath))
+        : vaultPath;
+      await vaultApi.transferSend(selectedPeer.host, selectedPeer.port, code.trim(), source);
       toast.show({
         title: "Хранилище отправлено",
         description: selectedPeer.name,
@@ -145,6 +161,7 @@ export function TransferView() {
     } catch (sendError) {
       setError(errorText(sendError));
     } finally {
+      if (staged) await cleanupCacheDirectory(staged);
       setSending(false);
     }
   };
@@ -391,7 +408,7 @@ export function TransferView() {
               {receiveMode === "new" ? (
                 <div className="mt-3 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)]/50 px-3 py-2">
                   <span className="min-w-0 flex-1 truncate pms-mono text-[10.5px] text-[var(--muted)]">
-                    {destination || "Папка не выбрана"}
+                    {destination ? getStorage().displayName(destination) : "Папка не выбрана"}
                   </span>
                   <Button variant="secondary" size="sm" onClick={() => void chooseDestination()}>
                     <FolderOpen size={14} />

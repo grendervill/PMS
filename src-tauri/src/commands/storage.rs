@@ -165,6 +165,15 @@ pub fn storage_remove_file(path: String) -> ApiResult<()> {
     fs::remove_file(Path::new(&path)).map_err(storage_error)
 }
 
+#[tauri::command]
+pub fn storage_remove_dir(path: String) -> ApiResult<()> {
+    let path = Path::new(&path);
+    if path.exists() {
+        fs::remove_dir_all(path).map_err(storage_error)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

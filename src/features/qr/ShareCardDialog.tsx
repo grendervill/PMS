@@ -1,6 +1,5 @@
 import { AlertTriangle, Download, KeyRound, Loader2, QrCode, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
@@ -97,9 +96,10 @@ export function ShareCardDialog({
     if (!image) return;
     setSaving(true);
     try {
-      const path = await save({
-        defaultPath: `${safeName(entry.name)}-qr.png`,
-      });
+      const path = await getStorage().pickSaveFile(
+        `${safeName(entry.name)}-qr.png`,
+        "image/png",
+      );
       if (!path) return;
       await getStorage().saveFile(path, dataUrlBytes(image));
       toast.show({ title: "QR-код сохранён", description: path, tone: "success" });

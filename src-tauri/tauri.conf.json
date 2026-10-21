@@ -41,6 +41,9 @@
     ],
     "category": "Utility",
     "shortDescription": "Локальный менеджер паролей",
-    "longDescription": "Локальное зашифрованное хранилище паролей, TOTP-секретов и SSH-ключей."
+    "longDescription": "Локальное зашифрованное хранилище паролей, TOTP-секретов и SSH-ключей.",
+    "android": {
+      "minSdkVersion": 28
+    }
   }
 }

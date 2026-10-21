@@ -1,6 +1,5 @@
 import { Download, FileQuestion, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/confirm-context";
@@ -92,7 +91,7 @@ export function AttachmentPreviewModal({
       });
       if (!allowed) return;
       const bytes = await loadBytes();
-      const path = await save({ defaultPath: safeDownloadName(meta.name) });
+      const path = await getStorage().pickSaveFile(safeDownloadName(meta.name), meta.mime);
       if (!path) return;
       await getStorage().saveFile(path, bytes);
       toast.show({ title: "Файл сохранён", tone: "success" });

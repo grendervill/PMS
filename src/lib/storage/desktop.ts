@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { fromBase64, toBase64 } from "@/lib/base64";
 import type { VaultStorage } from "@/lib/storage/types";
 
@@ -33,6 +33,16 @@ export const desktopStorage: VaultStorage = {
       title: title ?? "Выберите файл",
     });
     return typeof selected === "string" ? selected : null;
+  },
+
+  async pickSaveFile(defaultName) {
+    const selected = await save({ defaultPath: defaultName });
+    return typeof selected === "string" ? selected : null;
+  },
+
+  displayName(value) {
+    const parts = value.split(/[\\/]/).filter(Boolean);
+    return parts.at(-1) ?? "Хранилище";
   },
 
   async readFile(path) {
@@ -136,6 +146,19 @@ export const desktopStorage: VaultStorage = {
       b64: toBase64(bytes),
       mode: 0o600,
     });
+  },
+
+  async listBlobIds(folder) {
+    try {
+      const entries = await invoke<Array<{ name: string; isFile: boolean }>>("storage_list_dir", {
+        path: await join(folder, ATTACHMENTS_DIR),
+      });
+      return entries
+        .filter((entry) => entry.isFile && entry.name.endsWith(".pmsa"))
+        .map((entry) => entry.name.slice(0, -".pmsa".length));
+    } catch {
+      return [];
+    }
   },
 
   async deleteBlob(folder, id) {

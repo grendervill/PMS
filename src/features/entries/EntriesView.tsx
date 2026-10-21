@@ -1,6 +1,6 @@
 import { KeyRound } from "lucide-react";
 import { QrImportDialog } from "@/features/qr/QrImportDialog";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
@@ -53,6 +53,32 @@ export function EntriesView({
   });
   const [historyEntry, setHistoryEntry] = useState<Entry | null>(null);
   const [qrImportOpen, setQrImportOpen] = useState(false);
+
+  useEffect(() => {
+    const onBack = (event: Event) => {
+      if (qrImportOpen) {
+        setQrImportOpen(false);
+        event.preventDefault();
+        return;
+      }
+      if (historyEntry) {
+        setHistoryEntry(null);
+        event.preventDefault();
+        return;
+      }
+      if (editor) {
+        setEditor(null);
+        event.preventDefault();
+        return;
+      }
+      if (selectedId) {
+        setSelectedId(null);
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("pms:android-back", onBack);
+    return () => window.removeEventListener("pms:android-back", onBack);
+  }, [qrImportOpen, historyEntry, editor, selectedId]);
 
   const visibleEntries = useMemo(
     () => sortEntries(searchEntries(entries, query), sort),

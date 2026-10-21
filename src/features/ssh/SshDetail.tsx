@@ -11,7 +11,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
@@ -24,6 +23,7 @@ import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { SshKey } from "@/features/vault/types";
 import { getStorage } from "@/lib/storage";
+import { isAndroidPlatform } from "@/lib/platform";
 
 function typeLabel(key: SshKey) {
   if (key.type === "rsa") return `RSA ${key.rsaBits ?? 2048}`;
@@ -69,7 +69,8 @@ export function SshDetail({
   const [fingerprint, setFingerprint] = useState<string | null>(sshKey.fingerprint ?? null);
   const [fingerprintError, setFingerprintError] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
-  const [downloading, setDownloading] = useState<"pem" | "pkcs8" | null>(null);
+  const android = isAndroidPlatform();
+  const [downloading, setDownloading] = useState<"openssh" | "pem" | "pkcs8" | null>(null);
 
   const linkedEntries = useMemo(
     () => (data?.entries ?? []).filter((entry) => (entry.sshKeyIds ?? []).includes(sshKey.id)),
@@ -98,15 +99,19 @@ export function SshDetail({
     return () => clearTimeout(timer);
   }, [revealed]);
 
-  const download = async (kind: "pem" | "pkcs8") => {
+  const download = async (kind: "openssh" | "pem" | "pkcs8") => {
     setDownloading(kind);
     try {
       const formats = await vaultApi.sshFormats(sshKey.privateKey, sshKey.passphrase ?? undefined);
-      const path = await save({
-        defaultPath: `${safeFileName(sshKey.name)}.${kind === "pem" ? "pem" : "p8"}`,
-      });
+      const extension = kind === "openssh" ? "key" : kind === "pem" ? "pem" : "p8";
+      const path = await getStorage().pickSaveFile(
+        `${safeFileName(sshKey.name)}.${extension}`,
+        "text/plain",
+      );
       if (!path) return;
-      await getStorage().saveFile(path, new TextEncoder().encode(kind === "pem" ? formats.pem : formats.pkcs8));
+      const body =
+        kind === "openssh" ? formats.openssh : kind === "pem" ? formats.pem : formats.pkcs8;
+      await getStorage().saveFile(path, new TextEncoder().encode(body));
       toast.show({ title: "Файл сохранён", description: path, tone: "success" });
     } catch (error) {
       toast.show({
@@ -157,9 +162,11 @@ export function SshDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
-            <IconButton label="Установить на устройство" onClick={() => setInstallOpen(true)}>
-              <Download size={15} />
-            </IconButton>
+            {!android ? (
+              <IconButton label="Установить на устройство" onClick={() => setInstallOpen(true)}>
+                <Download size={15} />
+              </IconButton>
+            ) : null}
             <IconButton label="Удалить ключ" onClick={() => void confirmDelete()} className="hover:text-[var(--danger)]">
               <Trash2 size={15} />
             </IconButton>
@@ -279,13 +286,32 @@ export function SshDetail({
             Форматы и установка
           </p>
           <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--muted)]">
-            OpenSSH хранится в vault. PEM/PKCS#8 можно скачать, а ключ — установить в выбранную папку.
+            {android
+              ? "OpenSSH хранится в vault. Скачайте ключ в нужном формате и передайте его приложению, которому он нужен."
+              : "OpenSSH хранится в vault. PEM/PKCS#8 можно скачать, а ключ — установить в выбранную папку."}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => setInstallOpen(true)}>
-              <Download size={14} />
-              Установить
-            </Button>
+            {!android ? (
+              <Button size="sm" onClick={() => setInstallOpen(true)}>
+                <Download size={14} />
+                Установить
+              </Button>
+            ) : null}
+            {android ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void download("openssh")}
+                disabled={downloading !== null}
+              >
+                {downloading === "openssh" ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+                Скачать OpenSSH
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
               size="sm"
@@ -314,14 +340,16 @@ export function SshDetail({
             <Calendar size={12} />
             Изменено {formatDate(sshKey.updatedAt)}
           </span>
-          <Button size="sm" variant="secondary" onClick={() => setInstallOpen(true)}>
-            <Download size={14} />
-            Установить на устройство
-          </Button>
+          {!android ? (
+            <Button size="sm" variant="secondary" onClick={() => setInstallOpen(true)}>
+              <Download size={14} />
+              Установить на устройство
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      {installOpen ? (
+      {installOpen && !android ? (
         <SshInstallDialog key={sshKey.id} sshKey={sshKey} onClose={() => setInstallOpen(false)} />
       ) : null}
     </div>

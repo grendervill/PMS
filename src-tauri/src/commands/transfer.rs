@@ -1,7 +1,9 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(not(target_os = "android"))]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -160,24 +162,31 @@ pub fn transfer_receive_start(
 ) -> ApiResult<ReceiveStarted> {
     state.transfer.stop();
 
-    let destination_path = PathBuf::from(&destination);
-    if replace_current {
-        if !destination_path.join("pms.vault").is_file() {
+    #[cfg(not(target_os = "android"))]
+    {
+        let destination_path = PathBuf::from(&destination);
+        if replace_current {
+            if !destination_path.join("pms.vault").is_file() {
+                return Err(ApiError::new(
+                    "transfer_destination",
+                    "Текущее хранилище не найдено",
+                ));
+            }
+        } else if destination_path.exists()
+            && fs::read_dir(&destination_path)
+                .map_err(|error| ApiError::new("transfer_destination", error.to_string()))?
+                .next()
+                .is_some()
+        {
             return Err(ApiError::new(
                 "transfer_destination",
-                "Текущее хранилище не найдено",
+                "Выберите пустую папку для нового хранилища",
             ));
         }
-    } else if destination_path.exists()
-        && fs::read_dir(&destination_path)
-            .map_err(|error| ApiError::new("transfer_destination", error.to_string()))?
-            .next()
-            .is_some()
+    }
+    #[cfg(target_os = "android")]
     {
-        return Err(ApiError::new(
-            "transfer_destination",
-            "Выберите пустую папку для нового хранилища",
-        ));
+        let _ = (&destination, replace_current);
     }
 
     let server = Arc::new(

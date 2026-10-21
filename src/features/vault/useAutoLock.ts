@@ -19,11 +19,27 @@ export function useAutoLock({
     if (!enabled) return;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let hiddenAt: number | null = null;
     const reset = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         onLockRef.current();
       }, timeoutMs);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        if (timer) clearTimeout(timer);
+        return;
+      }
+      if (hiddenAt !== null && Date.now() - hiddenAt >= timeoutMs) {
+        hiddenAt = null;
+        onLockRef.current();
+        return;
+      }
+      hiddenAt = null;
+      reset();
     };
 
     reset();
@@ -35,10 +51,12 @@ export function useAutoLock({
       "mousemove",
     ];
     for (const event of events) window.addEventListener(event, reset, { passive: true });
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       if (timer) clearTimeout(timer);
       for (const event of events) window.removeEventListener(event, reset);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [enabled, timeoutMs]);
 }

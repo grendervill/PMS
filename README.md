@@ -36,15 +36,21 @@
 - Атомарная запись vault-файла, права 600/700 на macOS/Linux.
 - Три значка приложения с выбором в настройках; по умолчанию — зелёный замок.
 - Сборка macOS Apple Silicon: `.app` и `.dmg`.
+- Android: Tauri-приложение на том же React UI; SAF-хранилище, создание/вход,
+  записи, вложения, бэкапы, QR-камера, импорт/экспорт `.pmsvault`, SSH-экспорт,
+  Android-биометрия и мобильная навигация с разделом «Ещё».
 
 ## Чего пока нет
 
-Это рабочий срез для macOS. В следующих планах: Android SAF/APK, проверка
-конфликтов и ручные резервные копии, favicon сайтов, баннер установки
-SSH-ключей на новом устройстве и финальная полировка Windows/Linux.
+Это рабочий срез для macOS и Android. На Android уже работают SAF-хранилище,
+основные экраны, вложения, QR-камера, бэкапы, импорт/экспорт и биометрия;
+осталось проверить на реальном устройстве обмен по локальной сети, фон/back
+и провайдеры SAF. Полная матрица функций и ограничения — в
+`docs/superpowers/specs/2026-10-21-android-parity-design.md`.
 Обмен сейчас работает по локальной сети; Bluetooth-обнаружение требует
 отдельного CoreBluetooth-слоя и запланировано следующим этапом.
-Дизайн и планы лежат в `docs/superpowers/`.
+Windows/Linux и полировка — после Android. Дизайн и планы лежат в
+`docs/superpowers/`.
 
 ## Разработка
 
@@ -57,10 +63,15 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 105 frontend-тестов
-pnpm test:e2e      # 14 Playwright-сценариев, мок Tauri IPC
+pnpm test          # 107 frontend-тестов
+pnpm test:e2e      # 15 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+# Android debug APK (нужны Android SDK/NDK и rustup targets)
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+pnpm tauri android build --debug -t aarch64 --apk
 pnpm tauri build   # macOS ARM: .app + .dmg
 ```
 
@@ -71,6 +82,7 @@ pnpm tauri build   # macOS ARM: .app + .dmg
 - дизайн: `docs/superpowers/specs/2026-10-20-pms-design.md`
 - план первого среза: `docs/superpowers/plans/2026-10-20-01-foundation-vault-entries.md`
 - план обмена: `docs/superpowers/plans/2026-10-21-08-local-transfer.md`
+- Android: `docs/superpowers/specs/2026-10-21-android-parity-design.md`
 
 ## Безопасность
 

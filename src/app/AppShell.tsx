@@ -6,9 +6,12 @@ import {
   Timer,
   Wand2,
   FileWarning,
+  MoreHorizontal,
 } from "lucide-react";
 import { KeyRound } from "lucide-react";
-import { useState } from "react";
+import { exit, onBackButtonPress } from "@tauri-apps/api/app";
+import type { PluginListener } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
@@ -28,6 +31,7 @@ import { navItems, type AppSection } from "@/features/vault/navigation";
 import { useVaultStore } from "@/features/vault/store";
 import { useAutoLock } from "@/features/vault/useAutoLock";
 import { cn } from "@/lib/cn";
+import { isAndroidPlatform } from "@/lib/platform";
 
 const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   entries: { title: "Записи", subtitle: "Логины, пароли и всё, что нужно помнить" },
@@ -38,6 +42,10 @@ const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   audit: { title: "Проверка", subtitle: "Слабые и повторяющиеся пароли" },
   settings: { title: "Настройки", subtitle: "Хранилище, безопасность и оформление" },
 };
+
+const mobilePrimarySections = new Set<AppSection>(["entries", "totp", "ssh", "settings"]);
+const mobilePrimaryItems = navItems.filter((item) => mobilePrimarySections.has(item.id));
+const mobileMoreItems = navItems.filter((item) => !mobilePrimarySections.has(item.id));
 
 const sectionEmpty = {
   entries: {
@@ -87,6 +95,7 @@ export function AppShell() {
   } | null>(null);
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const data = useVaultStore((state) => state.data);
   const lock = useVaultStore((state) => state.lock);
   const removeDraft = useVaultStore((state) => state.removeDraft);
@@ -121,6 +130,40 @@ export function AppShell() {
 
   useAutoLock({ enabled: true, onLock: () => void saveDraftAndLock() });
 
+  useEffect(() => {
+    if (!isAndroidPlatform()) return;
+    let listener: PluginListener | null = null;
+    let mounted = true;
+    void onBackButtonPress(() => {
+      if (moreOpen) {
+        setMoreOpen(false);
+        return;
+      }
+      if (lockDialogOpen) {
+        setLockDialogOpen(false);
+        return;
+      }
+      const handled = new CustomEvent("pms:android-back", { cancelable: true });
+      const wasHandled = !window.dispatchEvent(handled);
+      if (wasHandled) return;
+      if (active !== "entries") {
+        setActive("entries");
+        setEntryToOpen(null);
+        return;
+      }
+      void exit(0);
+    })
+      .then((registered) => {
+        if (mounted) listener = registered;
+        else void registered.unregister();
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+      void listener?.unregister();
+    };
+  }, [moreOpen, lockDialogOpen, active]);
+
   const meta = sectionMeta[active];
   const empty = sectionEmpty[active];
   const drafts = data?.drafts ?? [];
@@ -154,8 +197,8 @@ export function AppShell() {
         onLock={requestLock}
       />
 
-      <main className="flex h-screen min-w-0 flex-1 flex-col pb-20 lg:pb-0">
-        <header className="shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 px-5 py-4 backdrop-blur-md sm:px-7">
+      <main className="flex h-screen min-w-0 flex-1 flex-col pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-0">
+        <header className="shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 px-5 pb-4 pt-10 sm:pt-4 backdrop-blur-md sm:px-7">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <h1 className="pms-display text-[24px] leading-tight tracking-tight">{meta.title}</h1>
@@ -230,7 +273,7 @@ export function AppShell() {
         aria-label="Основная навигация"
         className="fixed inset-x-0 bottom-0 z-30 flex border-t border-[var(--border)] bg-[var(--surface)]/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-md lg:hidden"
       >
-        {navItems.map((item) => {
+        {mobilePrimaryItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.id === active;
           return (
@@ -238,7 +281,7 @@ export function AppShell() {
               key={item.id}
               type="button"
               aria-current={isActive ? "page" : undefined}
-              onClick={() => setActive(item.id)}
+              onClick={() => navigate(item.id)}
               className={cn(
                 "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-[var(--radius-sm)] px-1 py-1.5 text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                 isActive ? "text-[var(--accent-soft)]" : "text-[var(--muted)]",
@@ -249,7 +292,47 @@ export function AppShell() {
             </button>
           );
         })}
+        <button
+          type="button"
+          aria-current={!mobilePrimarySections.has(active) ? "page" : undefined}
+          onClick={() => setMoreOpen(true)}
+          className={cn(
+            "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-[var(--radius-sm)] px-1 py-1.5 text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+            !mobilePrimarySections.has(active) ? "text-[var(--accent-soft)]" : "text-[var(--muted)]",
+          )}
+        >
+          <MoreHorizontal size={19} strokeWidth={1.8} />
+          <span className="truncate">Ещё</span>
+        </button>
       </nav>
+
+      <Modal
+        open={moreOpen}
+        onOpenChange={setMoreOpen}
+        title="Ещё"
+        description="Дополнительные разделы PMS"
+        className="w-[min(92vw,420px)]"
+      >
+        <div className="grid gap-2">
+          {mobileMoreItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  navigate(item.id);
+                  setMoreOpen(false);
+                }}
+                className="flex h-11 items-center gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)]/50 px-3 text-left text-[13px] text-[var(--text-soft)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]"
+              >
+                <Icon size={17} className="text-[var(--accent-soft)]" />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
 
       <Modal
         open={lockDialogOpen}

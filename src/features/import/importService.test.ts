@@ -15,6 +15,8 @@ function storage(): VaultStorage {
   return {
     pickFolder: vi.fn(),
     pickFile: vi.fn(),
+    pickSaveFile: vi.fn(),
+    displayName: vi.fn((value: string) => value.split("/").at(-1) ?? "Хранилище"),
     readFile: vi.fn(),
     vaultExists: vi.fn(),
     ensureLayout: vi.fn(),
@@ -29,6 +31,7 @@ function storage(): VaultStorage {
     saveFile: vi.fn(),
     readBlob: vi.fn(),
     writeBlob: vi.fn(),
+    listBlobIds: vi.fn().mockResolvedValue([]),
     deleteBlob: vi.fn(),
   };
 }

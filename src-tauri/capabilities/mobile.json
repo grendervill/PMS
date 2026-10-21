@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Разрешения Android-приложения PMS",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": [
+    "core:app:allow-exit",
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener",
+    "android-fs:all",
+    "biometric:default",
+    "biometric:allow-biometric-cipher"
+  ]
+}

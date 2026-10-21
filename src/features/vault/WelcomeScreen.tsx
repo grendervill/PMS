@@ -2,8 +2,8 @@ import { useState } from "react";
 import { ChevronRight, FolderOpen, Lock, Plus, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { getStorage } from "@/lib/storage";
+import { importVaultArchive } from "@/lib/storage/archive";
 import { CreateVaultWizard } from "@/features/vault/CreateVaultWizard";
-import { vaultApi } from "@/features/vault/api";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 
@@ -42,7 +42,7 @@ export function WelcomeScreen() {
       if (!archive) return;
       const destination = await storage.pickFolder();
       if (!destination) return;
-      const imported = await vaultApi.pmsImport(archive, destination);
+      const imported = await importVaultArchive(archive, destination);
       await openVault(imported);
     } catch (importError) {
       setArchiveError(errorText(importError));

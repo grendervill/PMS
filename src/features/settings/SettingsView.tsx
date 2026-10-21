@@ -1,6 +1,5 @@
 import { Archive, Check, Fingerprint, KeyRound, Loader2, Palette, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/toast-context";
@@ -21,6 +20,8 @@ import { isBiometricEnabled } from "@/features/vault/biometric";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import { getStorage } from "@/lib/storage";
+import { exportVaultArchive, importVaultArchive } from "@/lib/storage/archive";
+import { isAndroidPlatform } from "@/lib/platform";
 import { cn } from "@/lib/cn";
 
 export function SettingsView() {
@@ -37,6 +38,7 @@ export function SettingsView() {
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [selectedIcon, setSelectedIcon] = useState<AppIconId>(() => getSelectedAppIcon());
   const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
+  const android = isAndroidPlatform();
   const [backupBusy, setBackupBusy] = useState(false);
   const [lastBackup, setLastBackup] = useState<Date | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -133,7 +135,9 @@ export function SettingsView() {
         setEnabled(true);
         toast.show({
           title: "Биометрия включена",
-          description: "При запуске приложение сразу предложит Touch ID.",
+          description: android
+            ? "При запуске приложение сразу предложит биометрию."
+            : "При запуске приложение сразу предложит Touch ID.",
           tone: "success",
         });
       } else {
@@ -180,12 +184,18 @@ export function SettingsView() {
     if (!vaultPath || !data) return;
     setArchiveBusy(true);
     try {
-      const destination = await save({
-        defaultPath: `${data.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "pms"}.pmsvault`,
-      });
+      const destination = await exportVaultArchive(
+        vaultPath,
+        `${data.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "pms"}.pmsvault`,
+      );
       if (!destination) return;
-      await vaultApi.pmsExport(vaultPath, destination);
-      toast.show({ title: "Резервная копия создана", description: destination, tone: "success" });
+      toast.show({
+        title: "Резервная копия создана",
+        description: isAndroidPlatform()
+          ? getStorage().displayName(destination)
+          : destination,
+        tone: "success",
+      });
     } catch (error) {
       toast.show({
         title: "Не удалось экспортировать хранилище",
@@ -205,7 +215,7 @@ export function SettingsView() {
       if (!archive) return;
       const destination = await storage.pickFolder();
       if (!destination) return;
-      const imported = await vaultApi.pmsImport(archive, destination);
+      const imported = await importVaultArchive(archive, destination);
       await lock();
       await openVault(imported);
     } catch (error) {
@@ -235,10 +245,12 @@ export function SettingsView() {
               label="Всегда разблокировать при помощи биометрии"
               description={
                 checking
-                  ? "Проверяем доступность Touch ID…"
+                  ? "Проверяем доступность биометрии…"
                   : available === true
                     ? "При запуске приложение сразу попросит отпечаток. Отмена или 5 неудач вернут ввод пароль-фразы."
-                    : "На этом Mac нет доступного Touch ID. Вход по пароль-фразе или ключ-файлу остаётся."
+                    : android
+                      ? "На этом устройстве нет доступной биометрии. Вход по пароль-фразе или ключ-файлу остаётся."
+                      : "На этом Mac нет доступного Touch ID. Вход по пароль-фразе или ключ-файлу остаётся."
               }
             />
             {enabled && available === true ? (
@@ -256,6 +268,7 @@ export function SettingsView() {
           </div>
         </section>
 
+        {!android ? (
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
             <Palette size={15} className="text-[var(--accent-soft)]" />
@@ -313,6 +326,7 @@ export function SettingsView() {
             </p>
           </div>
         </section>
+        ) : null}
 
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">

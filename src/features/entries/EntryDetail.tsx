@@ -104,7 +104,7 @@ export function EntryDetail({
               {monogram(entry.name)}
             </div>
             <div className="min-w-0">
-              <h2 className="pms-display break-words text-[27px] leading-tight tracking-tight">
+              <h2 className="pms-display break-words text-[23px] leading-tight tracking-tight sm:text-[27px]">
                 {entry.name}
               </h2>
               {host ? (
@@ -121,16 +121,16 @@ export function EntryDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
-            <IconButton label="Поделиться по QR" onClick={() => setShareOpen(true)}>
+            <IconButton label="Поделиться по QR" size="sm" onClick={() => setShareOpen(true)}>
               <QrCode size={15} />
             </IconButton>
-            <IconButton label="Редактировать" onClick={onEdit}>
+            <IconButton label="Редактировать" size="sm" onClick={onEdit}>
               <Pencil size={15} />
             </IconButton>
-            <IconButton label="История" onClick={onHistory}>
+            <IconButton label="История" size="sm" onClick={onHistory}>
               <History size={15} />
             </IconButton>
-            <IconButton label="Удалить" onClick={onDelete} className="hover:text-[var(--danger)]">
+            <IconButton label="Удалить" size="sm" onClick={onDelete} className="hover:text-[var(--danger)]">
               <Trash2 size={15} />
             </IconButton>
           </div>

@@ -483,3 +483,14 @@ test("replaces the current vault after a transfer", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible();
 });
+
+test("mobile navigation exposes the extra sections", async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await createVault(page);
+
+  await expect(page.getByRole("button", { name: "Записи", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ещё", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Ещё", exact: true }).click();
+  await page.getByRole("button", { name: "Обмен", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Обмен", exact: true })).toBeVisible();
+});

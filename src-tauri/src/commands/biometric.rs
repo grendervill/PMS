@@ -1,12 +1,13 @@
 use base64::Engine as _;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::commands::vault::UnlockVaultResponse;
 use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::vault::unlock_vault_with_key;
 
+#[cfg(target_os = "macos")]
 const SERVICE: &str = "dev.pms.vault.biometric";
 
 #[derive(Debug, Serialize)]
@@ -16,42 +17,109 @@ pub struct BiometricStatus {
 }
 
 #[tauri::command]
-pub fn biometric_status() -> ApiResult<BiometricStatus> {
-    Ok(BiometricStatus {
-        available: imp::available(),
-    })
+pub async fn biometric_status(app: AppHandle) -> ApiResult<BiometricStatus> {
+    let _ = &app;
+    #[cfg(target_os = "macos")]
+    let available = imp::available();
+    #[cfg(target_os = "android")]
+    let available = android::available(&app);
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
+    let available = false;
+
+    Ok(BiometricStatus { available })
 }
 
 #[tauri::command]
-pub fn biometric_enroll(session_id: Uuid, state: State<'_, AppState>) -> ApiResult<()> {
+pub async fn biometric_enroll(
+    session_id: Uuid,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> ApiResult<()> {
+    let _ = &app;
     let (vault_id, key) = state.sessions.with(session_id, |session| {
         Ok((session.vault_id(), *session.vault_key()))
     })?;
-    imp::enroll(vault_id, &key)
+
+    #[cfg(target_os = "macos")]
+    {
+        imp::enroll(vault_id, &key)
+    }
+    #[cfg(target_os = "android")]
+    {
+        android::enroll(&app, vault_id, &key)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
+    {
+        let _ = (app, vault_id, key);
+        Err(ApiError::new(
+            "biometric_unavailable",
+            "Биометрия на этом устройстве недоступна",
+        ))
+    }
 }
 
 #[tauri::command]
-pub fn biometric_disable(vault_id: Uuid) -> ApiResult<()> {
-    imp::disable(vault_id)
+pub async fn biometric_disable(vault_id: Uuid, app: AppHandle) -> ApiResult<()> {
+    let _ = &app;
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        imp::disable(vault_id)
+    }
+    #[cfg(target_os = "android")]
+    {
+        android::disable(&app, vault_id)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
+    {
+        let _ = (app, vault_id);
+        Ok(())
+    }
 }
 
 #[tauri::command]
-pub fn biometric_unlock(
+pub async fn biometric_unlock(
     file_b64: String,
     vault_id: Uuid,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> ApiResult<UnlockVaultResponse> {
+    let _ = &app;
+    #[cfg(target_os = "macos")]
     if !imp::available() {
         return Err(ApiError::new(
             "biometric_unavailable",
             "Биометрия на этом устройстве недоступна",
         ));
     }
+    #[cfg(target_os = "android")]
+    if !android::available(&app) {
+        return Err(ApiError::new(
+            "biometric_unavailable",
+            "Биометрия на этом устройстве недоступна",
+        ));
+    }
+
     let file = base64::engine::general_purpose::STANDARD
         .decode(file_b64)
         .map_err(|_| ApiError::bad_base64())?;
-    imp::unlock(vault_id)?;
-    let key = imp::read(vault_id)?;
+
+    #[cfg(target_os = "macos")]
+    let key = {
+        imp::unlock(vault_id)?;
+        imp::read(vault_id)?
+    };
+    #[cfg(target_os = "android")]
+    let key = android::authenticate_and_read(&app, vault_id)?;
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
+    let key: [u8; 32] = {
+        let _ = (app, vault_id);
+        return Err(ApiError::new(
+            "biometric_unavailable",
+            "Биометрия на этом устройстве недоступна",
+        ));
+    };
+
     let (session, data) = unlock_vault_with_key(&file, &key).map_err(ApiError::from)?;
     let session_id = session.id;
     state.sessions.put(session);
@@ -270,7 +338,115 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "android")]
+mod android {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use base64::Engine as _;
+    use tauri::{AppHandle, Manager};
+    use tauri_plugin_biometric::{AuthOptions, BiometricExt};
+    use uuid::Uuid;
+
+    use crate::commands::{ApiError, ApiResult};
+
+    fn key_path(app: &AppHandle, vault_id: Uuid) -> ApiResult<PathBuf> {
+        let directory = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| ApiError::new("biometric_storage", error.to_string()))?
+            .join("biometric");
+        fs::create_dir_all(&directory)
+            .map_err(|error| ApiError::new("biometric_storage", error.to_string()))?;
+        Ok(directory.join(format!("{vault_id}.bin")))
+    }
+
+    fn auth_options() -> AuthOptions {
+        AuthOptions {
+            allow_device_credential: true,
+            cancel_title: Some("Отмена".to_string()),
+            title: Some("Разблокировать PMS".to_string()),
+            subtitle: Some("Подтвердите личность".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn map_error(error: tauri_plugin_biometric::Error) -> ApiError {
+        let message = error.to_string().to_lowercase();
+        if message.contains("cancel") || message.contains("отмен") {
+            ApiError::new("biometric_cancelled", "Вход по отпечатку отменён")
+        } else if message.contains("lockout") || message.contains("too many") {
+            ApiError::new(
+                "biometric_lockout",
+                "Биометрия временно заблокирована. Введите пароль-фразу",
+            )
+        } else {
+            ApiError::new("biometric_failed", "Отпечаток не распознан. Попробуйте ещё раз.")
+        }
+    }
+
+    pub fn available(app: &AppHandle) -> bool {
+        app.biometric()
+            .status()
+            .map(|status| status.is_available)
+            .unwrap_or(false)
+    }
+
+    pub fn enroll(app: &AppHandle, vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(key);
+        let decrypted = app
+            .biometric()
+            .biometric_cipher(
+                "Включить вход по биометрии PMS".to_string(),
+                AuthOptions {
+                    data_to_encrypt: Some(encoded),
+                    ..auth_options()
+                },
+            )
+            .map_err(map_error)?;
+        let path = key_path(app, vault_id)?;
+        fs::write(path, decrypted.data)
+            .map_err(|error| ApiError::new("biometric_storage", error.to_string()))?;
+        Ok(())
+    }
+
+    pub fn disable(app: &AppHandle, vault_id: Uuid) -> ApiResult<()> {
+        let path = key_path(app, vault_id)?;
+        if path.exists() {
+            fs::remove_file(path)
+                .map_err(|error| ApiError::new("biometric_storage", error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    pub fn authenticate_and_read(app: &AppHandle, vault_id: Uuid) -> ApiResult<[u8; 32]> {
+        let path = key_path(app, vault_id)?;
+        let encrypted = fs::read_to_string(path).map_err(|_| {
+            ApiError::new(
+                "biometric_key_missing",
+                "Сохранённый ключ биометрии не найден",
+            )
+        })?;
+        let decrypted = app
+            .biometric()
+            .biometric_cipher(
+                "Разблокировать хранилище PMS".to_string(),
+                AuthOptions {
+                    data_to_decrypt: Some(encrypted),
+                    ..auth_options()
+                },
+            )
+            .map_err(map_error)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(decrypted.data)
+            .map_err(|_| ApiError::new("biometric_failed", "Повреждён ключ биометрии"))?;
+        bytes.try_into().map_err(|_| {
+            ApiError::new("biometric_failed", "Повреждён ключ биометрии")
+        })
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
 mod imp {
     use uuid::Uuid;
 

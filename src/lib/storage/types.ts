@@ -8,6 +8,8 @@ export type RecentVault = {
 export type VaultStorage = {
   pickFolder(): Promise<string | null>;
   pickFile(title?: string): Promise<string | null>;
+  pickSaveFile(defaultName: string, mimeType?: string): Promise<string | null>;
+  displayName(value: string): string;
   readFile(path: string): Promise<Uint8Array>;
   vaultExists(folder: string): Promise<boolean>;
   ensureLayout(folder: string): Promise<void>;
@@ -22,5 +24,6 @@ export type VaultStorage = {
   saveFile(path: string, bytes: Uint8Array): Promise<void>;
   readBlob(folder: string, id: string): Promise<Uint8Array>;
   writeBlob(folder: string, id: string, bytes: Uint8Array): Promise<void>;
+  listBlobIds(folder: string): Promise<string[]>;
   deleteBlob(folder: string, id: string): Promise<void>;
 };

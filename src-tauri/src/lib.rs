@@ -5,10 +5,17 @@ use commands::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(target_os = "android")]
+    let builder = builder
+        .plugin(tauri_plugin_android_fs::init())
+        .plugin(tauri_plugin_biometric::init());
+
+    builder
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::vault::vault_inspect,
@@ -51,6 +58,7 @@ pub fn run() {
             commands::storage::storage_stat,
             commands::storage::storage_list_dir,
             commands::storage::storage_remove_file,
+            commands::storage::storage_remove_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");

@@ -92,11 +92,6 @@ function toErrorInfo(error: unknown): VaultErrorInfo {
   return { code: "unknown", message: "Не удалось выполнить операцию" };
 }
 
-function baseName(path: string) {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts.at(-1) ?? "Хранилище";
-}
-
 function recentEntry(path: string, name: string, vaultId: string): RecentVault {
   return {
     path,
@@ -175,7 +170,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     try {
       const file = await getStorage().readVault(path);
       const info = await vaultApi.inspect(file);
-      const recent = addRecent(recentEntry(path, baseName(path), info.vaultId));
+      const recent = addRecent(recentEntry(path, getStorage().displayName(path), info.vaultId));
 
       set({
         status: "locked",

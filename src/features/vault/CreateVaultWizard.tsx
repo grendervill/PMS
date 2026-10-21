@@ -33,10 +33,6 @@ import { cn } from "@/lib/cn";
 
 const steps = ["Папка", "Защита", "Проверка"];
 
-function basename(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? "Хранилище";
-}
-
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} Б`;
   return `${(bytes / 1024).toFixed(1)} КБ`;
@@ -92,7 +88,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
     setDraft((current) => ({
       ...current,
       folder: path,
-      name: current.name || basename(path),
+      name: current.name || getStorage().displayName(path),
     }));
     setErrors((current) => {
       const next = { ...current };
@@ -117,7 +113,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
         return;
       }
       update("keyfile", {
-        name: basename(path),
+        name: getStorage().displayName(path),
         bytes,
         passphrase: "",
         isSsh: kind === "ssh",
@@ -181,7 +177,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
         : "bg-[var(--accent)]";
 
   return (
-    <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+    <main className="min-h-screen bg-[var(--bg)] pt-3 text-[var(--text)]">
       <header className="border-b border-[var(--border)] px-5 py-4 sm:px-8">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <button
@@ -258,7 +254,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
                       )}
                     >
                       <span className={cn("truncate", draft.folder ? "text-[var(--text)]" : "text-[var(--muted)]")}>
-                        {draft.folder || "Папка не выбрана"}
+                        {draft.folder ? getStorage().displayName(draft.folder) : "Папка не выбрана"}
                       </span>
                     </div>
                     <Button variant="secondary" onClick={() => void pickFolder()}>
@@ -473,7 +469,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
 
               <div className="mt-6 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)]">
                 {[
-                  ["Папка", draft.folder],
+                  ["Папка", draft.folder ? getStorage().displayName(draft.folder) : ""],
                   ["Название", draft.name.trim()],
                   [
                     "Способы входа",
