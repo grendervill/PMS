@@ -11,6 +11,7 @@ export async function installMockTauri(page: Page) {
       vault: null | {
         data: Record<string, unknown>;
         passphrase: string | null;
+        keyfileB64: string | null;
         slotKinds: string[];
         createdAt: string;
       };
@@ -118,7 +119,14 @@ export async function installMockTauri(page: Page) {
           const id = "vault-e2e";
           state.vault = {
             data: makeData(config.name, id, now),
-            passphrase: secret.kind === "passphrase" ? (secret.value ?? "") : null,
+            passphrase:
+              secret.kind === "passphrase" || secret.kind === "passphraseKeyfile"
+                ? (secret.value ?? "")
+                : null,
+            keyfileB64:
+              secret.kind === "keyfile" || secret.kind === "passphraseKeyfile"
+                ? ((secret as { bytesB64?: string }).bytesB64 ?? null)
+                : null,
             slotKinds: [secret.kind],
             createdAt: now,
           };
@@ -143,7 +151,19 @@ export async function installMockTauri(page: Page) {
         }
         case "vault_unlock": {
           const vault = requireVault();
-          if (secret.kind !== "passphrase" || secret.value !== vault.passphrase) {
+          const keyfile = (secret as { bytesB64?: string }).bytesB64 ?? null;
+          const passOk =
+            (secret.kind === "passphrase" || secret.kind === "passphraseKeyfile") &&
+            secret.value === vault.passphrase;
+          const keyOk =
+            (secret.kind === "keyfile" || secret.kind === "passphraseKeyfile") &&
+            keyfile !== null &&
+            keyfile === vault.keyfileB64;
+          if (
+            (secret.kind === "passphrase" && !passOk) ||
+            (secret.kind === "keyfile" && !keyOk) ||
+            (secret.kind === "passphraseKeyfile" && !(passOk && keyOk))
+          ) {
             throw { code: "invalid_credentials", message: "Неверный пароль" };
           }
           state.session = "session-e2e";

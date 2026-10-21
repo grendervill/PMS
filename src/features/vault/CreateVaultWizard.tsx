@@ -276,7 +276,8 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
             <section className="pms-rise">
               <h1 className="pms-display text-[28px] leading-tight">Чем закрыть хранилище?</h1>
               <p className="mt-2 max-w-lg text-[13px] leading-relaxed text-[var(--muted)]">
-                Пароль-фраза, ключ-файл или оба способа. Пароль-фраза не хранится;
+                Пароль-фраза, ключ-файл или оба сразу. Если выбрать оба, для входа
+                понадобятся и пароль-фраза, и ключ-файл. Пароль-фраза не хранится;
                 ключ-файл остаётся отдельным файлом на вашем устройстве.
               </p>
 
@@ -343,6 +344,13 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
                         Пересохранение, синхронизация или редактирование файла
                         сделают вход невозможным.
                       </p>
+                      {draft.passphrase ? (
+                        <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--accent-soft)]">
+                          Вместе с пароль-фразой: для входа понадобятся оба фактора.
+                          Если нужен отдельный SSH-ключ как альтернатива, создайте
+                          хранилище только с ключ-файлом.
+                        </p>
+                      ) : null}
                     </div>
                     {draft.keyfile ? (
                       <IconButton

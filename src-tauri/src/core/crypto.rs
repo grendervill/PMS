@@ -22,6 +22,11 @@ pub enum UnlockSecretInput {
         bytes: Vec<u8>,
         passphrase: Option<String>,
     },
+    PassphraseKeyfile {
+        passphrase: String,
+        bytes: Vec<u8>,
+        keyfile_passphrase: Option<String>,
+    },
 }
 
 impl UnlockSecretInput {
@@ -29,6 +34,7 @@ impl UnlockSecretInput {
         match self {
             Self::Passphrase { .. } => KdfSlotKind::Passphrase,
             Self::Keyfile { .. } => KdfSlotKind::Keyfile,
+            Self::PassphraseKeyfile { .. } => KdfSlotKind::PassphraseKeyfile,
         }
     }
 }
@@ -280,23 +286,47 @@ pub fn canonical_secret(secret: &UnlockSecretInput) -> Result<Zeroizing<Vec<u8>>
             Ok(Zeroizing::new(normalized.into_bytes()))
         }
         UnlockSecretInput::Keyfile { bytes, passphrase } => {
-            if bytes.is_empty() {
+            keyfile_canonical(bytes, passphrase.as_deref())
+        }
+        UnlockSecretInput::PassphraseKeyfile {
+            passphrase,
+            bytes,
+            keyfile_passphrase,
+        } => {
+            let normalized: String = passphrase.nfc().collect();
+            if normalized.is_empty() || bytes.is_empty() {
                 return Err(VaultError::EmptySecret);
             }
-            let (domain, material) = keyfile_material(bytes, passphrase.as_deref())?;
-            let material = Zeroizing::new(material);
+            let keyfile = keyfile_canonical(bytes, keyfile_passphrase.as_deref())?;
             let mut hasher = Sha256::new();
-            if domain == "file" {
-                hasher.update(b"PMS-KEYFILE-FILE-v1");
-            } else {
-                hasher.update(b"PMS-KEYFILE-SSH-v1");
-                hasher.update((domain.len() as u32).to_le_bytes());
-                hasher.update(domain.as_bytes());
-            }
-            hasher.update(&*material);
+            hasher.update(b"PMS-PASSFILE-v1");
+            hasher.update((normalized.len() as u32).to_le_bytes());
+            hasher.update(normalized.as_bytes());
+            hasher.update(&*keyfile);
             Ok(Zeroizing::new(hasher.finalize().to_vec()))
         }
     }
+}
+
+fn keyfile_canonical(
+    bytes: &[u8],
+    passphrase: Option<&str>,
+) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+    if bytes.is_empty() {
+        return Err(VaultError::EmptySecret);
+    }
+    let (domain, material) = keyfile_material(bytes, passphrase)?;
+    let material = Zeroizing::new(material);
+    let mut hasher = Sha256::new();
+    if domain == "file" {
+        hasher.update(b"PMS-KEYFILE-FILE-v1");
+    } else {
+        hasher.update(b"PMS-KEYFILE-SSH-v1");
+        hasher.update((domain.len() as u32).to_le_bytes());
+        hasher.update(domain.as_bytes());
+    }
+    hasher.update(&*material);
+    Ok(Zeroizing::new(hasher.finalize().to_vec()))
 }
 
 fn derive_payload_key(

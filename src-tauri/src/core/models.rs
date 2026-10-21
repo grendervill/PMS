@@ -33,6 +33,8 @@ impl CipherSuite {
 pub enum KdfSlotKind {
     Passphrase,
     Keyfile,
+    #[serde(rename = "passphrase-keyfile")]
+    PassphraseKeyfile,
 }
 
 impl KdfSlotKind {
@@ -40,6 +42,7 @@ impl KdfSlotKind {
         match self {
             Self::Passphrase => 1,
             Self::Keyfile => 2,
+            Self::PassphraseKeyfile => 3,
         }
     }
 }

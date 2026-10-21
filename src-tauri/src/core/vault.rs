@@ -444,6 +444,37 @@ mod tests {
     }
 
     #[test]
+    fn passphrase_and_keyfile_are_required_together() {
+        let combined = UnlockSecretInput::PassphraseKeyfile {
+            passphrase: "correct horse".to_string(),
+            bytes: b"backup-key".to_vec(),
+            keyfile_passphrase: None,
+        };
+        let (file, _, data) = create_vault(&config("Combined"), &combined).unwrap();
+        let (_, unlocked) = unlock_vault(&file, &combined).unwrap();
+        assert_eq!(unlocked, data);
+        assert!(matches!(
+            unlock_vault(&file, &passphrase("correct horse")),
+            Err(VaultError::InvalidCredentials)
+        ));
+        assert!(matches!(
+            unlock_vault(&file, &keyfile(b"backup-key")),
+            Err(VaultError::InvalidCredentials)
+        ));
+        assert!(matches!(
+            unlock_vault(
+                &file,
+                &UnlockSecretInput::PassphraseKeyfile {
+                    passphrase: "wrong".to_string(),
+                    bytes: b"backup-key".to_vec(),
+                    keyfile_passphrase: None,
+                }
+            ),
+            Err(VaultError::InvalidCredentials)
+        ));
+    }
+
+    #[test]
     fn unlock_with_raw_key_roundtrips() {
         let (file, session, data) =
             create_vault(&config("Bio"), &passphrase("correct horse")).unwrap();

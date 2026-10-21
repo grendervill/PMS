@@ -77,10 +77,20 @@ export function buildSecrets(draft: WizardDraft): {
       }
     : null;
 
+  if (draft.passphrase && draft.keyfile) {
+    return {
+      primary: {
+        kind: "passphraseKeyfile",
+        value: draft.passphrase,
+        bytesB64: toBase64(draft.keyfile.bytes),
+        passphrase: draft.keyfile.passphrase || undefined,
+      },
+    };
+  }
+
   if (draft.passphrase) {
     return {
       primary: { kind: "passphrase", value: draft.passphrase },
-      secondary: keyfileSecret ?? undefined,
     };
   }
 

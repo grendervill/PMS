@@ -6,7 +6,9 @@
 ## Что уже работает
 
 - Создание переносимого хранилища в выбранной папке и разблокировка
-  пароль-фразой, ключ-файлом (OpenSSH / PEM / PKCS#8) или Touch ID.
+  пароль-фразой, ключ-файлом (OpenSSH / PEM / PKCS#8), пароль-фразой вместе
+  с ключ-файлом или Touch ID. SSH-ключ можно использовать как отдельный
+  альтернативный способ входа, указав его парольную фразу.
 - Настройка «Всегда разблокировать при помощи биометрии»: до 5 попыток,
   затем обычный ввод пароль-фразы; ключ хранится в macOS Keychain.
 - Argon2id + XChaCha20-Poly1305 или AES-256-GCM; параметры KDF хранятся
@@ -49,7 +51,7 @@ pnpm tauri dev
 ```bash
 pnpm typecheck
 pnpm test          # 101 frontend-тест
-pnpm test:e2e      # 10 Playwright-сценариев, мок Tauri IPC
+pnpm test:e2e      # 11 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg

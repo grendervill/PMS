@@ -115,7 +115,13 @@ export function UnlockScreen() {
     setBioNotice(
       result.code === "biometric_lockout"
         ? "Биометрия временно заблокирована. Введите пароль-фразу."
-        : "Биометрия недоступна. Введите пароль-фразу.",
+        : result.code === "biometric_key_missing"
+          ? "Сохранённый ключ биометрии не найден. Введите пароль-фразу и включите биометрию заново."
+          : result.code === "biometric_cancelled"
+            ? "Вход по отпечатку отменён. Введите пароль-фразу."
+            : result.message
+              ? `Биометрия не сработала: ${result.message}`
+              : "Биометрия недоступна. Введите пароль-фразу.",
     );
   }, [bioAttemptsLeft, bioBusy, bioStopped, unlockBiometric]);
 
@@ -123,10 +129,10 @@ export function UnlockScreen() {
     if (autoTried.current || !bioEnabled || bioAvailable !== true || bioStopped) {
       return;
     }
-    autoTried.current = true;
     const timer = setTimeout(() => {
+      autoTried.current = true;
       void attemptBiometric();
-    }, 0);
+    }, 400);
     return () => clearTimeout(timer);
   }, [attemptBiometric, bioAvailable, bioEnabled, bioStopped]);
 
@@ -157,20 +163,32 @@ export function UnlockScreen() {
     setLocalError(null);
     let secret: UnlockSecret;
 
-    if (effectiveMethod === "passphrase") {
+    if (effectiveMethod === "passphrase" || effectiveMethod === "passphrase-keyfile") {
       if (!passphrase) {
         setLocalError("Введите пароль-фразу.");
         return;
       }
-      secret = { kind: "passphrase", value: passphrase };
-    } else {
+    }
+    if (effectiveMethod === "keyfile" || effectiveMethod === "passphrase-keyfile") {
       if (!keyfileBytes) {
         setLocalError("Выберите ключ-файл.");
         return;
       }
+    }
+
+    if (effectiveMethod === "passphrase") {
+      secret = { kind: "passphrase", value: passphrase };
+    } else if (effectiveMethod === "keyfile") {
       secret = {
         kind: "keyfile",
-        bytesB64: toBase64(keyfileBytes),
+        bytesB64: toBase64(keyfileBytes!),
+        passphrase: keyfilePassphrase || undefined,
+      };
+    } else {
+      secret = {
+        kind: "passphraseKeyfile",
+        value: passphrase,
+        bytesB64: toBase64(keyfileBytes!),
         passphrase: keyfilePassphrase || undefined,
       };
     }
@@ -261,21 +279,34 @@ export function UnlockScreen() {
               </p>
             ) : null}
             {slotKinds.length > 1 ? (
-              <div className="mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-1">
+              <div
+                className="mb-5 grid gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-1"
+                style={{ gridTemplateColumns: `repeat(${slotKinds.length}, minmax(0, 1fr))` }}
+              >
                 {slotKinds.map((kind) => (
                   <button
                     key={kind}
                     type="button"
                     onClick={() => chooseMethod(kind)}
                     className={cn(
-                      "flex h-8 items-center justify-center gap-1.5 rounded-[6px] text-[11.5px] transition-colors",
+                      "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-[6px] px-1.5 text-[11.5px] transition-colors",
                       effectiveMethod === kind
                         ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                         : "text-[var(--muted)] hover:text-[var(--text-soft)]",
                     )}
                   >
-                    {kind === "passphrase" ? <KeyRound size={13} /> : <FileKey size={13} />}
-                    {kind === "passphrase" ? "Пароль-фраза" : "Ключ-файл"}
+                    {kind === "passphrase" ? (
+                      <KeyRound size={13} />
+                    ) : kind === "keyfile" ? (
+                      <FileKey size={13} />
+                    ) : (
+                      <ShieldCheck size={13} />
+                    )}
+                    {kind === "passphrase"
+                      ? "Пароль-фраза"
+                      : kind === "keyfile"
+                        ? "Ключ-файл"
+                        : "Пароль + файл"}
                   </button>
                 ))}
               </div>
@@ -287,8 +318,16 @@ export function UnlockScreen() {
                 void submit();
               }}
             >
-              {effectiveMethod === "passphrase" ? (
-                <Field label="Пароль-фраза" htmlFor="unlock-passphrase">
+              {effectiveMethod !== "keyfile" ? (
+                <Field
+                  label="Пароль-фраза"
+                  htmlFor="unlock-passphrase"
+                  hint={
+                    effectiveMethod === "passphrase-keyfile"
+                      ? "Вместе с ключ-файлом. Нужны оба."
+                      : undefined
+                  }
+                >
                   <SecretInput
                     id="unlock-passphrase"
                     value={passphrase}
@@ -298,11 +337,12 @@ export function UnlockScreen() {
                       clearError();
                     }}
                     placeholder="Введите пароль-фразу"
-                    autoFocus
                   />
                 </Field>
-              ) : (
-                <div className="flex flex-col gap-3">
+              ) : null}
+
+              {effectiveMethod !== "passphrase" ? (
+                <div className={cn("flex flex-col gap-3", effectiveMethod === "passphrase-keyfile" && "mt-4")}>
                   {keyfileName ? (
                     <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5">
                       <FileKey size={15} className="shrink-0 text-[var(--accent-soft)]" />
@@ -353,7 +393,7 @@ export function UnlockScreen() {
                     />
                   </Field>
                 </div>
-              )}
+              ) : null}
 
               {message ? (
                 <p

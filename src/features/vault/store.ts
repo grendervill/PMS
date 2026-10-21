@@ -38,7 +38,7 @@ export type VaultActions = {
   createVault: (input: CreateVaultInput) => Promise<boolean>;
   openVault: (path: string) => Promise<boolean>;
   unlock: (secret: UnlockSecret) => Promise<boolean>;
-  unlockBiometric: () => Promise<{ ok: boolean; code?: string }>;
+  unlockBiometric: () => Promise<{ ok: boolean; code?: string; message?: string }>;
   enrollBiometric: () => Promise<boolean>;
   disableBiometric: () => Promise<boolean>;
   save: (data: VaultData) => Promise<boolean>;
@@ -273,6 +273,12 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       return {
         ok: false,
         code: error instanceof VaultApiError ? error.code : "biometric_failed",
+        message:
+          error instanceof VaultApiError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : undefined,
       };
     }
   },

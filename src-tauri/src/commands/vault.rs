@@ -22,6 +22,12 @@ pub enum UnlockSecretDto {
         bytes_b64: String,
         passphrase: Option<String>,
     },
+    PassphraseKeyfile {
+        value: String,
+        #[serde(rename = "bytesB64")]
+        bytes_b64: String,
+        passphrase: Option<String>,
+    },
 }
 
 impl TryFrom<UnlockSecretDto> for UnlockSecretInput {
@@ -38,6 +44,20 @@ impl TryFrom<UnlockSecretDto> for UnlockSecretInput {
                     .decode(bytes_b64)
                     .map_err(|_| ApiError::bad_base64())?;
                 Ok(UnlockSecretInput::Keyfile { bytes, passphrase })
+            }
+            UnlockSecretDto::PassphraseKeyfile {
+                value,
+                bytes_b64,
+                passphrase,
+            } => {
+                let bytes = STANDARD
+                    .decode(bytes_b64)
+                    .map_err(|_| ApiError::bad_base64())?;
+                Ok(UnlockSecretInput::PassphraseKeyfile {
+                    passphrase: value,
+                    bytes,
+                    keyfile_passphrase: passphrase,
+                })
             }
         }
     }

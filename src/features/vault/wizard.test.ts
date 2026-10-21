@@ -50,7 +50,7 @@ describe("vault wizard validation", () => {
     expect(hasErrors(errors)).toBe(false);
   });
 
-  it("builds a passphrase secret with a keyfile as the second method", () => {
+  it("builds a combined passphrase and keyfile secret", () => {
     const secrets = buildSecrets(
       draft({
         passphrase: "correct horse",
@@ -59,12 +59,13 @@ describe("vault wizard validation", () => {
       }),
     );
 
-    expect(secrets.primary).toEqual({ kind: "passphrase", value: "correct horse" });
-    expect(secrets.secondary).toEqual({
-      kind: "keyfile",
+    expect(secrets.primary).toEqual({
+      kind: "passphraseKeyfile",
+      value: "correct horse",
       bytesB64: "AQID",
       passphrase: "ssh",
     });
+    expect(secrets.secondary).toBeUndefined();
   });
 
   it("builds a keyfile-only primary secret", () => {

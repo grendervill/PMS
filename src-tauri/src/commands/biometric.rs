@@ -226,6 +226,31 @@ mod imp {
         }
 
         #[test]
+        fn stored_key_unlocks_the_vault() {
+            use crate::core::crypto::UnlockSecretInput;
+            use crate::core::models::CipherSuite;
+            use crate::core::vault::{CreateVaultConfig, create_vault, unlock_vault_with_key};
+
+            let (file, session, data) = create_vault(
+                &CreateVaultConfig {
+                    name: "Bio".to_string(),
+                    kdf_profile: crate::core::crypto::KdfProfile::Standard,
+                    cipher: CipherSuite::XChaCha20Poly1305,
+                },
+                &UnlockSecretInput::Passphrase {
+                    value: "correct horse".to_string(),
+                },
+            )
+            .unwrap();
+            let vault_id = session.vault_id();
+            store(vault_id, session.vault_key()).unwrap();
+            let key = read(vault_id).unwrap();
+            let (_, unlocked) = unlock_vault_with_key(&file, &key).unwrap();
+            assert_eq!(unlocked, data);
+            disable(vault_id).unwrap();
+        }
+
+        #[test]
         fn stores_and_reads_key_without_a_biometric_prompt() {
             let vault_id = Uuid::new_v4();
             let key = [7u8; 32];

@@ -361,3 +361,23 @@ test("selects an application icon", async ({ page }) => {
     .poll(() => page.evaluate(() => localStorage.getItem("pms.appIcon")))
     .toBe("blue-shield");
 });
+
+test("requires passphrase and keyfile together", async ({ page }) => {
+  await page.getByRole("button", { name: "Создать хранилище" }).click();
+  await page.getByRole("button", { name: "Выбрать" }).click();
+  await page.getByLabel("Название хранилища").fill("Combined");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByLabel("Повторите пароль-фразу").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Выбрать ключ-файл" }).click();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("button", { name: "Создать хранилище" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible();
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Выбрать ключ-файл" }).click();
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+});

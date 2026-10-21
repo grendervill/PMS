@@ -1,6 +1,6 @@
 export type CipherSuite = "xchacha20-poly1305" | "aes-256-gcm";
 export type KdfProfile = "standard" | "strong" | "paranoid";
-export type KdfSlotKind = "passphrase" | "keyfile";
+export type KdfSlotKind = "passphrase" | "keyfile" | "passphrase-keyfile";
 export type EntryKind = "login";
 
 export type HistoryItem = {
@@ -103,7 +103,13 @@ export type VaultPublicInfo = {
 
 export type UnlockSecret =
   | { kind: "passphrase"; value: string }
-  | { kind: "keyfile"; bytesB64: string; passphrase?: string };
+  | { kind: "keyfile"; bytesB64: string; passphrase?: string }
+  | {
+      kind: "passphraseKeyfile";
+      value: string;
+      bytesB64: string;
+      passphrase?: string;
+    };
 
 export type CreateVaultInput = {
   folder: string;

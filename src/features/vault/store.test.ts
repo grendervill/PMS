@@ -453,7 +453,7 @@ describe("vault store", () => {
 
     const result = await useVaultStore.getState().unlockBiometric();
 
-    expect(result).toEqual({ ok: false, code: "biometric_failed" });
+    expect(result).toMatchObject({ ok: false, code: "biometric_failed" });
     expect(useVaultStore.getState().status).toBe("locked");
     expect(useVaultStore.getState().data).toBeNull();
   });
