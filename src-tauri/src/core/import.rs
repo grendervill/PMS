@@ -99,6 +99,9 @@ pub fn parse(
     if bytes.starts_with(&[0x03, 0xD9, 0xA2, 0x9A]) {
         return super::import_keepass::parse(bytes, password, keyfile);
     }
+    if text_contains_keepass_xml(bytes) {
+        return super::import_keepass_xml::parse(bytes);
+    }
 
     if let Ok(mut archive) = zip::ZipArchive::new(Cursor::new(bytes)) {
         let mut names = Vec::new();
@@ -169,6 +172,11 @@ pub fn parse(
         return parse_csv(&text);
     }
     Err(VaultError::ImportUnsupported)
+}
+
+fn text_contains_keepass_xml(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(512)];
+    head.starts_with(b"<?xml") || head.windows(12).any(|window| window == b"<KeePassFile")
 }
 
 fn looks_like_csv(text: &str) -> bool {
