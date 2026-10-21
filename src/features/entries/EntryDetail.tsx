@@ -18,7 +18,7 @@ import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
 import { TotpCode } from "@/features/totp/TotpCode";
-import { hostFromUrl, monogram, safeHttpUrl } from "@/features/entries/entries";
+import { hostFromUrl, monogram, safeHttpUrl, entryUrls } from "@/features/entries/entries";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { Entry } from "@/features/vault/types";
@@ -49,8 +49,9 @@ export function EntryDetail({
   const confirm = useConfirm();
   const toast = useToast();
   const data = useVaultStore((state) => state.data);
-  const host = entry.url ? hostFromUrl(entry.url) : "";
-  const httpUrl = entry.url ? safeHttpUrl(entry.url) : null;
+  const urls = entryUrls(entry);
+  const primaryUrl = urls[0] ?? "";
+  const host = primaryUrl ? hostFromUrl(primaryUrl) : "";
   const linkedSshKeys = (data?.sshKeys ?? []).filter((key) =>
     (entry.sshKeyIds ?? []).includes(key.id),
   );
@@ -61,11 +62,12 @@ export function EntryDetail({
     return () => clearTimeout(timer);
   }, [revealed]);
 
-  const openSite = async () => {
+  const openSite = async (value: string) => {
+    const httpUrl = safeHttpUrl(value);
     if (!httpUrl) return;
     const allowed = await confirm({
       title: "Открыть сайт?",
-      description: host || httpUrl,
+      description: hostFromUrl(value) || httpUrl,
       confirmLabel: "Открыть",
     });
     if (!allowed) return;
@@ -103,7 +105,7 @@ export function EntryDetail({
               {host ? (
                 <button
                   type="button"
-                  onClick={() => void openSite()}
+                  onClick={() => void openSite(primaryUrl)}
                   className="mt-1 flex max-w-full items-center gap-1.5 text-[11.5px] text-[var(--muted)] transition-colors hover:text-[var(--accent-soft)]"
                 >
                   <span className="truncate">{host}</span>
@@ -166,17 +168,32 @@ export function EntryDetail({
             </div>
           </div>
 
-          {entry.url ? (
+          {urls.length > 0 ? (
             <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
-              <span className="text-[11.5px] text-[var(--muted)]">Сайт</span>
-              <button
-                type="button"
-                onClick={() => void openSite()}
-                className="flex min-w-0 items-center gap-1.5 text-left text-[12.5px] text-[var(--accent-soft)] hover:underline"
-              >
-                <span className="truncate">{entry.url}</span>
-                <ExternalLink size={12} className="shrink-0" />
-              </button>
+              <span className="text-[11.5px] text-[var(--muted)]">Сайты</span>
+              <div className="grid min-w-0 gap-1.5">
+                {urls.map((url, index) => {
+                  const httpUrl = safeHttpUrl(url);
+                  return httpUrl ? (
+                    <button
+                      key={`${url}-${index}`}
+                      type="button"
+                      onClick={() => void openSite(url)}
+                      className="flex min-w-0 items-center gap-1.5 text-left text-[12.5px] text-[var(--accent-soft)] hover:underline"
+                    >
+                      <span className="truncate">{url}</span>
+                      <ExternalLink size={12} className="shrink-0" />
+                    </button>
+                  ) : (
+                    <span
+                      key={`${url}-${index}`}
+                      className="min-w-0 break-all text-[12.5px] text-[var(--text-soft)]"
+                    >
+                      {url}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
 

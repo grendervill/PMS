@@ -13,6 +13,7 @@ const entry: Entry = {
   login: "alex",
   password: "s3cret",
   url: "https://github.com",
+  urls: ["https://github.com", "https://gist.github.com"],
   comment: "",
   totp: null,
   attachmentIds: [],
@@ -60,5 +61,12 @@ describe("EntryDetail", () => {
 
     expect(screen.queryByText("s3cret")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Показать пароль" })).toBeInTheDocument();
+  });
+
+  it("shows every url in the entry", () => {
+    renderDetail();
+
+    expect(screen.getByText("https://github.com")).toBeInTheDocument();
+    expect(screen.getByText("https://gist.github.com")).toBeInTheDocument();
   });
 });

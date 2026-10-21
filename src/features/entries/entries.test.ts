@@ -4,6 +4,7 @@ import {
   createEntry,
   emptyEntryDraft,
   entryToDraft,
+  entryUrls,
   findDuplicatePasswords,
   normalizeEntryDraft,
   removeEntry,
@@ -45,13 +46,29 @@ describe("entries", () => {
     expect(created.passwordHistory).toEqual([]);
   });
 
+  it("normalizes multiple urls and mirrors the first one", () => {
+    const created = createEntry(
+      draft({
+        urls: [" https://a.example ", "https://b.example", ""],
+      }),
+      now,
+    );
+
+    expect(created.urls).toEqual(["https://a.example", "https://b.example"]);
+    expect(created.url).toBe("https://a.example");
+    expect(entryUrls(created)).toEqual(created.urls);
+    expect(entryUrls({ url: "https://legacy.example", urls: [] })).toEqual([
+      "https://legacy.example",
+    ]);
+  });
+
   it("converts an entry to and from a draft", () => {
     const created = entry();
     expect(entryToDraft(created)).toEqual({
       name: "GitHub",
       login: "alex",
       password: "s3cret",
-      url: "",
+      urls: [],
       comment: "",
       attachmentIds: [],
       sshKeyIds: [],
@@ -85,12 +102,13 @@ describe("entries", () => {
       name: "Старый черновик",
       login: "alex",
       password: "s3cret",
-      url: "",
+      url: "https://legacy.example",
       comment: "",
     } as Parameters<typeof normalizeEntryDraft>[0];
 
     expect(normalizeEntryDraft(oldDraft)).toEqual({
       ...oldDraft,
+      urls: ["https://legacy.example"],
       attachmentIds: [],
       sshKeyIds: [],
       totp: null,
@@ -153,13 +171,20 @@ describe("entries", () => {
     expect(findDuplicatePasswords([first, second], "", "a")).toEqual([]);
   });
 
-  it("searches name, login, url and comment case-insensitively", () => {
-    const first = entry({ id: "a", name: "GitHub", login: "alex", url: "https://github.com" });
+  it("searches name, login, urls and comment case-insensitively", () => {
+    const first = entry({
+      id: "a",
+      name: "GitHub",
+      login: "alex",
+      url: "https://github.com",
+      urls: ["https://github.com", "https://gist.github.com"],
+    });
     const second = entry({
       id: "b",
       name: "GitLab",
       login: "work",
       url: "https://gitlab.com",
+      urls: ["https://gitlab.com"],
       comment: "рабочий",
     });
 
@@ -170,8 +195,11 @@ describe("entries", () => {
     expect(searchEntries([first, second], "РАБОЧ").map((item) => item.name)).toEqual([
       "GitLab",
     ]);
-    expect(searchEntries([first, second], "github.com").map((item) => item.name)).toEqual([
+    expect(searchEntries([first, second], "gist.github").map((item) => item.name)).toEqual([
       "GitHub",
+    ]);
+    expect(searchEntries([first, second], "gitlab.com").map((item) => item.name)).toEqual([
+      "GitLab",
     ]);
   });
 

@@ -26,7 +26,7 @@ test("creates a vault, adds an entry, generates a password and unlocks again", a
   await page.getByRole("button", { name: "Создать запись" }).click();
   await page.getByLabel("Название").fill("GitHub");
   await page.getByLabel("Логин", { exact: true }).fill("alex");
-  await page.getByLabel("URL").fill("https://github.com");
+  await page.getByLabel("URL", { exact: true }).fill("https://github.com");
   await page.getByLabel("Комментарий").fill("Личный аккаунт");
 
   await page.getByRole("button", { name: "Сгенерировать пароль" }).click();
@@ -216,4 +216,21 @@ test("creates an SSH key, links it to an entry and installs it", async ({ page }
   await page.getByRole("button", { name: /GitHub key/ }).first().click();
   await expect(page.getByRole("heading", { name: "GitHub key" })).toBeVisible();
   await expect(page.getByText("SHA256:mockPmsSshFingerprintForE2eTests")).toBeVisible();
+});
+
+test("stores and searches several urls in one entry", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("Multi");
+  await page.getByLabel("URL", { exact: true }).fill("https://a.example");
+  await page.getByRole("button", { name: "Добавить URL" }).click();
+  await page.getByLabel("Дополнительный URL 2").fill("https://b.example");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+
+  await expect(page.getByText("https://a.example")).toBeVisible();
+  await expect(page.getByText("https://b.example")).toBeVisible();
+
+  await page.getByLabel("Поиск по записям").fill("b.example");
+  await expect(page.getByRole("button", { name: /Multi/ })).toBeVisible();
 });

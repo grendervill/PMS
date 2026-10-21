@@ -25,6 +25,7 @@ export type Entry = {
   login: string;
   password: string;
   url: string;
+  urls: string[];
   comment: string;
   totp?: TotpConfig | null;
   attachmentIds: string[];

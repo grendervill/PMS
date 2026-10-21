@@ -156,6 +156,8 @@ pub struct Entry {
     #[serde(default)]
     pub url: String,
     #[serde(default)]
+    pub urls: Vec<String>,
+    #[serde(default)]
     pub comment: String,
     #[serde(default)]
     pub totp: Option<TotpConfig>,

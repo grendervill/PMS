@@ -4,7 +4,7 @@ export type EntryDraft = {
   name: string;
   login: string;
   password: string;
-  url: string;
+  urls: string[];
   comment: string;
   attachmentIds: string[];
   sshKeyIds: string[];
@@ -25,7 +25,7 @@ export const emptyEntryDraft: EntryDraft = {
   name: "",
   login: "",
   password: "",
-  url: "",
+  urls: [],
   comment: "",
   attachmentIds: [],
   sshKeyIds: [],
@@ -33,10 +33,22 @@ export const emptyEntryDraft: EntryDraft = {
   totpRaw: "",
 };
 
-export function normalizeEntryDraft(value?: Partial<EntryDraft> | null): EntryDraft {
+export function normalizeUrlList(values: string[]): string[] {
+  return values.map((value) => value.trim()).filter(Boolean);
+}
+
+export function entryUrls(entry: Pick<Entry, "url" | "urls">): string[] {
+  const urls = entry.urls ?? [];
+  return urls.length > 0 ? urls : entry.url ? [entry.url] : [];
+}
+
+type LegacyEntryDraft = Partial<EntryDraft> & { url?: string };
+
+export function normalizeEntryDraft(value?: LegacyEntryDraft | null): EntryDraft {
   const normalized = { ...emptyEntryDraft, ...(value ?? {}) };
   return {
     ...normalized,
+    urls: value?.urls ?? (value?.url ? [value.url] : []),
     attachmentIds: value?.attachmentIds ?? [],
     sshKeyIds: value?.sshKeyIds ?? [],
     totp: value?.totp ?? null,
@@ -49,7 +61,7 @@ export function entryToDraft(entry: Entry): EntryDraft {
     name: entry.name,
     login: entry.login,
     password: entry.password,
-    url: entry.url,
+    urls: entryUrls(entry),
     comment: entry.comment,
     attachmentIds: [...entry.attachmentIds],
     sshKeyIds: [...entry.sshKeyIds],
@@ -62,6 +74,7 @@ export function createEntry(
   draft: EntryDraft,
   now = new Date().toISOString(),
 ): Entry {
+  const urls = normalizeUrlList(draft.urls);
   return {
     id: crypto.randomUUID(),
     kind: "login",
@@ -69,7 +82,8 @@ export function createEntry(
     name: draft.name.trim(),
     login: draft.login,
     password: draft.password,
-    url: draft.url.trim(),
+    url: urls[0] ?? "",
+    urls,
     comment: draft.comment,
     totp: draft.totp,
     attachmentIds: [...draft.attachmentIds],
@@ -104,13 +118,15 @@ export function updateEntry(
     passwordHistory = pushHistory(passwordHistory, entry.password, now);
   }
 
+  const urls = normalizeUrlList(draft.urls);
   return {
     entry: {
       ...entry,
       name: draft.name.trim(),
       login: draft.login,
       password: draft.password,
-      url: draft.url.trim(),
+      url: urls[0] ?? "",
+      urls,
       comment: draft.comment,
       totp: draft.totp,
       attachmentIds: [...draft.attachmentIds],
@@ -180,7 +196,7 @@ export function searchEntries(entries: Entry[], query: string): Entry[] {
   if (!needle) return entries;
 
   return entries.filter((entry) =>
-    [entry.name, entry.login, entry.url, entry.comment]
+    [entry.name, entry.login, entryUrls(entry).join(" "), entry.comment]
       .join("\n")
       .toLowerCase()
       .includes(needle),

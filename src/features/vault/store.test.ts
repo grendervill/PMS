@@ -279,7 +279,7 @@ describe("vault store", () => {
       name: "GitHub",
       login: "alex",
       password: "s3cret",
-      url: "",
+      urls: [],
       comment: "",
       attachmentIds: [],
       sshKeyIds: [],
@@ -295,7 +295,7 @@ describe("vault store", () => {
   it("blocks a historical password through the store", async () => {
     const entry = {
       ...createEntry(
-        { name: "GitHub", login: "alex", password: "current", url: "", comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
+        { name: "GitHub", login: "alex", password: "current", urls: [], comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
         createdAt,
       ),
       passwordHistory: [{ value: "old", changedAt: createdAt }],
@@ -311,7 +311,7 @@ describe("vault store", () => {
       name: "GitHub",
       login: "alex",
       password: "old",
-      url: "",
+      urls: [],
       comment: "",
       attachmentIds: [],
       sshKeyIds: [],
@@ -325,7 +325,7 @@ describe("vault store", () => {
 
   it("deletes an entry through save", async () => {
     const entry = createEntry(
-      { name: "GitHub", login: "", password: "", url: "", comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
+      { name: "GitHub", login: "", password: "", urls: [], comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
       createdAt,
     );
     useVaultStore.setState({
@@ -389,7 +389,7 @@ describe("vault store", () => {
           name: "GitHub",
           login: "alex",
           password: "",
-          url: "",
+          urls: [],
           comment: "",
           attachmentIds: [],
           sshKeyIds: ["ssh-1"],

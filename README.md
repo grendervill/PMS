@@ -9,7 +9,7 @@
   пароль-фразой или ключ-файлом (OpenSSH / PEM / PKCS#8).
 - Argon2id + XChaCha20-Poly1305 или AES-256-GCM; параметры KDF хранятся
   в заголовке и не перезатираются.
-- Записи: имя, логин, пароль, URL, комментарий; скрытие/показ и копирование.
+- Записи: имя, логин, пароль, несколько URL, комментарий; скрытие/показ и копирование.
 - TOTP-секреты: `otpauth://` или base32, живые коды с таймером, общий экран TOTP.
 - SSH-ключи: ed25519, RSA 2048/3072/4096, ECDSA P-256/P-384/P-521; OpenSSH,
   PEM/PKCS#8, установка в `~/.ssh` с правами 600/700 и проверкой, привязка к записям.
@@ -41,8 +41,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 84 frontend-теста
-pnpm test:e2e      # 5 Playwright-сценариев, мок Tauri IPC
+pnpm test          # 87 frontend-тестов
+pnpm test:e2e      # 6 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg

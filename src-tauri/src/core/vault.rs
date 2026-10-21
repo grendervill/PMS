@@ -305,6 +305,10 @@ mod tests {
             login: "alex".to_string(),
             password: "s3cret".to_string(),
             url: "https://example.com".to_string(),
+            urls: vec![
+                "https://example.com".to_string(),
+                "https://second.example".to_string(),
+            ],
             comment: "заметка".to_string(),
             totp: Some(TotpConfig {
                 secret: "JBSWY3DPEHPK3PXP".to_string(),
@@ -415,6 +419,28 @@ mod tests {
         let (_, unlocked) = unlock_vault(&saved, &passphrase("correct horse")).unwrap();
 
         assert_eq!(unlocked, data);
+        assert_eq!(
+            unlocked.entries[0].urls,
+            vec![
+                "https://example.com".to_string(),
+                "https://second.example".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_entry_without_urls_reads_the_single_url() {
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id": Uuid::new_v4(),
+            "name": "Legacy",
+            "url": "https://legacy.example",
+            "createdAt": now(),
+            "updatedAt": now()
+        }))
+        .unwrap();
+
+        assert_eq!(entry.url, "https://legacy.example");
+        assert!(entry.urls.is_empty());
     }
 
     #[test]

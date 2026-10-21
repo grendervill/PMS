@@ -1,6 +1,6 @@
 import { KeyRound, KeySquare } from "lucide-react";
 import type { Entry } from "@/features/vault/types";
-import { hostFromUrl, monogram } from "@/features/entries/entries";
+import { entryUrls, hostFromUrl, monogram } from "@/features/entries/entries";
 import { cn } from "@/lib/cn";
 
 export function EntryCard({
@@ -12,7 +12,8 @@ export function EntryCard({
   active: boolean;
   onSelect: () => void;
 }) {
-  const host = entry.url ? hostFromUrl(entry.url) : null;
+  const primaryUrl = entryUrls(entry)[0] ?? "";
+  const host = primaryUrl ? hostFromUrl(primaryUrl) : null;
 
   return (
     <button

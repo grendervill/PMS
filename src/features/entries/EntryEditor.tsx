@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentPicker } from "@/features/attachments/AttachmentPicker";
+import { UrlListInput } from "@/features/entries/UrlListInput";
 import { SshKeyPicker } from "@/features/ssh/SshKeyPicker";
 import { errorText } from "@/features/vault/errors";
 import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
@@ -248,15 +249,10 @@ export function EntryEditor({
           />
         </Field>
 
-        <Field label="URL" htmlFor="entry-url" hint="Если указать, рядом с названием появится иконка сайта.">
-          <Input
-            id="entry-url"
-            value={draft.url}
-            onChange={(event) => update("url", event.target.value)}
-            placeholder="https://example.com"
-            inputMode="url"
-          />
-        </Field>
+        <UrlListInput
+          urls={draft.urls}
+          onChange={(urls) => update("urls", urls)}
+        />
 
         <Field
           label="TOTP"
