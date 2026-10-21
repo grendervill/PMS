@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::Path;
 #[cfg(not(target_os = "android"))]
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use rand::Rng;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tiny_http::{Method, Response, Server, StatusCode};
 use uuid::Uuid;
@@ -19,6 +19,8 @@ use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::pms_archive;
 
 const SERVICE_TYPE: &str = "_pms._tcp.local.";
+const DISCOVERY_PORT: u16 = 45873;
+const DISCOVERY_REQUEST: &[u8] = b"PMS_DISCOVER_V1";
 const MAX_ARCHIVE: u64 = 2 * 1024 * 1024 * 1024;
 
 fn secure_file(path: &Path) {
@@ -55,7 +57,15 @@ pub struct TransferPeer {
 pub struct ReceiveStarted {
     pub code: String,
     pub device_name: String,
+    pub host: String,
     pub port: u16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DiscoveryReply {
+    v: u8,
+    name: String,
+    port: u16,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -70,7 +80,8 @@ pub struct ReceivedArchive {
 struct ReceiverSession {
     stop: Arc<AtomicBool>,
     server: Arc<Server>,
-    mdns: ServiceDaemon,
+    mdns: Option<ServiceDaemon>,
+    discovery: Option<Arc<UdpSocket>>,
 }
 
 #[derive(Default)]
@@ -84,7 +95,10 @@ impl TransferManager {
             if let Some(session) = guard.take() {
                 session.stop.store(true, Ordering::Relaxed);
                 session.server.unblock();
-                let _ = session.mdns.shutdown();
+                if let Some(mdns) = session.mdns {
+                    let _ = mdns.shutdown();
+                }
+                drop(session.discovery);
             }
         }
     }
@@ -153,6 +167,100 @@ fn register_service(port: u16, name: &str) -> Result<ServiceDaemon, ApiError> {
     Ok(mdns)
 }
 
+fn start_discovery_responder(
+    port: u16,
+    name: &str,
+    stop: Arc<AtomicBool>,
+) -> ApiResult<Arc<UdpSocket>> {
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT))
+        .map_err(|error| ApiError::new("transfer_discovery", error.to_string()))?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .map_err(|error| ApiError::new("transfer_discovery", error.to_string()))?;
+    let thread_socket = socket
+        .try_clone()
+        .map_err(|error| ApiError::new("transfer_discovery", error.to_string()))?;
+    let reply_name = name.to_string();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 256];
+        while !stop.load(Ordering::Relaxed) {
+            match thread_socket.recv_from(&mut buffer) {
+                Ok((size, sender)) if &buffer[..size] == DISCOVERY_REQUEST => {
+                    let reply = DiscoveryReply {
+                        v: 1,
+                        name: reply_name.clone(),
+                        port,
+                    };
+                    if let Ok(payload) = serde_json::to_vec(&reply) {
+                        let _ = thread_socket.send_to(&payload, sender);
+                    }
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+    });
+    Ok(Arc::new(socket))
+}
+
+fn discovery_targets() -> Vec<SocketAddr> {
+    let mut targets = vec![SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::BROADCAST),
+        DISCOVERY_PORT,
+    )];
+    if let Ok(interfaces) = if_addrs::get_if_addrs() {
+        for interface in interfaces {
+            if let if_addrs::IfAddr::V4(address) = interface.addr {
+                if let Some(broadcast) = address.broadcast {
+                    targets.push(SocketAddr::new(IpAddr::V4(broadcast), DISCOVERY_PORT));
+                }
+            }
+        }
+    }
+    targets.sort();
+    targets.dedup();
+    targets
+}
+
+fn add_peer(peers: &mut std::collections::HashMap<String, TransferPeer>, peer: TransferPeer) {
+    if peers
+        .values()
+        .any(|existing| existing.host == peer.host && existing.port == peer.port)
+    {
+        return;
+    }
+    peers.insert(peer.id.clone(), peer);
+}
+
+fn drain_discovery(
+    socket: &UdpSocket,
+    peers: &mut std::collections::HashMap<String, TransferPeer>,
+) {
+    let mut buffer = [0u8; 1024];
+    loop {
+        match socket.recv_from(&mut buffer) {
+            Ok((size, source)) => {
+                let Ok(reply) = serde_json::from_slice::<DiscoveryReply>(&buffer[..size]) else {
+                    continue;
+                };
+                if reply.v != 1 || reply.port == 0 || reply.name.trim().is_empty() {
+                    continue;
+                }
+                add_peer(
+                    peers,
+                    TransferPeer {
+                        id: format!("udp:{}:{}", source.ip(), reply.port),
+                        name: reply.name,
+                        host: source.ip().to_string(),
+                        port: reply.port,
+                    },
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(_) => break,
+        }
+    }
+}
+
 #[tauri::command]
 pub fn transfer_receive_start(
     destination: String,
@@ -199,9 +307,18 @@ pub fn transfer_receive_start(
         .ok_or_else(|| ApiError::new("transfer_server", "Не удалось определить порт"))?
         .port();
     let name = device_name();
-    let mdns = register_service(port, &format!("PMS · {name}"))?;
+    let host = local_address()?.to_string();
+    let mdns = register_service(port, &format!("PMS · {name}"))
+        .inspect_err(|error| {
+            eprintln!("PMS transfer: mDNS unavailable: {}", error.message);
+        })
+        .ok();
     let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
     let stop = Arc::new(AtomicBool::new(false));
+    let discovery = start_discovery_responder(port, &format!("PMS · {name}"), stop.clone()).ok();
+    if discovery.is_none() {
+        eprintln!("PMS transfer: UDP discovery responder is unavailable");
+    }
     let stop_thread = stop.clone();
     let server_thread = server.clone();
     let thread_code = code.clone();
@@ -275,12 +392,18 @@ pub fn transfer_receive_start(
     });
 
     if let Ok(mut guard) = state.transfer.receiver.lock() {
-        *guard = Some(ReceiverSession { stop, server, mdns });
+        *guard = Some(ReceiverSession {
+            stop,
+            server,
+            mdns,
+            discovery,
+        });
     }
 
     Ok(ReceiveStarted {
         code,
         device_name: name,
+        host,
         port,
     })
 }
@@ -299,37 +422,60 @@ pub async fn transfer_scan(duration_ms: Option<u64>) -> ApiResult<Vec<TransferPe
 }
 
 fn scan_peers(duration_ms: Option<u64>) -> ApiResult<Vec<TransferPeer>> {
-    let mdns =
-        ServiceDaemon::new().map_err(|error| ApiError::new("transfer_mdns", error.to_string()))?;
+    let mdns = ServiceDaemon::new().ok();
     let receiver = mdns
-        .browse(SERVICE_TYPE)
-        .map_err(|error| ApiError::new("transfer_mdns", error.to_string()))?;
+        .as_ref()
+        .and_then(|daemon| daemon.browse(SERVICE_TYPE).ok());
+    if mdns.is_none() || receiver.is_none() {
+        eprintln!("PMS transfer: mDNS unavailable, using UDP broadcast only");
+    }
+    let discovery = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok();
+    if let Some(socket) = &discovery {
+        let _ = socket.set_broadcast(true);
+        let _ = socket.set_nonblocking(true);
+    }
     let deadline =
         Instant::now() + Duration::from_millis(duration_ms.unwrap_or(4000).clamp(1000, 6000));
     let mut peers = std::collections::HashMap::new();
+    let mut next_broadcast = Instant::now();
+
     while Instant::now() < deadline {
-        if let Ok(ServiceEvent::ServiceResolved(service)) =
-            receiver.recv_timeout(Duration::from_millis(100))
-        {
-            let Some(host) = service.get_addresses_v4().iter().next().copied() else {
-                continue;
-            };
-            let name = service
-                .get_property_val_str("name")
-                .unwrap_or(service.get_fullname())
-                .to_string();
-            peers.insert(
-                service.get_fullname().to_string(),
-                TransferPeer {
-                    id: service.get_fullname().to_string(),
-                    name,
-                    host: host.to_string(),
-                    port: service.get_port(),
-                },
-            );
+        if let Some(receiver) = &receiver {
+            while let Ok(ServiceEvent::ServiceResolved(service)) = receiver.try_recv() {
+                let Some(host) = service.get_addresses_v4().iter().next().copied() else {
+                    continue;
+                };
+                let name = service
+                    .get_property_val_str("name")
+                    .unwrap_or(service.get_fullname())
+                    .to_string();
+                add_peer(
+                    &mut peers,
+                    TransferPeer {
+                        id: service.get_fullname().to_string(),
+                        name,
+                        host: host.to_string(),
+                        port: service.get_port(),
+                    },
+                );
+            }
         }
+
+        if let Some(socket) = &discovery {
+            if Instant::now() >= next_broadcast {
+                for target in discovery_targets() {
+                    let _ = socket.send_to(DISCOVERY_REQUEST, target);
+                }
+                next_broadcast = Instant::now() + Duration::from_millis(900);
+            }
+            drain_discovery(socket, &mut peers);
+        }
+
+        std::thread::sleep(Duration::from_millis(80));
     }
-    let _ = mdns.shutdown();
+    if let Some(mdns) = mdns {
+        let _ = mdns.shutdown();
+    }
     let mut peers = peers.into_values().collect::<Vec<_>>();
     peers.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(peers)
@@ -472,6 +618,28 @@ fn install_archive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore]
+    fn udp_discovery_finds_local_responder() {
+        let responder = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT)).unwrap();
+        responder
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 256];
+            if let Ok((_, sender)) = responder.recv_from(&mut buffer) {
+                let reply = DiscoveryReply {
+                    v: 1,
+                    name: "PMS · UDP test".to_string(),
+                    port: 41234,
+                };
+                let _ = responder.send_to(&serde_json::to_vec(&reply).unwrap(), sender);
+            }
+        });
+        let peers = scan_peers(Some(2000)).unwrap();
+        assert!(peers.iter().any(|peer| peer.name == "PMS · UDP test"));
+    }
 
     fn make_vault(folder: &Path, vault: &[u8], attachment: Option<(&str, &[u8])>) {
         fs::create_dir_all(folder).unwrap();

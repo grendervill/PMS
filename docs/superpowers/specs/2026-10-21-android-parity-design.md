@@ -12,7 +12,7 @@ Android-биометрия использует `tauri-plugin-biometric` (`Biome
 
 **Ограничения Android:**
 - SSH-ключ нельзя установить в `~/.ssh`; вместо этого доступны экспорт OpenSSH/PEM/PKCS#8 через SAF.
-- Три launcher-иконки реализованы через `activity-alias`; переключение идёт без переустановки приложения.
+- На Android используется один launcher-значок PMS; динамическая смена значка через `activity-alias` не включена в стабильную сборку (выбор значка скрыт).
 - SAF-провайдеры (Google Drive и др.) могут не поддерживать rename; запись vault выполняется через документ-файл, backups создаются перед сохранением.
 - Минимальная версия — Android 9 (API 28).
 
@@ -41,7 +41,7 @@ Android-биометрия использует `tauri-plugin-biometric` (`Biome
 - [x] Android project generated; aarch64 debug APK builds.
 - [x] SAF storage with create/open/lock/unlock/save, attachments, backups.
 - [x] Mobile safe-area/navigation and «Ещё» menu.
-- [x] Три launcher-иконки через activity-alias.
+- [ ] Динамическая смена launcher-значка (стабильный activity-alias-подход требует отдельной проверки).
 - [x] Android BiometricPrompt/Keystore integration in Rust.
 - [x] QR-камера через WebView, SAF save pickers, SSH export.
 - [x] `.pmsvault` import/export staging for Android.

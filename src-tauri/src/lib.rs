@@ -12,7 +12,6 @@ pub fn run() {
 
     #[cfg(target_os = "android")]
     let builder = builder
-        .plugin(commands::app_icon::android_plugin())
         .plugin(tauri_plugin_android_fs::init())
         .plugin(tauri_plugin_biometric::init());
 

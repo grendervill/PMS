@@ -270,6 +270,7 @@ export function SettingsView() {
           </div>
         </section>
 
+        {!android ? (
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
             <Palette size={15} className="text-[var(--accent-soft)]" />
@@ -328,6 +329,7 @@ export function SettingsView() {
             </p>
           </div>
         </section>
+        ) : null}
 
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">

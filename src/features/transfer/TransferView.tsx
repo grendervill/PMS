@@ -48,6 +48,8 @@ export function TransferView() {
   const [tab, setTab] = useState<Tab>("send");
   const [peers, setPeers] = useState<TransferPeer[]>([]);
   const [selectedPeer, setSelectedPeer] = useState<TransferPeer | null>(null);
+  const [manualHost, setManualHost] = useState("");
+  const [manualPort, setManualPort] = useState("");
   const [code, setCode] = useState("");
   const [scanning, setScanning] = useState(false);
   const [sending, setSending] = useState(false);
@@ -164,6 +166,22 @@ export function TransferView() {
       if (staged) await cleanupCacheDirectory(staged);
       setSending(false);
     }
+  };
+
+  const selectManualPeer = () => {
+    const host = manualHost.trim();
+    const port = Number(manualPort);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+      setError("Введите IP-адрес и порт с принимающего устройства.");
+      return;
+    }
+    setSelectedPeer({
+      id: `manual:${host}:${port}`,
+      name: `Вручную · ${host}`,
+      host,
+      port,
+    });
+    setError(null);
   };
 
   const chooseDestination = async () => {
@@ -316,11 +334,49 @@ export function TransferView() {
                   <EmptyState
                     icon={Radar}
                     title={scanning ? "Ищем устройства" : "Пока никого не видно"}
-                    description="Откройте «Принять с» на другом Mac с PMS и нажмите «Найти»."
+                    description="Откройте «Принять с» на другом устройстве PMS и нажмите «Ждать передачу»."
                     className="min-h-[180px]"
                   />
                 </div>
               )}
+
+              <div className="mt-3 rounded-[var(--radius-md)] border border-dashed border-[var(--border)] bg-[var(--surface-2)]/30 p-3">
+                <p className="text-[10.5px] leading-relaxed text-[var(--muted)]">
+                  Не видно устройство? Введите IP и порт с экрана «Принять с».
+                </p>
+                <div className="mt-2 grid grid-cols-[1fr_84px] gap-2">
+                  <Input
+                    aria-label="IP-адрес устройства"
+                    value={manualHost}
+                    onChange={(event) => setManualHost(event.target.value)}
+                    placeholder="192.168.1.10"
+                    className="pms-mono text-[12px]"
+                  />
+                  <Input
+                    aria-label="Порт устройства"
+                    value={manualPort}
+                    onChange={(event) =>
+                      setManualPort(event.target.value.replace(/\D/g, "").slice(0, 5))
+                    }
+                    placeholder="4040"
+                    inputMode="numeric"
+                    className="pms-mono text-[12px]"
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2"
+                  onClick={selectManualPeer}
+                >
+                  Выбрать вручную
+                </Button>
+                {selectedPeer?.id.startsWith("manual:") ? (
+                  <p className="mt-2 truncate text-[10.5px] text-[var(--accent-soft)]">
+                    Выбрано: {selectedPeer.host}:{selectedPeer.port}
+                  </p>
+                ) : null}
+              </div>
             </section>
 
             <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70 p-4">
@@ -460,9 +516,16 @@ export function TransferView() {
                     </>
                   )}
                 </div>
-                <p className="mt-3 text-[10px] text-[var(--muted)]">
-                  {receiveStarted.deviceName} · порт {receiveStarted.port}
-                </p>
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-[10px] text-[var(--muted)]">
+                  <span>
+                    {receiveStarted.deviceName} · {receiveStarted.host} · порт{" "}
+                    {receiveStarted.port}
+                  </span>
+                  <CopyButton
+                    value={`${receiveStarted.host}:${receiveStarted.port}`}
+                    label="Копировать адрес"
+                  />
+                </div>
               </section>
             ) : null}
 

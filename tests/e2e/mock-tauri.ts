@@ -380,6 +380,7 @@ export async function installMockTauri(page: Page) {
           return {
             code: "123456",
             deviceName: "PMS · MacBook Pro",
+            host: "192.168.1.42",
             port: 4040,
           };
         }

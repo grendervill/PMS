@@ -86,6 +86,7 @@ export type TransferPeer = {
 export type ReceiveStarted = {
   code: string;
   deviceName: string;
+  host: string;
   port: number;
 };
 

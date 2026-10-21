@@ -190,7 +190,7 @@ export function QrScannerDialog({
             </div>
           </div>
         ) : (
-          <div className="relative overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-black">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-black sm:aspect-video">
             <video
               ref={videoRef}
               muted
@@ -206,8 +206,8 @@ export function QrScannerDialog({
                 </span>
               </div>
             ) : null}
-            <div className="pointer-events-none absolute inset-0 grid place-items-center">
-              <div className="size-40 rounded-[var(--radius-md)] border-2 border-[var(--accent)]/70" />
+            <div className="pointer-events-none absolute inset-0 grid place-items-center p-3">
+              <div className="aspect-square w-[min(68vw,280px)] rounded-[var(--radius-md)] border-2 border-[var(--accent)]/70 shadow-[0_0_0_999px_rgba(0,0,0,0.12)] sm:w-64" />
             </div>
           </div>
         )}
