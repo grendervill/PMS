@@ -17,6 +17,12 @@ import {
 } from "@/features/settings/appIcon";
 import { vaultApi } from "@/features/vault/api";
 import { isBiometricEnabled } from "@/features/vault/biometric";
+import {
+  AUTO_LOCK_OPTIONS,
+  autoLockLabel,
+  resolveAutoLockOption,
+  type AutoLockOption,
+} from "@/features/vault/autoLock";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import { getStorage } from "@/lib/storage";
@@ -39,6 +45,8 @@ export function SettingsView() {
   const [selectedIcon, setSelectedIcon] = useState<AppIconId>(() => getSelectedAppIcon());
   const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
   const android = isAndroidPlatform();
+  const autoLock = data ? resolveAutoLockOption(data.settings) : "5m";
+  const autoLockChoice = AUTO_LOCK_OPTIONS.find((option) => option.value === autoLock);
   const [backupBusy, setBackupBusy] = useState(false);
   const [lastBackup, setLastBackup] = useState<Date | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -126,6 +134,27 @@ export function SettingsView() {
     } finally {
       setBackupBusy(false);
     }
+  };
+
+  const changeAutoLock = async (next: AutoLockOption) => {
+    if (!data) return;
+    const saved = await saveVault({
+      ...data,
+      settings: { ...data.settings, autoLock: next },
+    });
+    if (!saved) {
+      toast.show({
+        title: "Не удалось сохранить автоблокировку",
+        description: errorText(useVaultStore.getState().error),
+        tone: "error",
+      });
+      return;
+    }
+    toast.show({
+      title: "Автоблокировка обновлена",
+      description: autoLockLabel(next),
+      tone: "success",
+    });
   };
 
   const changeBiometric = async (next: boolean) => {
@@ -267,6 +296,29 @@ export function SettingsView() {
                 Проверяем биометрию
               </span>
             ) : null}
+            <label className="mt-1 grid gap-1.5 border-t border-[var(--border)] pt-3 text-[11px] text-[var(--text-soft)]">
+              Автоблокировка при бездействии
+              <select
+                aria-label="Автоблокировка при бездействии"
+                value={autoLock}
+                onChange={(event) =>
+                  void changeAutoLock(event.target.value as AutoLockOption)
+                }
+                disabled={busy}
+                className="h-9 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[12px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+              >
+                {AUTO_LOCK_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[10px] leading-relaxed text-[var(--muted)]">
+                {autoLockChoice?.description ??
+                  `Хранилище заблокируется через ${autoLockLabel(autoLock)} бездействия.`}
+                {" "}После блокировки потребуется пароль-фраза, ключ-файл или биометрия.
+              </span>
+            </label>
           </div>
         </section>
 

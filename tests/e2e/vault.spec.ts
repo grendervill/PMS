@@ -494,3 +494,13 @@ test("mobile navigation exposes the extra sections", async ({ page }) => {
   await page.getByRole("button", { name: "Обмен", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Обмен", exact: true })).toBeVisible();
 });
+
+test("locks the vault after the selected idle timeout", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.getByLabel("Автоблокировка при бездействии").selectOption("10s");
+  await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible({
+    timeout: 12_000,
+  });
+});

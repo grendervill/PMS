@@ -74,6 +74,21 @@ describe("SettingsView biometrics", () => {
     );
   });
 
+  it("persists the selected auto-lock duration", async () => {
+    const save = vi
+      .spyOn(useVaultStore.getState(), "save")
+      .mockResolvedValue(true);
+    renderSettings();
+
+    const select = screen.getByLabelText("Автоблокировка при бездействии");
+    fireEvent.change(select, { target: { value: "10s" } });
+
+    await waitFor(() => {
+      expect(save).toHaveBeenCalled();
+    });
+    expect(save.mock.calls[0]?.[0].settings.autoLock).toBe("10s");
+  });
+
   it("enrolls biometrics when available and the switch is enabled", async () => {
     vi.mocked(vaultApi.biometricStatus).mockResolvedValue({ available: true });
     vi.spyOn(vaultApi, "biometricEnroll").mockResolvedValue(undefined);

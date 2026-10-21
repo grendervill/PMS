@@ -47,5 +47,6 @@ Android-биометрия использует `tauri-plugin-biometric` (`Biome
 - [x] `.pmsvault` import/export staging for Android.
 - [x] Emulator biometric/camera/SAF verification; real-device providers pending.
 - [x] QR-поле увеличено под мобильный экран; обмен получил UDP-broadcast fallback и ручной ввод IP.
-- [ ] Android transfer discovery and manual device testing.
+- [x] Настройка автоблокировки 10/20/30 секунд, 2–60 минут, до завершения программы или без блокировки; после блокировки показывается экран входа.
+- [ ] Android transfer discovery and manual device testing (раздел признан недоделанным, отложен).
 - [ ] App lifecycle/back-button and background-lock polish.

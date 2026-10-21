@@ -31,6 +31,10 @@ import { saveDraftBeforeLock } from "@/features/vault/lockFlow";
 import { navItems, type AppSection } from "@/features/vault/navigation";
 import { useVaultStore } from "@/features/vault/store";
 import { useAutoLock } from "@/features/vault/useAutoLock";
+import {
+  autoLockTimeoutMs,
+  resolveAutoLockOption,
+} from "@/features/vault/autoLock";
 import { cn } from "@/lib/cn";
 import { isAndroidPlatform } from "@/lib/platform";
 
@@ -129,7 +133,13 @@ export function AppShell() {
     void saveDraftAndLock();
   };
 
-  useAutoLock({ enabled: true, onLock: () => void saveDraftAndLock() });
+  const autoLockOption = data ? resolveAutoLockOption(data.settings) : "5m";
+  const autoLockMs = autoLockTimeoutMs(autoLockOption);
+  useAutoLock({
+    enabled: autoLockMs !== null,
+    timeoutMs: autoLockMs ?? 5 * 60 * 1000,
+    onLock: () => void saveDraftAndLock(),
+  });
 
   useEffect(() => {
     if (!isAndroidPlatform()) return;
