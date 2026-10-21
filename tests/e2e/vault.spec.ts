@@ -18,9 +18,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-test("creates a vault, adds an entry, generates a password and unlocks again", async ({
-  page,
-}) => {
+test("creates a vault, adds an entry, generates a password and unlocks again", async ({ page }) => {
   await createVault(page);
 
   await page.getByRole("button", { name: "Создать запись" }).click();
@@ -36,16 +34,17 @@ test("creates a vault, adds an entry, generates a password and unlocks again", a
 
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
-  await expect(
-    page.getByRole("paragraph").filter({ hasText: "Личный аккаунт" }),
-  ).toBeVisible();
+  await expect(page.getByRole("paragraph").filter({ hasText: "Личный аккаунт" })).toBeVisible();
 
   await page.getByRole("button", { name: "Заблокировать" }).click();
   await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible();
   await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
   await page.getByRole("button", { name: "Разблокировать" }).click();
 
-  await page.getByRole("button", { name: /GitHub/ }).first().click();
+  await page
+    .getByRole("button", { name: /GitHub/ })
+    .first()
+    .click();
   await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
 });
 
@@ -114,7 +113,10 @@ test("adds an attachment and a TOTP code", async ({ page }) => {
   await page.getByRole("button", { name: "Заблокировать" }).click();
   await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
   await page.getByRole("button", { name: "Разблокировать" }).click();
-  await page.getByRole("button", { name: /GitHub/ }).first().click();
+  await page
+    .getByRole("button", { name: /GitHub/ })
+    .first()
+    .click();
   await expect(page.getByText("pms-e2e-attachment.txt")).toBeVisible();
   await expect(page.getByText("123 456")).toBeVisible();
 });
@@ -158,7 +160,10 @@ test("blocks reusing a historical password and warns about duplicates", async ({
   await deleteDialog.getByRole("button", { name: "Удалить" }).click();
   await expect(page.getByRole("heading", { name: "GitLab" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: /GitHub/ }).first().click();
+  await page
+    .getByRole("button", { name: /GitHub/ })
+    .first()
+    .click();
   await page.getByRole("button", { name: "Редактировать" }).first().click();
   await page.getByLabel("Название").fill("GitHub changed");
   await page.getByRole("button", { name: "Отменить" }).click();
@@ -183,7 +188,9 @@ test("creates an SSH key, links it to an entry and installs it", async ({ page }
 
   await expect(page.getByRole("heading", { name: "GitHub key" })).toBeVisible();
   await expect(page.getByText("SHA256:mockPmsSshFingerprintForE2eTests")).toBeVisible();
-  await expect(page.getByText("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e")).toBeVisible();
+  await expect(
+    page.getByText("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e"),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Установить", exact: true }).first().click();
   const installDialog = page.getByRole("dialog", { name: "Установить SSH-ключ" });
@@ -204,7 +211,10 @@ test("creates an SSH key, links it to an entry and installs it", async ({ page }
   await expect(page.getByText("GitHub key")).toBeVisible();
 
   await page.getByRole("button", { name: "SSH", exact: true }).first().click();
-  await page.getByRole("button", { name: /GitHub key/ }).first().click();
+  await page
+    .getByRole("button", { name: /GitHub key/ })
+    .first()
+    .click();
   await expect(page.getByText("GitHub", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "GitHub", exact: true }).click();
   await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
@@ -213,7 +223,10 @@ test("creates an SSH key, links it to an entry and installs it", async ({ page }
   await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
   await page.getByRole("button", { name: "Разблокировать" }).click();
   await page.getByRole("button", { name: "SSH", exact: true }).first().click();
-  await page.getByRole("button", { name: /GitHub key/ }).first().click();
+  await page
+    .getByRole("button", { name: /GitHub key/ })
+    .first()
+    .click();
   await expect(page.getByRole("heading", { name: "GitHub key" })).toBeVisible();
   await expect(page.getByText("SHA256:mockPmsSshFingerprintForE2eTests")).toBeVisible();
 });
@@ -336,7 +349,10 @@ test("imports a manager file and exports a pmsvault backup", async ({ page }) =>
 
   await page.getByRole("button", { name: "Записи", exact: true }).first().click();
   await expect(page.getByText("Imported")).toBeVisible();
-  await page.getByRole("button", { name: /Imported/ }).first().click();
+  await page
+    .getByRole("button", { name: /Imported/ })
+    .first()
+    .click();
   await expect(page.getByText("note.txt")).toBeVisible();
 
   await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
@@ -403,4 +419,67 @@ test("uses an SSH key as an alternative unlock method", async ({ page }) => {
   await page.getByRole("button", { name: "Выбрать ключ-файл" }).click();
   await page.getByRole("button", { name: "Разблокировать" }).click();
   await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+});
+
+test("finds a nearby PMS and receives a vault copy", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Обмен", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Обмен", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Найти", exact: true }).click();
+  await expect(page.getByText("PMS · MacBook Pro")).toBeVisible();
+  await page.getByRole("button", { name: /PMS · MacBook Pro/ }).click();
+  await page.getByLabel("Код с другого устройства").fill("123456");
+  await page.getByRole("button", { name: "Передать", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Хранилище отправлено");
+
+  await page.getByRole("tab", { name: "Принять с", exact: true }).click();
+  await page.getByRole("button", { name: /Выбрать новую папку/ }).click();
+  await page.getByRole("button", { name: "Выбрать", exact: true }).last().click();
+  await page.getByRole("button", { name: "Ждать передачу", exact: true }).click();
+  await expect(page.getByText("123456")).toBeVisible();
+  await page.waitForTimeout(150);
+
+  await page.evaluate(() => {
+    const target = window as unknown as {
+      __E2E_EMIT__: (event: string, payload: unknown) => void;
+    };
+    target.__E2E_EMIT__("transfer://received", {
+      archivePath: "/tmp/pms-e2e-transfer.pmsvault",
+      sender: "PMS · MacBook Pro",
+      destination: "/tmp/pms-e2e-vault",
+      replaceCurrent: false,
+    });
+  });
+
+  await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible();
+});
+
+test("replaces the current vault after a transfer", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Обмен", exact: true }).first().click();
+  await page.getByRole("tab", { name: "Принять с", exact: true }).click();
+  await page.getByRole("button", { name: /Заменить текущее/ }).click();
+  await page.getByRole("button", { name: "Ждать передачу", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "Заменить текущее хранилище?" });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "Продолжить" }).click();
+  await expect(page.getByText("123456")).toBeVisible();
+  await page.waitForTimeout(150);
+
+  await page.evaluate(() => {
+    const target = window as unknown as {
+      __E2E_EMIT__: (event: string, payload: unknown) => void;
+    };
+    target.__E2E_EMIT__("transfer://received", {
+      archivePath: "/tmp/pms-e2e-transfer.pmsvault",
+      sender: "PMS · MacBook Pro",
+      destination: "/tmp/pms-e2e-vault",
+      replaceCurrent: true,
+    });
+  });
+
+  await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible();
 });

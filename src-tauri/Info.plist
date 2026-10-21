@@ -4,5 +4,11 @@
 <dict>
   <key>NSCameraUsageDescription</key>
   <string>PMS использует камеру только для сканирования QR-кодов.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>PMS ищет другие устройства PMS в локальной сети для передачи хранилища.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_pms._tcp</string>
+  </array>
 </dict>
 </plist>

@@ -1,4 +1,12 @@
-import { KeySquare, Settings2, ShieldCheck, Timer, Wand2, FileWarning } from "lucide-react";
+import {
+  ArrowLeftRight,
+  KeySquare,
+  Settings2,
+  ShieldCheck,
+  Timer,
+  Wand2,
+  FileWarning,
+} from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +21,7 @@ import { GeneratorView } from "@/features/generator/GeneratorView";
 import { SettingsView } from "@/features/settings/SettingsView";
 import { SSHView } from "@/features/ssh/SSHView";
 import { TOTPView } from "@/features/totp/TOTPView";
+import { TransferView } from "@/features/transfer/TransferView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
 import { saveDraftBeforeLock } from "@/features/vault/lockFlow";
 import { navItems, type AppSection } from "@/features/vault/navigation";
@@ -24,6 +33,7 @@ const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   entries: { title: "Записи", subtitle: "Логины, пароли и всё, что нужно помнить" },
   totp: { title: "TOTP", subtitle: "Живые коды двухфакторной аутентификации" },
   ssh: { title: "SSH", subtitle: "Ключи для серверов и Git" },
+  transfer: { title: "Обмен", subtitle: "Передача хранилища между устройствами PMS" },
   generator: { title: "Генератор", subtitle: "Пароли и логины с настраиваемыми правилами" },
   audit: { title: "Проверка", subtitle: "Слабые и повторяющиеся пароли" },
   settings: { title: "Настройки", subtitle: "Хранилище, безопасность и оформление" },
@@ -45,10 +55,16 @@ const sectionEmpty = {
     title: "SSH-ключей пока нет",
     description: "Создайте ключ для сервера или Git и привяжите его к записи.",
   },
+  transfer: {
+    icon: ArrowLeftRight,
+    title: "Обмен рядом",
+    description: "Передайте полную копию хранилища на другое устройство PMS.",
+  },
   generator: {
     icon: Wand2,
     title: "Генератор под рукой",
-    description: "Он откроется после создания хранилища — с длиной, наборами символов и пересозданием.",
+    description:
+      "Он откроется после создания хранилища — с длиной, наборами символов и пересозданием.",
   },
   audit: {
     icon: ShieldCheck,
@@ -183,9 +199,7 @@ export function AppShell() {
         {active === "entries" ? (
           <EntriesView
             key={
-              draftToRestore
-                ? `${draftToRestore.id}-${restoreVersion}`
-                : (entryToOpen ?? "entries")
+              draftToRestore ? `${draftToRestore.id}-${restoreVersion}` : (entryToOpen ?? "entries")
             }
             initialEntryId={entryToOpen}
             initialDraft={draftToRestore}
@@ -197,6 +211,8 @@ export function AppShell() {
           <TOTPView onOpenEntry={openEntry} />
         ) : active === "ssh" ? (
           <SSHView onOpenEntry={openEntry} />
+        ) : active === "transfer" ? (
+          <TransferView />
         ) : active === "audit" ? (
           <AuditView onOpenEntry={openEntry} />
         ) : active === "settings" ? (
@@ -204,11 +220,7 @@ export function AppShell() {
         ) : (
           <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
             <div key={active} className="pms-rise mx-auto w-full max-w-5xl">
-              <EmptyState
-                icon={empty.icon}
-                title={empty.title}
-                description={empty.description}
-              />
+              <EmptyState icon={empty.icon} title={empty.title} description={empty.description} />
             </div>
           </div>
         )}
@@ -276,9 +288,8 @@ export function AppShell() {
         }
       >
         <p className="text-[12px] leading-relaxed text-[var(--muted)]">
-          Черновик будет сохранён в зашифрованном хранилище и предложен после
-          следующего входа. Если заблокировать без сохранения, введённые данные
-          пропадут.
+          Черновик будет сохранён в зашифрованном хранилище и предложен после следующего входа. Если
+          заблокировать без сохранения, введённые данные пропадут.
         </p>
       </Modal>
     </div>

@@ -30,6 +30,9 @@
 - Автоблокировка и зашифрованные черновики несохранённых форм.
 - Бэкапы хранилища: авто по расписанию 1/7/30 дней, хранение 1/7/30 дней,
   ручное создание; самый свежий бэкап не удаляется никогда.
+- Передача полной копии хранилища между устройствами PMS по локальной сети:
+  поиск через Bonjour, шестизначный код, замена текущего хранилища с бэкапом
+  или приём в новую папку.
 - Атомарная запись vault-файла, права 600/700 на macOS/Linux.
 - Три значка приложения с выбором в настройках; по умолчанию — зелёный замок.
 - Сборка macOS Apple Silicon: `.app` и `.dmg`.
@@ -39,6 +42,8 @@
 Это рабочий срез для macOS. В следующих планах: Android SAF/APK, проверка
 конфликтов и ручные резервные копии, favicon сайтов, баннер установки
 SSH-ключей на новом устройстве и финальная полировка Windows/Linux.
+Обмен сейчас работает по локальной сети; Bluetooth-обнаружение требует
+отдельного CoreBluetooth-слоя и запланировано следующим этапом.
 Дизайн и планы лежат в `docs/superpowers/`.
 
 ## Разработка
@@ -53,7 +58,7 @@ pnpm tauri dev
 ```bash
 pnpm typecheck
 pnpm test          # 105 frontend-тестов
-pnpm test:e2e      # 12 Playwright-сценариев, мок Tauri IPC
+pnpm test:e2e      # 14 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg
@@ -65,6 +70,7 @@ pnpm tauri build   # macOS ARM: .app + .dmg
 
 - дизайн: `docs/superpowers/specs/2026-10-20-pms-design.md`
 - план первого среза: `docs/superpowers/plans/2026-10-20-01-foundation-vault-entries.md`
+- план обмена: `docs/superpowers/plans/2026-10-21-08-local-transfer.md`
 
 ## Безопасность
 

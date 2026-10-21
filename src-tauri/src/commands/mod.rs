@@ -8,16 +8,19 @@ pub mod share;
 pub mod storage;
 pub mod ssh;
 pub mod totp;
+pub mod transfer;
 pub mod vault;
 
 use serde::Serialize;
 
 use crate::core::error::VaultError;
 use crate::core::session::SessionManager;
+use crate::commands::transfer::TransferManager;
 
 #[derive(Default)]
 pub struct AppState {
     pub sessions: SessionManager,
+    pub transfer: TransferManager,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -12,10 +12,7 @@ import type {
   SshKey,
   SshKeyType,
 } from "@/features/vault/types";
-import type {
-  LoginOptions,
-  PasswordOptions,
-} from "@/features/generator/types";
+import type { LoginOptions, PasswordOptions } from "@/features/generator/types";
 
 export class VaultApiError extends Error {
   readonly code: string;
@@ -77,6 +74,26 @@ export type SharedCard = {
   urls: string[];
   comment: string;
   totp: TotpConfig | null;
+};
+
+export type TransferPeer = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+};
+
+export type ReceiveStarted = {
+  code: string;
+  deviceName: string;
+  port: number;
+};
+
+export type ReceivedArchive = {
+  archivePath: string;
+  sender: string;
+  destination: string;
+  replaceCurrent: boolean;
 };
 
 export type ImportedAttachment = {
@@ -190,11 +207,7 @@ export const vaultApi = {
     return fromBase64(response.fileB64);
   },
 
-  async rewrap(
-    sessionId: string,
-    secret: UnlockSecret,
-    keepExisting = true,
-  ): Promise<Uint8Array> {
+  async rewrap(sessionId: string, secret: UnlockSecret, keepExisting = true): Promise<Uint8Array> {
     const response = await call<{ fileB64: string }>("vault_rewrap", {
       sessionId,
       secret,
@@ -221,15 +234,12 @@ export const vaultApi = {
     mime: string,
     bytes: Uint8Array,
   ): Promise<{ blob: Uint8Array; meta: AttachmentMeta }> {
-    const response = await call<{ blobB64: string; meta: AttachmentMeta }>(
-      "attachment_seal",
-      {
-        sessionId,
-        name,
-        mime,
-        b64: toBase64(bytes),
-      },
-    );
+    const response = await call<{ blobB64: string; meta: AttachmentMeta }>("attachment_seal", {
+      sessionId,
+      name,
+      mime,
+      b64: toBase64(bytes),
+    });
     return { blob: fromBase64(response.blobB64), meta: response.meta };
   },
 
@@ -337,6 +347,40 @@ export const vaultApi = {
 
   async setAppIcon(icon: string): Promise<void> {
     await call<void>("app_icon_set", { icon });
+  },
+
+  async transferScan(durationMs?: number): Promise<TransferPeer[]> {
+    return call<TransferPeer[]>("transfer_scan", { durationMs });
+  },
+
+  async transferReceiveStart(
+    destination: string,
+    replaceCurrent: boolean,
+  ): Promise<ReceiveStarted> {
+    return call<ReceiveStarted>("transfer_receive_start", {
+      destination,
+      replaceCurrent,
+    });
+  },
+
+  async transferReceiveStop(): Promise<void> {
+    await call<void>("transfer_receive_stop");
+  },
+
+  async transferSend(host: string, port: number, code: string, vaultPath: string): Promise<void> {
+    await call<void>("transfer_send", { host, port, code, vaultPath });
+  },
+
+  async transferInstall(
+    archivePath: string,
+    destination: string,
+    replaceCurrent: boolean,
+  ): Promise<string> {
+    return call<string>("transfer_install", {
+      archivePath,
+      destination,
+      replaceCurrent,
+    });
   },
 };
 export { fromBase64, toBase64 };

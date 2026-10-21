@@ -31,7 +31,27 @@ export async function installMockTauri(page: Page) {
       biometricFailures: 0,
     };
 
-    const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+    const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+    let nextCallbackId = 0;
+    const callbacks = new Map<number, (data: unknown) => void>();
+    const listeners = new Map<string, Set<number>>();
+    const transformCallback = (callback: (data: unknown) => void, once = false) => {
+      const id = ++nextCallbackId;
+      callbacks.set(id, (data) => {
+        callback(data);
+        if (once) callbacks.delete(id);
+      });
+      return id;
+    };
+    const emitEvent = (event: string, payload: unknown) => {
+      for (const id of listeners.get(event) ?? []) {
+        callbacks.get(id)?.({ event, id, payload });
+      }
+    };
+    const unregisterListener = (event: string, eventId: number) => {
+      listeners.get(event)?.delete(eventId);
+    };
 
     const makeData = (name: string, id: string, createdAt: string) => ({
       schemaVersion: 1,
@@ -71,6 +91,17 @@ export async function installMockTauri(page: Page) {
       const w = window as unknown as { __E2E_CLIPBOARD__?: string };
 
       switch (command) {
+        case "plugin:event|listen": {
+          const event = String(args.event);
+          const handler = Number(args.handler);
+          const set = listeners.get(event) ?? new Set<number>();
+          set.add(handler);
+          listeners.set(event, set);
+          return handler;
+        }
+        case "plugin:event|unlisten":
+          unregisterListener(String(args.event), Number(args.eventId));
+          return null;
         case "plugin:path|join":
           return paths.join("/");
         case "plugin:path|home_dir":
@@ -79,10 +110,7 @@ export async function installMockTauri(page: Page) {
           return "/tmp/pms-home";
         case "plugin:dialog|open":
           if (options?.directory) return "/tmp/pms-e2e-vault";
-          state.files.set(
-            "/tmp/pms-e2e-attachment.txt",
-            "aGVsbG8gYXR0YWNobWVudA==",
-          );
+          state.files.set("/tmp/pms-e2e-attachment.txt", "aGVsbG8gYXR0YWNobWVudA==");
           return "/tmp/pms-e2e-attachment.txt";
         case "plugin:dialog|save":
           return "/tmp/pms-e2e-download.txt";
@@ -202,8 +230,7 @@ export async function installMockTauri(page: Page) {
             vault.slotKinds = [secretKind];
           }
           if (secretKind === "keyfile" || secretKind === "passphraseKeyfile") {
-            vault.keyfileB64 =
-              (secret as { bytesB64?: string }).bytesB64 ?? vault.keyfileB64;
+            vault.keyfileB64 = (secret as { bytesB64?: string }).bytesB64 ?? vault.keyfileB64;
           }
           return { fileB64: "ZmFrZQ==" };
         }
@@ -256,8 +283,7 @@ export async function installMockTauri(page: Page) {
             keyType: sshOptions.keyType ?? "ed25519",
             rsaBits: sshOptions.rsaBits ?? null,
             curve: sshOptions.curve ?? null,
-            publicKey:
-              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e",
+            publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e",
             privateKey:
               "-----BEGIN OPENSSH PRIVATE KEY-----\nbW9jay1zc2gta2V5\n-----END OPENSSH PRIVATE KEY-----\n",
             fingerprint: "SHA256:mockPmsSshFingerprintForE2eTests",
@@ -265,8 +291,7 @@ export async function installMockTauri(page: Page) {
         }
         case "ssh_formats":
           return {
-            publicKey:
-              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e",
+            publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e",
             openssh:
               "-----BEGIN OPENSSH PRIVATE KEY-----\nbW9jay1zc2gta2V5\n-----END OPENSSH PRIVATE KEY-----\n",
             pem: "-----BEGIN PRIVATE KEY-----\nbW9jay1wZW0=\n-----END PRIVATE KEY-----\n",
@@ -308,9 +333,7 @@ export async function installMockTauri(page: Page) {
                 urls: ["https://imported.example"],
                 comment: "from csv",
                 totp: null,
-                attachments: [
-                  { name: "note.txt", mime: "text/plain", b64: "aGVsbG8=" },
-                ],
+                attachments: [{ name: "note.txt", mime: "text/plain", b64: "aGVsbG8=" }],
                 sshKey: null,
               },
             ],
@@ -324,20 +347,57 @@ export async function installMockTauri(page: Page) {
         case "share_encode":
           return "PMSQR1:mock-shared-card";
         case "share_decode":
-          return args.card ?? {
-            name: "Shared",
-            login: "alex",
-            password: "s3cret",
-            urls: ["https://shared.example"],
-            comment: "from qr",
-            totp: null,
-          };
+          return (
+            args.card ?? {
+              name: "Shared",
+              login: "alex",
+              password: "s3cret",
+              urls: ["https://shared.example"],
+              comment: "from qr",
+              totp: null,
+            }
+          );
         case "biometric_status":
           return { available: state.biometricAvailable };
         case "biometric_enroll":
           return null;
         case "biometric_disable":
           return null;
+        case "transfer_scan":
+          return [
+            {
+              id: "peer-1",
+              name: "PMS · MacBook Pro",
+              host: "192.168.1.42",
+              port: 4040,
+            },
+          ];
+        case "transfer_receive_start": {
+          w.__E2E_TRANSFER_START__ = {
+            destination: String(args.destination),
+            replaceCurrent: Boolean(args.replaceCurrent),
+          };
+          return {
+            code: "123456",
+            deviceName: "PMS · MacBook Pro",
+            port: 4040,
+          };
+        }
+        case "transfer_receive_stop":
+          return null;
+        case "transfer_send": {
+          w.__E2E_TRANSFER_SENT__ = {
+            host: String(args.host),
+            port: Number(args.port),
+            code: String(args.code),
+          };
+          return null;
+        }
+        case "transfer_install": {
+          const destination = String(args.destination);
+          state.files.set(`${destination}/pms.vault`, "ZmFrZQ==");
+          return destination;
+        }
         case "biometric_unlock": {
           const w = window as unknown as {
             __E2E_BIOMETRIC_FAILURES__?: number;
@@ -360,7 +420,9 @@ export async function installMockTauri(page: Page) {
     };
 
     Object.assign(window, {
-      __TAURI_INTERNALS__: { invoke },
+      __TAURI_INTERNALS__: { invoke, transformCallback },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener },
+      __E2E_EMIT__: emitEvent,
     });
   });
 }
