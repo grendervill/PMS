@@ -283,6 +283,7 @@ describe("vault store", () => {
       comment: "",
       attachmentIds: [],
       totp: null,
+      totpRaw: "",
     });
 
     expect(saved).toBe(true);
@@ -293,7 +294,7 @@ describe("vault store", () => {
   it("blocks a historical password through the store", async () => {
     const entry = {
       ...createEntry(
-        { name: "GitHub", login: "alex", password: "current", url: "", comment: "", attachmentIds: [], totp: null },
+        { name: "GitHub", login: "alex", password: "current", url: "", comment: "", attachmentIds: [], totp: null, totpRaw: "" },
         createdAt,
       ),
       passwordHistory: [{ value: "old", changedAt: createdAt }],
@@ -313,6 +314,7 @@ describe("vault store", () => {
       comment: "",
       attachmentIds: [],
       totp: null,
+      totpRaw: "",
     });
 
     expect(result.blockedReason).toBe("old-password");
@@ -321,7 +323,7 @@ describe("vault store", () => {
 
   it("deletes an entry through save", async () => {
     const entry = createEntry(
-      { name: "GitHub", login: "", password: "", url: "", comment: "", attachmentIds: [], totp: null },
+      { name: "GitHub", login: "", password: "", url: "", comment: "", attachmentIds: [], totp: null, totpRaw: "" },
       createdAt,
     );
     useVaultStore.setState({

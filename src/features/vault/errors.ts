@@ -1,6 +1,7 @@
 const messages: Record<string, string> = {
   invalid_credentials:
     "Не удалось разблокировать. Проверьте пароль-фразу или ключ-файл.",
+  invalid_totp: "Не удалось разобрать TOTP. Проверьте base32-секрет или otpauth:// ссылку.",
   keyfile_passphrase_required: "У ключа есть парольная фраза. Введите её.",
   keyfile_passphrase_invalid: "Неверная парольная фраза ключа.",
   keyfile_public_key: "Это публичный ключ. Выберите приватный ключ-файл.",

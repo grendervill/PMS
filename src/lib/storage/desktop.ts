@@ -26,11 +26,11 @@ export const desktopStorage: VaultStorage = {
     return typeof selected === "string" ? selected : null;
   },
 
-  async pickFile() {
+  async pickFile(title) {
     const selected = await open({
       directory: false,
       multiple: false,
-      title: "Выберите ключ-файл",
+      title: title ?? "Выберите файл",
     });
     return typeof selected === "string" ? selected : null;
   },

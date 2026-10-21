@@ -19,7 +19,7 @@ pub struct SealedAttachment {
     pub meta: AttachmentMeta,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenedAttachment {
     pub b64: String,
@@ -35,6 +35,12 @@ pub fn attachment_seal(
 ) -> ApiResult<SealedAttachment> {
     if name.trim().is_empty() {
         return Err(ApiError::new("empty_name", "У файла нет имени"));
+    }
+    if b64.len() > MAX_ATTACHMENT_BYTES.saturating_mul(4) / 3 + 8 {
+        return Err(ApiError::new(
+            "file_too_large",
+            "Файл больше 100 МБ — выберите файл меньше",
+        ));
     }
     let bytes = STANDARD
         .decode(&b64)
@@ -86,6 +92,9 @@ pub fn attachment_open(
     blob_b64: String,
     state: State<'_, AppState>,
 ) -> ApiResult<OpenedAttachment> {
+    if blob_b64.len() > MAX_ATTACHMENT_BYTES.saturating_mul(4) / 3 + 8 {
+        return Err(ApiError::new("file_too_large", "Файл слишком большой"));
+    }
     let blob = STANDARD
         .decode(&blob_b64)
         .map_err(|_| ApiError::bad_base64())?;

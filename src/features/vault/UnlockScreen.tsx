@@ -59,7 +59,7 @@ export function UnlockScreen() {
     setLocalError(null);
     clearError();
     try {
-      const path = await getStorage().pickFile();
+      const path = await getStorage().pickFile("Выберите ключ-файл");
       if (!path) return;
       const bytes = await getStorage().readFile(path);
       setKeyfileBytes(bytes);

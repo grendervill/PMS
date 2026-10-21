@@ -100,10 +100,22 @@ test("adds an attachment and a TOTP code", async ({ page }) => {
   const preview = page.getByRole("dialog", { name: "pms-e2e-attachment.txt" });
   await expect(preview).toBeVisible();
   await expect(preview.getByText("hello attachment")).toBeVisible();
+  await preview.getByRole("button", { name: "Скачать" }).click();
+  const saveDialog = page.getByRole("dialog", { name: "Сохранить файл на диск?" });
+  await expect(saveDialog).toBeVisible();
+  await saveDialog.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByText("Файл сохранён")).toBeVisible();
   await preview.getByRole("button", { name: "Закрыть" }).click();
 
   await page.getByRole("button", { name: "TOTP", exact: true }).click();
   await expect(page.getByText("GitHub")).toBeVisible();
+  await expect(page.getByText("123 456")).toBeVisible();
+
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+  await page.getByRole("button", { name: /GitHub/ }).first().click();
+  await expect(page.getByText("pms-e2e-attachment.txt")).toBeVisible();
   await expect(page.getByText("123 456")).toBeVisible();
 });
 

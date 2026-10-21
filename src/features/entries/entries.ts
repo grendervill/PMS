@@ -8,6 +8,7 @@ export type EntryDraft = {
   comment: string;
   attachmentIds: string[];
   totp: TotpConfig | null;
+  totpRaw: string;
 };
 
 export type UpdateEntryResult = {
@@ -27,7 +28,18 @@ export const emptyEntryDraft: EntryDraft = {
   comment: "",
   attachmentIds: [],
   totp: null,
+  totpRaw: "",
 };
+
+export function normalizeEntryDraft(value?: Partial<EntryDraft> | null): EntryDraft {
+  const normalized = { ...emptyEntryDraft, ...(value ?? {}) };
+  return {
+    ...normalized,
+    attachmentIds: value?.attachmentIds ?? [],
+    totp: value?.totp ?? null,
+    totpRaw: value?.totpRaw ?? value?.totp?.secret ?? "",
+  };
+}
 
 export function entryToDraft(entry: Entry): EntryDraft {
   return {
@@ -38,6 +50,7 @@ export function entryToDraft(entry: Entry): EntryDraft {
     comment: entry.comment,
     attachmentIds: [...entry.attachmentIds],
     totp: entry.totp ?? null,
+    totpRaw: entry.totp?.secret ?? "",
   };
 }
 

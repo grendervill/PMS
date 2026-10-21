@@ -104,7 +104,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
   const pickKeyfile = async () => {
     setReadingKeyfile(true);
     try {
-      const path = await getStorage().pickFile();
+      const path = await getStorage().pickFile("Выберите ключ-файл");
       if (!path) return;
       const bytes = await getStorage().readFile(path);
       update("keyfile", { name: basename(path), bytes, passphrase: "" });

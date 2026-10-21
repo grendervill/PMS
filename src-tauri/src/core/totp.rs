@@ -143,7 +143,7 @@ fn validate_config(config: &TotpConfig) -> Result<(), VaultError> {
     if config.digits != 6 && config.digits != 8 {
         return Err(VaultError::InvalidTotp);
     }
-    if !(1..=300).contains(&config.period) {
+    if config.period != 30 && config.period != 60 {
         return Err(VaultError::InvalidTotp);
     }
     decode_secret(&config.secret)?;
@@ -274,6 +274,10 @@ mod tests {
         );
         assert_eq!(
             inspect("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&period=0"),
+            Err(VaultError::InvalidTotp)
+        );
+        assert_eq!(
+            inspect("otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&period=45"),
             Err(VaultError::InvalidTotp)
         );
     }

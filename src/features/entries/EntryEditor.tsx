@@ -16,9 +16,9 @@ import { TotpCode } from "@/features/totp/TotpCode";
 import { vaultApi } from "@/features/vault/api";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import {
-  emptyEntryDraft,
   entryToDraft,
   findDuplicatePasswords,
+  normalizeEntryDraft,
   type EntryDraft,
 } from "@/features/entries/entries";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
@@ -55,10 +55,10 @@ export function EntryEditor({
   const initialDraftValue = useMemo<EntryDraft>(
     () =>
       initialDraft
-        ? { ...initialDraft }
+        ? normalizeEntryDraft(initialDraft)
         : entry
           ? entryToDraft(entry)
-          : { ...emptyEntryDraft },
+          : normalizeEntryDraft(null),
     [entry, initialDraft],
   );
   const [draft, setDraft] = useState<EntryDraft>(initialDraftValue);
@@ -67,7 +67,6 @@ export function EntryEditor({
   const [strength, setStrength] = useState<PasswordStrength | null>(null);
   const [saving, setSaving] = useState(false);
   const [generatorMode, setGeneratorMode] = useState<"password" | "login" | null>(null);
-  const [totpInput, setTotpInput] = useState(initialDraftValue.totp?.secret ?? "");
   const [totpError, setTotpError] = useState<string | null>(null);
 
   const duplicates = useMemo(
@@ -139,13 +138,13 @@ export function EntryEditor({
   };
 
   const parseTotp = async (): Promise<TotpConfig | null> => {
-    if (!totpInput.trim()) {
+    if (!draft.totpRaw.trim()) {
       setTotpError(null);
       update("totp", null);
       return null;
     }
     try {
-      const config = await vaultApi.inspectTotp(totpInput);
+      const config = await vaultApi.inspectTotp(draft.totpRaw);
       setTotpError(null);
       update("totp", config);
       return config;
@@ -165,12 +164,12 @@ export function EntryEditor({
     setBlockedError(null);
     try {
       let payload = draft;
-      if (totpInput.trim()) {
+      if (!draft.totpRaw.trim()) {
+        payload = { ...draft, totp: null };
+      } else if (!draft.totp) {
         const config = await parseTotp();
         if (!config) return;
         payload = { ...draft, totp: config };
-      } else {
-        payload = { ...draft, totp: null };
       }
 
       if (entry) {
@@ -266,11 +265,14 @@ export function EntryEditor({
         >
           <SecretInput
             id="entry-totp"
-            value={totpInput}
+            value={draft.totpRaw}
             onChange={(event) => {
-              setTotpInput(event.target.value);
+              setDraft((current) => ({
+                ...current,
+                totpRaw: event.target.value,
+                totp: null,
+              }));
               setTotpError(null);
-              if (draft.totp) update("totp", null);
             }}
             onBlur={() => void parseTotp()}
             placeholder="JBSWY3DPEHPK3PXP или otpauth://…"

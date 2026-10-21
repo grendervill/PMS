@@ -5,6 +5,7 @@ import {
   emptyEntryDraft,
   entryToDraft,
   findDuplicatePasswords,
+  normalizeEntryDraft,
   removeEntry,
   searchEntries,
   sortEntries,
@@ -54,6 +55,44 @@ describe("entries", () => {
       comment: "",
       attachmentIds: [],
       totp: null,
+      totpRaw: "",
+    });
+  });
+
+  it("preserves a non-default TOTP configuration when only other fields change", () => {
+    const totp = {
+      secret: "JBSWY3DPEHPK3PXP",
+      algorithm: "SHA256" as const,
+      digits: 8 as const,
+      period: 60 as const,
+      issuer: "GitHub",
+      account: "alex",
+    };
+    const original = entry({ totp });
+    const result = updateEntry(
+      original,
+      { ...entryToDraft(original), name: "GitHub renamed" },
+      now,
+    );
+
+    expect(result.entry.totp).toEqual(totp);
+    expect(result.entry.name).toBe("GitHub renamed");
+  });
+
+  it("normalizes drafts created before attachments and TOTP existed", () => {
+    const oldDraft = {
+      name: "Старый черновик",
+      login: "alex",
+      password: "s3cret",
+      url: "",
+      comment: "",
+    } as Parameters<typeof normalizeEntryDraft>[0];
+
+    expect(normalizeEntryDraft(oldDraft)).toEqual({
+      ...oldDraft,
+      attachmentIds: [],
+      totp: null,
+      totpRaw: "",
     });
   });
 

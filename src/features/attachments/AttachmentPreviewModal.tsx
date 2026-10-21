@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { vaultApi } from "@/features/vault/api";
 import { getStorage } from "@/lib/storage";
@@ -10,6 +11,7 @@ import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { AttachmentMeta } from "@/features/vault/types";
 import { formatBytes } from "@/features/attachments/mime";
+import { previewMime, safeDownloadName, safePreviewKind } from "@/features/attachments/preview";
 
 export function AttachmentPreviewModal({
   meta,
@@ -21,13 +23,15 @@ export function AttachmentPreviewModal({
   const sessionId = useVaultStore((state) => state.sessionId);
   const vaultPath = useVaultStore((state) => state.vaultPath);
   const toast = useToast();
+  const confirm = useConfirm();
+  const kind = safePreviewKind(meta);
   const [url, setUrl] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bytesRef = useRef<Uint8Array | null>(null);
   const [loading, setLoading] = useState(
-    (meta.kind === "image" || meta.kind === "pdf" || meta.kind === "text") &&
-      !(meta.kind === "text" && meta.size > 1024 * 1024),
+    (kind === "image" || kind === "pdf" || kind === "text") &&
+      !(kind === "text" && meta.size > 1024 * 1024),
   );
   const [downloading, setDownloading] = useState(false);
 
@@ -42,8 +46,8 @@ export function AttachmentPreviewModal({
 
   useEffect(() => {
     if (!sessionId || !vaultPath) return;
-    if (meta.kind !== "image" && meta.kind !== "pdf" && meta.kind !== "text") return;
-    if (meta.kind === "text" && meta.size > 1024 * 1024) return;
+    if (kind !== "image" && kind !== "pdf" && kind !== "text") return;
+    if (kind === "text" && meta.size > 1024 * 1024) return;
 
     let cancelled = false;
     let objectUrl: string | null = null;
@@ -52,11 +56,13 @@ export function AttachmentPreviewModal({
       try {
         const bytes = await loadBytes();
         if (cancelled) return;
-        if (meta.kind === "text") {
+        if (kind === "text") {
           setText(new TextDecoder().decode(bytes));
         } else {
           objectUrl = URL.createObjectURL(
-            new Blob([bytes as unknown as BlobPart], { type: meta.mime }),
+            new Blob([bytes as unknown as BlobPart], {
+              type: previewMime(meta, kind),
+            }),
           );
           setUrl(objectUrl);
         }
@@ -78,8 +84,15 @@ export function AttachmentPreviewModal({
   const download = async () => {
     setDownloading(true);
     try {
+      const allowed = await confirm({
+        title: "Сохранить файл на диск?",
+        description:
+          "Файл будет расшифрован и станет доступен другим приложениям на этом устройстве.",
+        confirmLabel: "Сохранить",
+      });
+      if (!allowed) return;
       const bytes = await loadBytes();
-      const path = await save({ defaultPath: meta.name });
+      const path = await save({ defaultPath: safeDownloadName(meta.name) });
       if (!path) return;
       await getStorage().saveFile(path, bytes);
       toast.show({ title: "Файл сохранён", tone: "success" });
@@ -120,17 +133,18 @@ export function AttachmentPreviewModal({
           <FileQuestion size={24} className="text-[var(--danger)]" />
           <p className="text-[12px] text-[var(--danger)]">{error}</p>
         </div>
-      ) : meta.kind === "image" && url ? (
+      ) : kind === "image" && url ? (
         <div className="flex max-h-[65vh] items-center justify-center overflow-auto rounded-[var(--radius-sm)] bg-[var(--bg)] p-2">
           <img src={url} alt={meta.name} className="max-h-[62vh] max-w-full object-contain" />
         </div>
-      ) : meta.kind === "pdf" && url ? (
+      ) : kind === "pdf" && url ? (
         <iframe
           src={url}
           title={meta.name}
+          sandbox=""
           className="h-[62vh] w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-white"
         />
-      ) : meta.kind === "text" && text !== null ? (
+      ) : kind === "text" && text !== null ? (
         <pre className="pms-scrollbar max-h-[62vh] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] p-4 text-[12px] leading-relaxed text-[var(--text-soft)]">
           {text}
         </pre>
@@ -138,7 +152,9 @@ export function AttachmentPreviewModal({
         <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 text-center">
           <FileQuestion size={24} className="text-[var(--muted)]" />
           <p className="text-[12px] text-[var(--muted)]">
-            Предпросмотр для этого типа файла недоступен. Скачайте его, чтобы открыть.
+            {kind === "text" && meta.size > 1024 * 1024
+              ? "Текст больше 1 МБ — скачайте файл, чтобы открыть его."
+              : "Предпросмотр для этого типа файла недоступен. Скачайте его, чтобы открыть."}
           </p>
         </div>
       )}

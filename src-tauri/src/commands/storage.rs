@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::commands::{ApiError, ApiResult};
 
-const MAX_READ_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_READ_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

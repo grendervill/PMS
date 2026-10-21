@@ -225,6 +225,47 @@ mod tests {
     }
 
     #[test]
+    fn attachment_rejects_bad_magic_version_and_cipher() {
+        let (vault_id, attachment_id) = ids();
+        let blob = seal_attachment(&[7u8; 32], vault_id, attachment_id, b"data").unwrap();
+
+        let mut bad_magic = blob.clone();
+        bad_magic[0] = b'X';
+        assert_eq!(
+            open_attachment(&[7u8; 32], vault_id, attachment_id, &bad_magic),
+            Err(VaultError::BadMagic)
+        );
+
+        let mut bad_version = blob.clone();
+        bad_version[5] = 2;
+        assert_eq!(
+            open_attachment(&[7u8; 32], vault_id, attachment_id, &bad_version),
+            Err(VaultError::UnsupportedVersion)
+        );
+
+        let mut bad_cipher = blob;
+        bad_cipher[6] = 2;
+        assert_eq!(
+            open_attachment(&[7u8; 32], vault_id, attachment_id, &bad_cipher),
+            Err(VaultError::BadHeader)
+        );
+    }
+
+    #[test]
+    fn attachment_rejects_oversize_header() {
+        let (vault_id, attachment_id) = ids();
+        let mut blob = seal_attachment(&[7u8; 32], vault_id, attachment_id, b"data").unwrap();
+        let size_start = 7 + SALT_LEN + NONCE_LEN;
+        blob[size_start..size_start + 8]
+            .copy_from_slice(&((MAX_ATTACHMENT_BYTES as u64) + 1).to_le_bytes());
+
+        assert_eq!(
+            open_attachment(&[7u8; 32], vault_id, attachment_id, &blob),
+            Err(VaultError::FileTooLarge)
+        );
+    }
+
+    #[test]
     fn attachment_kind_mapping() {
         assert_eq!(attachment_kind("image/png"), AttachmentKind::Image);
         assert_eq!(attachment_kind("image/svg+xml"), AttachmentKind::Other);

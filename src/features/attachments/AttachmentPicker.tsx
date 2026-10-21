@@ -43,7 +43,7 @@ export function AttachmentPicker({
     if (!sessionId || !vaultPath) return;
     setBusy(true);
     try {
-      const path = await getStorage().pickFile();
+      const path = await getStorage().pickFile("Выберите вложение");
       if (!path) return;
 
       const name = basename(path);

@@ -39,7 +39,7 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 77 frontend-тестов
+pnpm test          # 82 frontend-теста
 pnpm test:e2e      # 4 Playwright-сценария, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
