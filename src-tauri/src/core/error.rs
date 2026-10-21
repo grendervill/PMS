@@ -42,6 +42,12 @@ pub enum VaultError {
     EmptyName,
     #[error("invalid TOTP secret or URI")]
     InvalidTotp,
+    #[error("SSH key passphrase required")]
+    SshPassphraseRequired,
+    #[error("SSH key passphrase invalid")]
+    SshPassphraseInvalid,
+    #[error("invalid SSH key name")]
+    InvalidSshName,
     #[error("empty character set")]
     EmptyCharset,
     #[error("vault id mismatch")]
@@ -78,6 +84,9 @@ impl VaultError {
             Self::FileTooLarge => "file_too_large",
             Self::EmptyName => "empty_name",
             Self::InvalidTotp => "invalid_totp",
+            Self::SshPassphraseRequired => "ssh_passphrase_required",
+            Self::SshPassphraseInvalid => "ssh_passphrase_invalid",
+            Self::InvalidSshName => "invalid_ssh_name",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",
