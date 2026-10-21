@@ -6,7 +6,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::commands::{ApiError, ApiResult, AppState};
-use crate::core::crypto::UnlockSecretInput;
+use crate::core::crypto::{UnlockSecretInput, keyfile_kind as classify_keyfile};
 use crate::core::models::{CipherSuite, KdfSlotKind, VaultData};
 use crate::core::vault::{
     CreateVaultConfig, create_vault, remove_slot, rewrap_vault, save_vault, unlock_vault,
@@ -107,6 +107,12 @@ fn encode_file(bytes: &[u8]) -> String {
 
 fn file_hash(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
+}
+
+#[tauri::command]
+pub fn keyfile_kind(file_b64: String) -> ApiResult<String> {
+    let bytes = decode_file(&file_b64)?;
+    classify_keyfile(&bytes).map(str::to_string).map_err(ApiError::from)
 }
 
 #[tauri::command]

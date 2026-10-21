@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/Input";
 import { SecretInput } from "@/components/ui/SecretInput";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import { getStorage } from "@/lib/storage";
+import { vaultApi } from "@/features/vault/api";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import {
@@ -107,7 +108,20 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
       const path = await getStorage().pickFile("Выберите ключ-файл");
       if (!path) return;
       const bytes = await getStorage().readFile(path);
-      update("keyfile", { name: basename(path), bytes, passphrase: "" });
+      const kind = await vaultApi.keyfileKind(bytes);
+      if (kind === "public") {
+        setErrors((current) => ({
+          ...current,
+          keyfile: "Это публичный ключ. Выберите приватный SSH-ключ.",
+        }));
+        return;
+      }
+      update("keyfile", {
+        name: basename(path),
+        bytes,
+        passphrase: "",
+        isSsh: kind === "ssh",
+      });
     } finally {
       setReadingKeyfile(false);
     }
@@ -344,11 +358,11 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
                         Пересохранение, синхронизация или редактирование файла
                         сделают вход невозможным.
                       </p>
-                      {draft.passphrase ? (
+                      {draft.passphrase && draft.keyfile ? (
                         <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--accent-soft)]">
-                          Вместе с пароль-фразой: для входа понадобятся оба фактора.
-                          Если нужен отдельный SSH-ключ как альтернатива, создайте
-                          хранилище только с ключ-файлом.
+                          {draft.keyfile.isSsh
+                            ? "SSH-ключ станет отдельным способом входа: пароль-фраза хранилища для него не нужна, но понадобится парольная фраза самого ключа, если она есть."
+                            : "Вместе с пароль-фразой: для входа понадобятся оба фактора."}
                         </p>
                       ) : null}
                     </div>
@@ -465,10 +479,14 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
                     "Способы входа",
                     [
                       draft.passphrase ? "Пароль-фраза" : null,
-                      draft.keyfile ? `Ключ-файл · ${draft.keyfile.name}` : null,
+                      draft.keyfile
+                        ? draft.keyfile.isSsh
+                          ? `SSH-ключ · ${draft.keyfile.name}`
+                          : `Ключ-файл · ${draft.keyfile.name}`
+                        : null,
                     ]
                       .filter(Boolean)
-                      .join(" + "),
+                      .join(draft.passphrase && draft.keyfile ? " или " : " + "),
                   ],
                   ["Профиль", draft.kdfProfile === "standard" ? "Стандартный" : draft.kdfProfile === "strong" ? "Усиленный" : "Параноидальный"],
                   ["Шифр", draft.cipher === "xchacha20-poly1305" ? "XChaCha20-Poly1305" : "AES-256-GCM"],

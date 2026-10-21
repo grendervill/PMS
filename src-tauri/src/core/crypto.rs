@@ -276,6 +276,22 @@ pub fn slot_aad(header: &VaultHeader, slot: &KdfSlot) -> Result<Vec<u8>, VaultEr
     Ok(aad)
 }
 
+pub fn keyfile_kind(bytes: &[u8]) -> Result<&'static str, VaultError> {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Ok("file");
+    };
+    if ssh_key::PrivateKey::from_openssh(text).is_ok() {
+        return Ok("ssh");
+    }
+    if ssh_key::PublicKey::from_openssh(text).is_ok() {
+        return Ok("public");
+    }
+    if parse_pem_private_key(text)?.is_some() {
+        return Ok("ssh");
+    }
+    Ok("file")
+}
+
 pub fn canonical_secret(secret: &UnlockSecretInput) -> Result<Zeroizing<Vec<u8>>, VaultError> {
     match secret {
         UnlockSecretInput::Passphrase { value } => {

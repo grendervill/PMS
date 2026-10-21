@@ -9,6 +9,7 @@ export type KeyfileSelection = {
   name: string;
   bytes: Uint8Array;
   passphrase: string;
+  isSsh?: boolean;
 };
 
 export type WizardDraft = {
@@ -78,6 +79,12 @@ export function buildSecrets(draft: WizardDraft): {
     : null;
 
   if (draft.passphrase && draft.keyfile) {
+    if (draft.keyfile.isSsh && keyfileSecret) {
+      return {
+        primary: { kind: "passphrase", value: draft.passphrase },
+        secondary: keyfileSecret,
+      };
+    }
     return {
       primary: {
         kind: "passphraseKeyfile",

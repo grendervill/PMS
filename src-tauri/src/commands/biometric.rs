@@ -24,10 +24,10 @@ pub fn biometric_status() -> ApiResult<BiometricStatus> {
 
 #[tauri::command]
 pub fn biometric_enroll(session_id: Uuid, state: State<'_, AppState>) -> ApiResult<()> {
-    let key = state
-        .sessions
-        .with(session_id, |session| Ok(*session.vault_key()))?;
-    imp::enroll(session_id, &key)
+    let (vault_id, key) = state.sessions.with(session_id, |session| {
+        Ok((session.vault_id(), *session.vault_key()))
+    })?;
+    imp::enroll(vault_id, &key)
 }
 
 #[tauri::command]

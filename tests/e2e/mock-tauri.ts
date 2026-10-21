@@ -138,6 +138,10 @@ export async function installMockTauri(page: Page) {
             data: clone(state.vault.data),
           };
         }
+        case "keyfile_kind": {
+          const w = window as unknown as { __E2E_KEYFILE_KIND__?: string };
+          return w.__E2E_KEYFILE_KIND__ ?? "file";
+        }
         case "vault_inspect": {
           const vault = requireVault();
           return {
@@ -188,8 +192,21 @@ export async function installMockTauri(page: Page) {
         }
         case "generate_login":
           return "alex_generated_42";
-        case "vault_rewrap":
+        case "vault_rewrap": {
+          const vault = requireVault();
+          const secretKind = String(secret.kind);
+          const keep = Boolean(args.keepExisting);
+          if (keep) {
+            if (!vault.slotKinds.includes(secretKind)) vault.slotKinds.push(secretKind);
+          } else {
+            vault.slotKinds = [secretKind];
+          }
+          if (secretKind === "keyfile" || secretKind === "passphraseKeyfile") {
+            vault.keyfileB64 =
+              (secret as { bytesB64?: string }).bytesB64 ?? vault.keyfileB64;
+          }
           return { fileB64: "ZmFrZQ==" };
+        }
         case "vault_remove_slot":
           return { fileB64: "ZmFrZQ==" };
         case "attachment_seal": {

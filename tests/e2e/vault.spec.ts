@@ -381,3 +381,26 @@ test("requires passphrase and keyfile together", async ({ page }) => {
   await page.getByRole("button", { name: "Разблокировать" }).click();
   await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
 });
+
+test("uses an SSH key as an alternative unlock method", async ({ page }) => {
+  await page.evaluate(() => {
+    (window as unknown as { __E2E_KEYFILE_KIND__?: string }).__E2E_KEYFILE_KIND__ = "ssh";
+  });
+
+  await page.getByRole("button", { name: "Создать хранилище" }).click();
+  await page.getByRole("button", { name: "Выбрать" }).click();
+  await page.getByLabel("Название хранилища").fill("SshVault");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByLabel("Повторите пароль-фразу").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Выбрать ключ-файл" }).click();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("button", { name: "Создать хранилище" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await page.getByRole("button", { name: "Ключ-файл", exact: true }).click();
+  await page.getByRole("button", { name: "Выбрать ключ-файл" }).click();
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+  await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
+});

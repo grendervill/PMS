@@ -282,6 +282,12 @@ export const vaultApi = {
     return call<SshPermissionStatus>("ssh_check", { directory, name });
   },
 
+  async keyfileKind(file: Uint8Array): Promise<"ssh" | "public" | "file"> {
+    return call<"ssh" | "public" | "file">("keyfile_kind", {
+      fileB64: toBase64(file),
+    });
+  },
+
   async biometricStatus(): Promise<BiometricStatus> {
     return call<BiometricStatus>("biometric_status");
   },

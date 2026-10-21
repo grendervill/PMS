@@ -51,7 +51,7 @@ pnpm tauri dev
 ```bash
 pnpm typecheck
 pnpm test          # 101 frontend-тест
-pnpm test:e2e      # 11 Playwright-сценариев, мок Tauri IPC
+pnpm test:e2e      # 12 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg
