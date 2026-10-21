@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  Lock,
   KeySquare,
   Settings2,
   ShieldCheck,
@@ -204,9 +205,19 @@ export function AppShell() {
               <h1 className="pms-display text-[24px] leading-tight tracking-tight">{meta.title}</h1>
               <p className="mt-0.5 truncate text-[12.5px] text-[var(--muted)]">{meta.subtitle}</p>
             </div>
-            <span className="hidden text-[10.5px] text-[var(--muted)] sm:block">
-              {data?.name ?? "Хранилище"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="hidden text-[10.5px] text-[var(--muted)] sm:block">
+                {data?.name ?? "Хранилище"}
+              </span>
+              <button
+                type="button"
+                aria-label="Заблокировать"
+                onClick={requestLock}
+                className="flex size-9 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] lg:hidden"
+              >
+                <Lock size={15} />
+              </button>
+            </div>
           </div>
         </header>
 

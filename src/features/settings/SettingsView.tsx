@@ -256,7 +256,9 @@ export function SettingsView() {
             {enabled && available === true ? (
               <p className="flex items-center gap-1.5 text-[10.5px] text-[var(--accent-soft)]">
                 <ShieldCheck size={12} />
-                Ключ хранится в системном Keychain и не переносится вместе с хранилищем.
+                {android
+                  ? "Ключ хранится в Android Keystore и не переносится вместе с хранилищем."
+                  : "Ключ хранится в системном Keychain и не переносится вместе с хранилищем."}
               </p>
             ) : null}
             {checking ? (

@@ -45,6 +45,6 @@ Android-биометрия использует `tauri-plugin-biometric` (`Biome
 - [x] Android BiometricPrompt/Keystore integration in Rust.
 - [x] QR-камера через WebView, SAF save pickers, SSH export.
 - [x] `.pmsvault` import/export staging for Android.
-- [ ] Real-device biometric/camera/SAF-provider verification.
+- [x] Emulator biometric/camera/SAF verification; real-device providers pending.
 - [ ] Android transfer discovery and manual device testing.
 - [ ] App lifecycle/back-button and background-lock polish.
