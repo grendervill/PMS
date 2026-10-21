@@ -48,6 +48,8 @@ pub enum VaultError {
     SshPassphraseInvalid,
     #[error("invalid SSH key name")]
     InvalidSshName,
+    #[error("invalid SSH private key")]
+    SshKeyInvalid,
     #[error("empty character set")]
     EmptyCharset,
     #[error("vault id mismatch")]
@@ -87,6 +89,7 @@ impl VaultError {
             Self::SshPassphraseRequired => "ssh_passphrase_required",
             Self::SshPassphraseInvalid => "ssh_passphrase_invalid",
             Self::InvalidSshName => "invalid_ssh_name",
+            Self::SshKeyInvalid => "ssh_key_invalid",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",

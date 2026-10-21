@@ -168,3 +168,52 @@ test("blocks reusing a historical password and warns about duplicates", async ({
   await expect(page.getByRole("heading", { name: "GitHub changed" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
 });
+
+test("creates an SSH key, links it to an entry and installs it", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "SSH", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "SSH", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Создать ключ" }).click();
+  await expect(page.getByRole("dialog", { name: "Новый SSH-ключ" })).toBeVisible();
+  await page.getByLabel("Имя ключа").fill("GitHub key");
+  await page.getByRole("button", { name: "Сгенерировать" }).click();
+  await expect(page.getByText("Ключ сгенерирован")).toBeVisible();
+  await page.getByRole("button", { name: "Сохранить" }).click();
+
+  await expect(page.getByRole("heading", { name: "GitHub key" })).toBeVisible();
+  await expect(page.getByText("SHA256:mockPmsSshFingerprintForE2eTests")).toBeVisible();
+  await expect(page.getByText("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e")).toBeVisible();
+
+  await page.getByRole("button", { name: "Установить", exact: true }).first().click();
+  const installDialog = page.getByRole("dialog", { name: "Установить SSH-ключ" });
+  await expect(installDialog).toBeVisible();
+  await installDialog.getByRole("button", { name: "Установить", exact: true }).click();
+  await expect(page.getByText("Файлы установлены")).toBeVisible();
+  await expect(page.getByText("/tmp/pms-home/.ssh/github-key").first()).toBeVisible();
+  await installDialog.getByRole("button", { name: "Закрыть", exact: true }).last().click();
+
+  await page.getByRole("button", { name: "Записи", exact: true }).first().click();
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("GitHub");
+  await page.getByLabel("Логин", { exact: true }).fill("alex");
+  await page.getByLabel("GitHub key").check();
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
+  await expect(page.getByText("SSH-ключи")).toBeVisible();
+  await expect(page.getByText("GitHub key")).toBeVisible();
+
+  await page.getByRole("button", { name: "SSH", exact: true }).first().click();
+  await page.getByRole("button", { name: /GitHub key/ }).first().click();
+  await expect(page.getByText("GitHub", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "GitHub", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Заблокировать" }).click();
+  await page.getByLabel("Пароль-фраза").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Разблокировать" }).click();
+  await page.getByRole("button", { name: "SSH", exact: true }).first().click();
+  await page.getByRole("button", { name: /GitHub key/ }).first().click();
+  await expect(page.getByRole("heading", { name: "GitHub key" })).toBeVisible();
+  await expect(page.getByText("SHA256:mockPmsSshFingerprintForE2eTests")).toBeVisible();
+});

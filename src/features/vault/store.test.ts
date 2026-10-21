@@ -282,6 +282,7 @@ describe("vault store", () => {
       url: "",
       comment: "",
       attachmentIds: [],
+      sshKeyIds: [],
       totp: null,
       totpRaw: "",
     });
@@ -294,7 +295,7 @@ describe("vault store", () => {
   it("blocks a historical password through the store", async () => {
     const entry = {
       ...createEntry(
-        { name: "GitHub", login: "alex", password: "current", url: "", comment: "", attachmentIds: [], totp: null, totpRaw: "" },
+        { name: "GitHub", login: "alex", password: "current", url: "", comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
         createdAt,
       ),
       passwordHistory: [{ value: "old", changedAt: createdAt }],
@@ -313,6 +314,7 @@ describe("vault store", () => {
       url: "",
       comment: "",
       attachmentIds: [],
+      sshKeyIds: [],
       totp: null,
       totpRaw: "",
     });
@@ -323,7 +325,7 @@ describe("vault store", () => {
 
   it("deletes an entry through save", async () => {
     const entry = createEntry(
-      { name: "GitHub", login: "", password: "", url: "", comment: "", attachmentIds: [], totp: null, totpRaw: "" },
+      { name: "GitHub", login: "", password: "", url: "", comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
       createdAt,
     );
     useVaultStore.setState({
@@ -338,5 +340,77 @@ describe("vault store", () => {
 
     expect(deleted).toBe(true);
     expect(useVaultStore.getState().data?.entries).toEqual([]);
+  });
+
+  it("adds an SSH key through save", async () => {
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: vaultData,
+    });
+    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
+
+    const saved = await useVaultStore.getState().addSshKey({
+      name: "GitHub key",
+      type: "ed25519",
+      rsaBits: null,
+      curve: null,
+      publicKey: "ssh-ed25519 AAAA test",
+      privateKey: "private",
+      passphrase: null,
+      comment: "for GitHub",
+      attachmentIds: [],
+    });
+
+    expect(saved).toBe(true);
+    expect(useVaultStore.getState().data?.sshKeys[0]?.name).toBe("GitHub key");
+    expect(storage.writeVault).toHaveBeenCalled();
+  });
+
+  it("deletes an SSH key and unlinks it from entries", async () => {
+    const key = {
+      id: "ssh-1",
+      name: "GitHub key",
+      type: "ed25519" as const,
+      rsaBits: null,
+      curve: null,
+      publicKey: "ssh-ed25519 AAAA test",
+      privateKey: "private",
+      passphrase: null,
+      comment: "",
+      attachmentIds: [],
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const entry = {
+      ...createEntry(
+        {
+          name: "GitHub",
+          login: "alex",
+          password: "",
+          url: "",
+          comment: "",
+          attachmentIds: [],
+          sshKeyIds: ["ssh-1"],
+          totp: null,
+          totpRaw: "",
+        },
+        createdAt,
+      ),
+    };
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: { ...vaultData, entries: [entry], sshKeys: [key] },
+    });
+    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
+
+    const deleted = await useVaultStore.getState().deleteSshKey("ssh-1");
+
+    expect(deleted).toBe(true);
+    expect(useVaultStore.getState().data?.sshKeys).toEqual([]);
+    expect(useVaultStore.getState().data?.entries[0]?.sshKeyIds).toEqual([]);
   });
 });

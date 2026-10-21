@@ -1,4 +1,4 @@
-import { Settings2, ShieldCheck, Timer, Wand2, FileWarning } from "lucide-react";
+import { KeySquare, Settings2, ShieldCheck, Timer, Wand2, FileWarning } from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,7 @@ import { EntriesView } from "@/features/entries/EntriesView";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import type { EntryDraft } from "@/features/entries/entries";
 import { GeneratorView } from "@/features/generator/GeneratorView";
+import { SSHView } from "@/features/ssh/SSHView";
 import { TOTPView } from "@/features/totp/TOTPView";
 import { VaultSidebar } from "@/features/vault/VaultSidebar";
 import { saveDraftBeforeLock } from "@/features/vault/lockFlow";
@@ -21,6 +22,7 @@ import { cn } from "@/lib/cn";
 const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   entries: { title: "Записи", subtitle: "Логины, пароли и всё, что нужно помнить" },
   totp: { title: "TOTP", subtitle: "Живые коды двухфакторной аутентификации" },
+  ssh: { title: "SSH", subtitle: "Ключи для серверов и Git" },
   generator: { title: "Генератор", subtitle: "Пароли и логины с настраиваемыми правилами" },
   audit: { title: "Проверка", subtitle: "Слабые и повторяющиеся пароли" },
   settings: { title: "Настройки", subtitle: "Хранилище, безопасность и оформление" },
@@ -36,6 +38,11 @@ const sectionEmpty = {
     icon: Timer,
     title: "TOTP пока нет",
     description: "Добавьте TOTP-секрет в запись — коды появятся здесь.",
+  },
+  ssh: {
+    icon: KeySquare,
+    title: "SSH-ключей пока нет",
+    description: "Создайте ключ для сервера или Git и привяжите его к записи.",
   },
   generator: {
     icon: Wand2,
@@ -187,6 +194,8 @@ export function AppShell() {
           <GeneratorView />
         ) : active === "totp" ? (
           <TOTPView onOpenEntry={openEntry} />
+        ) : active === "ssh" ? (
+          <SSHView onOpenEntry={openEntry} />
         ) : active === "audit" ? (
           <AuditView onOpenEntry={openEntry} />
         ) : (

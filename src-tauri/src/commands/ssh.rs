@@ -6,9 +6,7 @@ use atomicwrites::{AllowOverwrite, AtomicFile};
 use serde::Serialize;
 
 use crate::commands::{ApiError, ApiResult};
-use crate::core::ssh::{
-    GeneratedSshKey, SshFormats, SshGenerateOptions, formats, generate,
-};
+use crate::core::ssh::{formats, generate, GeneratedSshKey, SshFormats, SshGenerateOptions};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +32,10 @@ pub struct SshPermissionStatus {
 }
 
 fn error(message: impl std::fmt::Display) -> ApiError {
-    ApiError::new("ssh_storage", format!("Ошибка доступа к SSH-файлам: {message}"))
+    ApiError::new(
+        "ssh_storage",
+        format!("Ошибка доступа к SSH-файлам: {message}"),
+    )
 }
 
 fn safe_name(name: &str) -> Result<(), ApiError> {
@@ -130,15 +131,15 @@ fn current_user_owns(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub fn ssh_generate(options: SshGenerateOptions) -> ApiResult<GeneratedSshKey> {
-    Ok(generate(&options)?)
+pub async fn ssh_generate(options: SshGenerateOptions) -> ApiResult<GeneratedSshKey> {
+    tauri::async_runtime::spawn_blocking(move || generate(&options))
+        .await
+        .map_err(|_| ApiError::new("ssh_generate", "Не удалось сгенерировать SSH-ключ"))?
+        .map_err(ApiError::from)
 }
 
 #[tauri::command]
-pub fn ssh_formats(
-    private_key: String,
-    passphrase: Option<String>,
-) -> ApiResult<SshFormats> {
+pub fn ssh_formats(private_key: String, passphrase: Option<String>) -> ApiResult<SshFormats> {
     Ok(formats(&private_key, passphrase.as_deref())?)
 }
 
@@ -167,7 +168,9 @@ pub fn ssh_install(
     write_atomic(&private_path, private_key.as_bytes(), 0o600)?;
     write_atomic(&public_path, public_key.as_bytes(), 0o644)?;
 
-    let owned = current_user_owns(&private_path) && current_user_owns(&public_path);
+    let owned = current_user_owns(&private_path)
+        && current_user_owns(&public_path)
+        && current_user_owns(&directory_path);
     let warning = if !owned && cfg!(unix) {
         Some(format!(
             "Файлы принадлежат другому пользователю. Выполните: sudo chown -R $(id -u):$(id -g) {}",
@@ -199,7 +202,9 @@ pub fn ssh_check(directory: String, name: String) -> ApiResult<SshPermissionStat
     let private_mode = mode_of(&private_path);
     let public_mode = mode_of(&public_path);
     let directory_mode = mode_of(directory_path);
-    let owned = current_user_owns(&private_path) && current_user_owns(&public_path);
+    let owned = current_user_owns(&private_path)
+        && current_user_owns(&public_path)
+        && current_user_owns(directory_path);
     let ok = if exists {
         #[cfg(unix)]
         {
@@ -229,7 +234,7 @@ pub fn ssh_check(directory: String, name: String) -> ApiResult<SshPermissionStat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ssh::{SshGenerateOptions, generate};
+    use crate::core::ssh::{generate, SshGenerateOptions};
     use tempfile::tempdir;
 
     fn generated() -> (String, String) {
@@ -310,9 +315,15 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            ssh_install(path.clone(), "id_ed25519".to_string(), private_key, public_key, false)
-                .unwrap_err()
-                .code,
+            ssh_install(
+                path.clone(),
+                "id_ed25519".to_string(),
+                private_key,
+                public_key,
+                false
+            )
+            .unwrap_err()
+            .code,
             "file_exists"
         );
     }
@@ -333,11 +344,7 @@ mod tests {
             false,
         )
         .unwrap();
-        fs::set_permissions(
-            &installed.private_path,
-            fs::Permissions::from_mode(0o644),
-        )
-        .unwrap();
+        fs::set_permissions(&installed.private_path, fs::Permissions::from_mode(0o644)).unwrap();
 
         let status = ssh_check(path, "id_ed25519".to_string()).unwrap();
         assert!(!status.ok);

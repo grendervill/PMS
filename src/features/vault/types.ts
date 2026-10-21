@@ -42,6 +42,7 @@ export type SshKey = {
   rsaBits?: number | null;
   curve?: string | null;
   publicKey: string;
+  fingerprint?: string | null;
   privateKey: string;
   passphrase?: string | null;
   comment: string;
@@ -49,6 +50,8 @@ export type SshKey = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type SshKeyType = SshKey["type"];
 
 export type AttachmentMeta = {
   id: string;

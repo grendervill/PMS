@@ -68,6 +68,10 @@ export async function installMockTauri(page: Page) {
       switch (command) {
         case "plugin:path|join":
           return paths.join("/");
+        case "plugin:path|home_dir":
+          return "/tmp/pms-home";
+        case "plugin:path|resolve_directory":
+          return "/tmp/pms-home";
         case "plugin:dialog|open":
           if (options?.directory) return "/tmp/pms-e2e-vault";
           state.files.set(
@@ -201,6 +205,55 @@ export async function installMockTauri(page: Page) {
           };
         case "totp_code":
           return { code: "123456", remaining: 30 };
+        case "ssh_generate": {
+          const sshOptions = args.options as {
+            keyType?: string;
+            rsaBits?: number | null;
+            curve?: string | null;
+          };
+          return {
+            keyType: sshOptions.keyType ?? "ed25519",
+            rsaBits: sshOptions.rsaBits ?? null,
+            curve: sshOptions.curve ?? null,
+            publicKey:
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e",
+            privateKey:
+              "-----BEGIN OPENSSH PRIVATE KEY-----\nbW9jay1zc2gta2V5\n-----END OPENSSH PRIVATE KEY-----\n",
+            fingerprint: "SHA256:mockPmsSshFingerprintForE2eTests",
+          };
+        }
+        case "ssh_formats":
+          return {
+            publicKey:
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPmsSshKeyForE2eTestsOnly alex@e2e",
+            openssh:
+              "-----BEGIN OPENSSH PRIVATE KEY-----\nbW9jay1zc2gta2V5\n-----END OPENSSH PRIVATE KEY-----\n",
+            pem: "-----BEGIN PRIVATE KEY-----\nbW9jay1wZW0=\n-----END PRIVATE KEY-----\n",
+            pkcs8: "-----BEGIN PRIVATE KEY-----\nbW9jay1wa2NzOA==\n-----END PRIVATE KEY-----\n",
+            fingerprint: "SHA256:mockPmsSshFingerprintForE2eTests",
+          };
+        case "ssh_install": {
+          const directory = String(args.directory);
+          const name = String(args.name);
+          return {
+            privatePath: `${directory}/${name}`,
+            publicPath: `${directory}/${name}.pub`,
+            privateMode: 384,
+            publicMode: 420,
+            directoryMode: 448,
+            ownedByCurrentUser: true,
+            warning: null,
+          };
+        }
+        case "ssh_check":
+          return {
+            exists: true,
+            privateMode: 384,
+            publicMode: 420,
+            directoryMode: 448,
+            ownedByCurrentUser: true,
+            ok: true,
+          };
         default:
           throw { code: "unknown_command", message: command };
       }

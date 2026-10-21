@@ -54,6 +54,7 @@ describe("entries", () => {
       url: "",
       comment: "",
       attachmentIds: [],
+      sshKeyIds: [],
       totp: null,
       totpRaw: "",
     });
@@ -91,6 +92,7 @@ describe("entries", () => {
     expect(normalizeEntryDraft(oldDraft)).toEqual({
       ...oldDraft,
       attachmentIds: [],
+      sshKeyIds: [],
       totp: null,
       totpRaw: "",
     });

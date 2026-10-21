@@ -84,7 +84,11 @@ pub fn generate(options: &SshGenerateOptions) -> Result<GeneratedSshKey, VaultEr
         key.set_comment(options.comment.clone());
     }
 
-    if let Some(passphrase) = options.passphrase.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(passphrase) = options
+        .passphrase
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
         key = key
             .encrypt(&mut rng, passphrase)
             .map_err(|_| VaultError::Crypto)?;
@@ -94,10 +98,7 @@ pub fn generate(options: &SshGenerateOptions) -> Result<GeneratedSshKey, VaultEr
         .to_openssh(LineEnding::LF)
         .map_err(|_| VaultError::Crypto)?
         .to_string();
-    let public_key = key
-        .public_key()
-        .to_openssh()
-        .map_err(|_| VaultError::Crypto)?;
+    let public_key = public_openssh(&key)?;
     let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
 
     Ok(GeneratedSshKey {
@@ -110,11 +111,8 @@ pub fn generate(options: &SshGenerateOptions) -> Result<GeneratedSshKey, VaultEr
     })
 }
 
-pub fn formats(
-    private_key: &str,
-    passphrase: Option<&str>,
-) -> Result<SshFormats, VaultError> {
-    let mut key = PrivateKey::from_openssh(private_key).map_err(|_| VaultError::InvalidCredentials)?;
+pub fn formats(private_key: &str, passphrase: Option<&str>) -> Result<SshFormats, VaultError> {
+    let mut key = PrivateKey::from_openssh(private_key).map_err(|_| VaultError::SshKeyInvalid)?;
 
     if key.is_encrypted() {
         let passphrase = passphrase.ok_or(VaultError::SshPassphraseRequired)?;
@@ -127,10 +125,7 @@ pub fn formats(
         .to_openssh(LineEnding::LF)
         .map_err(|_| VaultError::Crypto)?
         .to_string();
-    let public_key = key
-        .public_key()
-        .to_openssh()
-        .map_err(|_| VaultError::Crypto)?;
+    let public_key = public_openssh(&key)?;
     let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
 
     let (pem, pkcs8) = match key.key_data() {
@@ -225,6 +220,18 @@ fn ecdsa_pem(keypair: &ssh_key::private::EcdsaKeypair) -> Result<(String, String
     }
 }
 
+fn public_openssh(key: &PrivateKey) -> Result<String, VaultError> {
+    let mut value = key
+        .public_key()
+        .to_openssh()
+        .map_err(|_| VaultError::Crypto)?;
+    if !key.comment().is_empty() {
+        value.push(' ');
+        value.push_str(key.comment());
+    }
+    Ok(value)
+}
+
 fn rsa_from_ssh_keypair(
     keypair: &ssh_key::private::RsaKeypair,
 ) -> Result<rsa::RsaPrivateKey, VaultError> {
@@ -272,9 +279,14 @@ mod tests {
 
     #[test]
     fn generates_ed25519_and_formats() {
-        let generated = generate(&SshGenerateOptions::default()).unwrap();
+        let generated = generate(&SshGenerateOptions {
+            comment: "alex@test".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
         assert!(generated.private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
         assert!(generated.public_key.starts_with("ssh-ed25519 "));
+        assert!(generated.public_key.ends_with(" alex@test"));
         assert!(generated.fingerprint.starts_with("SHA256:"));
 
         let formats = formats(&generated.private_key, None).unwrap();
@@ -282,6 +294,14 @@ mod tests {
         assert!(formats.pkcs8.contains("BEGIN PRIVATE KEY"));
         assert!(formats.pem.contains("BEGIN PRIVATE KEY"));
         assert_eq!(formats.public_key, generated.public_key);
+    }
+
+    #[test]
+    fn rejects_malformed_private_key() {
+        assert_eq!(
+            formats("not an ssh key", None),
+            Err(VaultError::SshKeyInvalid)
+        );
     }
 
     #[test]

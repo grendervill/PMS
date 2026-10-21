@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentPicker } from "@/features/attachments/AttachmentPicker";
+import { SshKeyPicker } from "@/features/ssh/SshKeyPicker";
 import { errorText } from "@/features/vault/errors";
 import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
 import { TotpCode } from "@/features/totp/TotpCode";
@@ -411,6 +412,11 @@ export function EntryEditor({
         <AttachmentPicker
           ids={draft.attachmentIds}
           onChange={(attachmentIds) => update("attachmentIds", attachmentIds)}
+        />
+
+        <SshKeyPicker
+          ids={draft.sshKeyIds}
+          onChange={(sshKeyIds) => update("sshKeyIds", sshKeyIds)}
         />
       </div>
 

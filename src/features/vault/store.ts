@@ -17,6 +17,7 @@ import type {
   VaultPublicInfo,
   VaultStatus,
   AttachmentMeta,
+  SshKey,
 } from "@/features/vault/types";
 
 export type VaultStateData = {
@@ -44,6 +45,12 @@ export type VaultActions = {
   ) => Promise<{ ok: boolean; blockedReason?: "old-password" }>;
   deleteEntry: (id: string) => Promise<boolean>;
   addAttachmentMeta: (meta: AttachmentMeta) => Promise<boolean>;
+  addSshKey: (key: Omit<SshKey, "id" | "createdAt" | "updatedAt">) => Promise<boolean>;
+  updateSshKey: (
+    id: string,
+    patch: Partial<Omit<SshKey, "id" | "createdAt">>,
+  ) => Promise<boolean>;
+  deleteSshKey: (id: string) => Promise<boolean>;
   removeDraft: (id: string) => Promise<boolean>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
@@ -294,6 +301,56 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     return get().save({
       ...data,
       attachments: [meta, ...data.attachments.filter((item) => item.id !== meta.id)],
+      updatedAt: new Date().toISOString(),
+    });
+  },
+
+  async addSshKey(key) {
+    const data = get().data;
+    if (!data) return false;
+    const now = new Date().toISOString();
+    const next: SshKey = {
+      ...key,
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    return get().save({
+      ...data,
+      sshKeys: [next, ...data.sshKeys],
+      updatedAt: now,
+    });
+  },
+
+  async updateSshKey(id, patch) {
+    const data = get().data;
+    if (!data) return false;
+    const current = data.sshKeys.find((key) => key.id === id);
+    if (!current) return false;
+    const next: SshKey = {
+      ...current,
+      ...patch,
+      id: current.id,
+      createdAt: current.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    return get().save({
+      ...data,
+      sshKeys: data.sshKeys.map((key) => (key.id === id ? next : key)),
+      updatedAt: next.updatedAt,
+    });
+  },
+
+  async deleteSshKey(id) {
+    const data = get().data;
+    if (!data) return false;
+    return get().save({
+      ...data,
+      sshKeys: data.sshKeys.filter((key) => key.id !== id),
+      entries: data.entries.map((entry) => ({
+        ...entry,
+        sshKeyIds: (entry.sshKeyIds ?? []).filter((keyId) => keyId !== id),
+      })),
       updatedAt: new Date().toISOString(),
     });
   },

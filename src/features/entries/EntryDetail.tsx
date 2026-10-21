@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   History,
+  KeySquare,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -19,8 +20,8 @@ import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
 import { TotpCode } from "@/features/totp/TotpCode";
 import { hostFromUrl, monogram, safeHttpUrl } from "@/features/entries/entries";
 import { errorText } from "@/features/vault/errors";
+import { useVaultStore } from "@/features/vault/store";
 import type { Entry } from "@/features/vault/types";
-
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
@@ -47,8 +48,12 @@ export function EntryDetail({
   const [revealed, setRevealed] = useState(false);
   const confirm = useConfirm();
   const toast = useToast();
+  const data = useVaultStore((state) => state.data);
   const host = entry.url ? hostFromUrl(entry.url) : "";
   const httpUrl = entry.url ? safeHttpUrl(entry.url) : null;
+  const linkedSshKeys = (data?.sshKeys ?? []).filter((key) =>
+    (entry.sshKeyIds ?? []).includes(key.id),
+  );
 
   useEffect(() => {
     if (!revealed) return;
@@ -179,6 +184,23 @@ export function EntryDetail({
             <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
               <span className="text-[11.5px] text-[var(--muted)]">TOTP</span>
               <TotpCode config={entry.totp} />
+            </div>
+          ) : null}
+
+          {linkedSshKeys.length > 0 ? (
+            <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+              <span className="text-[11.5px] text-[var(--muted)]">SSH-ключи</span>
+              <div className="flex flex-wrap gap-1.5">
+                {linkedSshKeys.map((key) => (
+                  <span
+                    key={key.id}
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border border-[var(--accent)]/25 bg-[var(--accent)]/5 px-2.5 py-1 text-[11px] text-[var(--accent-soft)]"
+                  >
+                    <KeySquare size={11} />
+                    {key.name}
+                  </span>
+                ))}
+              </div>
             </div>
           ) : null}
 

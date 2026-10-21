@@ -571,6 +571,7 @@ mod tests {
             rsa_bits: None,
             curve: None,
             public_key: "ssh-ed25519 AAAA test".to_string(),
+            fingerprint: Some("SHA256:test".to_string()),
             private_key: "-----BEGIN OPENSSH PRIVATE KEY-----".to_string(),
             passphrase: None,
             comment: "test".to_string(),

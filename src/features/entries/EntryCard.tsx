@@ -1,4 +1,4 @@
-import { KeyRound } from "lucide-react";
+import { KeyRound, KeySquare } from "lucide-react";
 import type { Entry } from "@/features/vault/types";
 import { hostFromUrl, monogram } from "@/features/entries/entries";
 import { cn } from "@/lib/cn";
@@ -37,6 +37,9 @@ export function EntryCard({
           </span>
           {entry.totp ? (
             <KeyRound size={11} className="shrink-0 text-[var(--muted)]" />
+          ) : null}
+          {(entry.sshKeyIds ?? []).length > 0 ? (
+            <KeySquare size={11} className="shrink-0 text-[var(--muted)]" />
           ) : null}
         </span>
         {entry.comment ? (

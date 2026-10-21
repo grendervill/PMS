@@ -9,6 +9,8 @@ import type {
   CipherSuite,
   AttachmentMeta,
   TotpConfig,
+  SshKey,
+  SshKeyType,
 } from "@/features/vault/types";
 import type {
   LoginOptions,
@@ -63,6 +65,52 @@ export type UnlockedVault = {
   sessionId: string;
   data: VaultData;
 };
+
+export type SshGenerateOptions = {
+  keyType: SshKeyType;
+  rsaBits?: number | null;
+  curve?: string | null;
+  comment: string;
+  passphrase?: string | null;
+};
+
+export type GeneratedSshKey = {
+  keyType: SshKeyType;
+  rsaBits?: number | null;
+  curve?: string | null;
+  publicKey: string;
+  privateKey: string;
+  fingerprint: string;
+};
+
+export type SshFormats = {
+  publicKey: string;
+  openssh: string;
+  pem: string;
+  pkcs8: string;
+  fingerprint: string;
+};
+
+export type InstalledSshKey = {
+  privatePath: string;
+  publicPath: string;
+  privateMode: number;
+  publicMode: number;
+  directoryMode: number;
+  ownedByCurrentUser: boolean;
+  warning?: string | null;
+};
+
+export type SshPermissionStatus = {
+  exists: boolean;
+  privateMode?: number | null;
+  publicMode?: number | null;
+  directoryMode?: number | null;
+  ownedByCurrentUser: boolean;
+  ok: boolean;
+};
+
+export type SshKeyDraft = Omit<SshKey, "id" | "createdAt" | "updatedAt">;
 
 export const vaultApi = {
   async inspect(file: Uint8Array): Promise<VaultPublicInfo> {
@@ -159,6 +207,34 @@ export const vaultApi = {
 
   async totpCode(config: TotpConfig): Promise<{ code: string; remaining: number }> {
     return call<{ code: string; remaining: number }>("totp_code", { config });
+  },
+
+  async sshGenerate(options: SshGenerateOptions): Promise<GeneratedSshKey> {
+    return call<GeneratedSshKey>("ssh_generate", { options });
+  },
+
+  async sshFormats(privateKey: string, passphrase?: string): Promise<SshFormats> {
+    return call<SshFormats>("ssh_formats", { privateKey, passphrase });
+  },
+
+  async sshInstall(
+    directory: string,
+    name: string,
+    privateKey: string,
+    publicKey: string,
+    overwrite: boolean,
+  ): Promise<InstalledSshKey> {
+    return call<InstalledSshKey>("ssh_install", {
+      directory,
+      name,
+      privateKey,
+      publicKey,
+      overwrite,
+    });
+  },
+
+  async sshCheck(directory: string, name: string): Promise<SshPermissionStatus> {
+    return call<SshPermissionStatus>("ssh_check", { directory, name });
   },
 };
 export { fromBase64, toBase64 };

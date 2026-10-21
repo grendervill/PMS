@@ -11,6 +11,8 @@
   в заголовке и не перезатираются.
 - Записи: имя, логин, пароль, URL, комментарий; скрытие/показ и копирование.
 - TOTP-секреты: `otpauth://` или base32, живые коды с таймером, общий экран TOTP.
+- SSH-ключи: ed25519, RSA 2048/3072/4096, ECDSA P-256/P-384/P-521; OpenSSH,
+  PEM/PKCS#8, установка в `~/.ssh` с правами 600/700 и проверкой, привязка к записям.
 - Зашифрованные вложения: фото, PDF, текст и другие файлы; превью, скачивание.
 - История логинов и паролей; повторное использование старого пароля
   блокируется.
@@ -23,10 +25,10 @@
 
 ## Чего пока нет
 
-Это первый срез. В следующих планах: SSH-ключи, Android SAF, экспорт/импорт
+Это рабочий срез для macOS. В следующих планах: Android SAF, экспорт/импорт
 `.pmsvault`, резервные копии и проверка конфликтов, экран настроек, favicon
-сайтов, финальная полировка Windows/Linux. Дизайн и планы лежат в
-`docs/superpowers/`.
+сайтов, баннер установки SSH-ключей на новом устройстве и финальная полировка
+Windows/Linux. Дизайн и планы лежат в `docs/superpowers/`.
 
 ## Разработка
 
@@ -39,8 +41,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 82 frontend-теста
-pnpm test:e2e      # 4 Playwright-сценария, мок Tauri IPC
+pnpm test          # 84 frontend-теста
+pnpm test:e2e      # 5 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg

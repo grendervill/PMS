@@ -7,6 +7,7 @@ export type EntryDraft = {
   url: string;
   comment: string;
   attachmentIds: string[];
+  sshKeyIds: string[];
   totp: TotpConfig | null;
   totpRaw: string;
 };
@@ -27,6 +28,7 @@ export const emptyEntryDraft: EntryDraft = {
   url: "",
   comment: "",
   attachmentIds: [],
+  sshKeyIds: [],
   totp: null,
   totpRaw: "",
 };
@@ -36,6 +38,7 @@ export function normalizeEntryDraft(value?: Partial<EntryDraft> | null): EntryDr
   return {
     ...normalized,
     attachmentIds: value?.attachmentIds ?? [],
+    sshKeyIds: value?.sshKeyIds ?? [],
     totp: value?.totp ?? null,
     totpRaw: value?.totpRaw ?? value?.totp?.secret ?? "",
   };
@@ -49,6 +52,7 @@ export function entryToDraft(entry: Entry): EntryDraft {
     url: entry.url,
     comment: entry.comment,
     attachmentIds: [...entry.attachmentIds],
+    sshKeyIds: [...entry.sshKeyIds],
     totp: entry.totp ?? null,
     totpRaw: entry.totp?.secret ?? "",
   };
@@ -69,7 +73,7 @@ export function createEntry(
     comment: draft.comment,
     totp: draft.totp,
     attachmentIds: [...draft.attachmentIds],
-    sshKeyIds: [],
+    sshKeyIds: [...draft.sshKeyIds],
     loginHistory: [],
     passwordHistory: [],
     createdAt: now,
@@ -110,6 +114,7 @@ export function updateEntry(
       comment: draft.comment,
       totp: draft.totp,
       attachmentIds: [...draft.attachmentIds],
+      sshKeyIds: [...draft.sshKeyIds],
       loginHistory,
       passwordHistory,
       updatedAt: now,

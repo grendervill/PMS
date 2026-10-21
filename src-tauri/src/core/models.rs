@@ -183,6 +183,8 @@ pub struct SshKey {
     #[serde(default)]
     pub curve: Option<String>,
     pub public_key: String,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
     pub private_key: String,
     #[serde(default)]
     pub passphrase: Option<String>,
