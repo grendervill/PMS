@@ -49,7 +49,7 @@ pub fn parse(
         }
         let mut comment = entry.get("Notes").unwrap_or("").to_string();
         let parent = entry.parent();
-        if !parent.name.is_empty() {
+        if parent.parent().is_some() && !parent.name.is_empty() {
             comment = format!("Папка: {}\n{comment}", parent.name);
         }
         if let Some(otp) = entry.get_raw_otp_value() {

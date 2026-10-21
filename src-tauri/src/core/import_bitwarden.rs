@@ -332,6 +332,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn attaches_bitwarden_zip_files_by_item_and_name() {
+        let json = br#"{"items":[{"id":"i1","type":1,"name":"With file","login":{},"attachments":[{"id":"a1","fileName":"doc.txt"}]}]}"#;
+        let mut files = HashMap::new();
+        files.insert(
+            "attachments/i1/doc.txt".to_string(),
+            b"hello".to_vec(),
+        );
+        let bundle = parse(json, None, &files).unwrap();
+        assert_eq!(bundle.items[0].attachments.len(), 1);
+        assert_eq!(bundle.items[0].attachments[0].name, "doc.txt");
+    }
+
+    #[test]
     fn decrypts_password_protected_bitwarden_json() {
         let bytes = include_bytes!("../../tests/fixtures/bitwarden_encrypted.json");
         let bundle = parse(bytes, Some("test-pass"), &HashMap::new()).unwrap();

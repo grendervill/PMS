@@ -19,6 +19,7 @@ const messages: Record<string, string> = {
   import_password_required: "Для импорта нужен пароль.",
   import_password_invalid: "Неверный пароль импортируемого файла.",
   import_destination_not_empty: "Выберите пустую папку для импорта хранилища.",
+  import_too_large: "Файл импорта больше 500 МБ.",
   keyfile_passphrase_required: "У ключа есть парольная фраза. Введите её.",
   keyfile_passphrase_invalid: "Неверная парольная фраза ключа.",
   keyfile_public_key: "Это публичный ключ. Выберите приватный ключ-файл.",

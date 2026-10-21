@@ -167,7 +167,8 @@ pub fn parse(bytes: &[u8], password: Option<&str>, keyfile: Option<&[u8]>) -> Re
 
 fn looks_like_csv(text: &str) -> bool {
     let first = text.lines().next().unwrap_or("").to_ascii_lowercase();
-    first.contains(',') && (first.contains("password") || first.contains("url") || first.contains("login"))
+    (first.contains(',') || first.contains(';') || first.contains('\t'))
+        && (first.contains("password") || first.contains("url") || first.contains("login"))
 }
 
 fn looks_like_kaspersky(text: &str) -> bool {
@@ -176,8 +177,17 @@ fn looks_like_kaspersky(text: &str) -> bool {
 }
 
 fn parse_csv(text: &str) -> Result<ImportBundle, VaultError> {
+    let first = text.lines().next().unwrap_or("");
+    let delimiter = if first.matches(';').count() > first.matches(',').count() {
+        b';'
+    } else if first.matches('\t').count() > first.matches(',').count() {
+        b'\t'
+    } else {
+        b','
+    };
     let mut reader = csv::ReaderBuilder::new()
         .flexible(true)
+        .delimiter(delimiter)
         .trim(csv::Trim::All)
         .from_reader(text.as_bytes());
     let headers = reader
@@ -201,9 +211,9 @@ fn parse_csv(text: &str) -> Result<ImportBundle, VaultError> {
                 .to_string()
         };
         let name = {
-            let name = value(&["name", "title", "account"]);
+            let name = value(&["name", "title", "account", "website name"]);
             if name.is_empty() {
-                let url = value(&["url", "uri", "login_uri", "website"]);
+                let url = value(&["url", "uri", "login_uri", "website", "website url"]);
                 if url.is_empty() {
                     warnings.push(format!("Строка {}: пустое имя", row + 2));
                     "Без названия".to_string()
@@ -214,7 +224,7 @@ fn parse_csv(text: &str) -> Result<ImportBundle, VaultError> {
                 name
             }
         };
-        let url = value(&["url", "uri", "login_uri", "website"]);
+        let url = value(&["url", "uri", "login_uri", "website", "website url"]);
         let mut urls = Vec::new();
         if !url.is_empty() {
             for item in url.split([',', ' ']).filter(|value| !value.trim().is_empty()) {
@@ -257,8 +267,9 @@ fn parse_csv(text: &str) -> Result<ImportBundle, VaultError> {
                 if value.is_empty()
                     || matches!(
                         header.as_str(),
-                        "name" | "title" | "account" | "url" | "uri" | "login_uri" | "website"
-                            | "username" | "login" | "login_username" | "user" | "password"
+                        "name" | "title" | "account" | "website name" | "url" | "uri"
+                            | "login_uri" | "website" | "website url" | "username" | "login"
+                            | "login_username" | "user" | "login name" | "password"
                             | "login_password" | "pass" | "notes" | "note" | "comment"
                             | "login_notes" | "folder" | "group" | "collection" | "totp"
                             | "login_totp" | "otpauth" | "otp" | "type" | "favorite"
@@ -419,6 +430,28 @@ mod tests {
         assert_eq!(item.login, "alex");
         assert!(item.comment.contains("Папка: Social"));
         assert!(item.totp.is_some());
+    }
+
+    #[test]
+    fn parses_1password_and_safari_csv() {
+        let one = "Title,Url,Username,Password,OTPAuth,Favorite,Archived,Tags,Notes\nOne,https://one.example,alex,s3cret,JBSWY3DPEHPK3PXP,0,0,work,note\n";
+        let bundle = parse(one.as_bytes(), None, None).unwrap();
+        assert_eq!(bundle.items[0].name, "One");
+        assert!(bundle.items[0].totp.is_some());
+
+        let safari = "Title,URL,Username,Password,Notes,OTPAuth\nSafari,https://safari.example,alex,s3cret,note,\n";
+        let bundle = parse(safari.as_bytes(), None, None).unwrap();
+        assert_eq!(bundle.items[0].urls, vec!["https://safari.example"]);
+    }
+
+    #[test]
+    fn parses_semicolon_kaspersky_csv() {
+        let text = "Website name;Website URL;Login name;Login;Password;Comment\nExample;https://example.com;Example;alex;s3cret;hello\n";
+        assert!(looks_like_csv(text));
+        let bundle = parse(text.as_bytes(), None, None).unwrap();
+        assert_eq!(bundle.items[0].name, "Example");
+        assert_eq!(bundle.items[0].login, "alex");
+        assert_eq!(bundle.items[0].comment, "hello");
     }
 
     #[test]

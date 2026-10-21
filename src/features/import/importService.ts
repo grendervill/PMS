@@ -1,4 +1,5 @@
 import { fromBase64 } from "@/lib/base64";
+import { mimeFromName } from "@/features/attachments/mime";
 import { getStorage } from "@/lib/storage";
 import { createEntry } from "@/features/entries/entries";
 import { vaultApi, type ImportBundle, type ImportedItem } from "@/features/vault/api";
@@ -66,7 +67,7 @@ async function importAttachments(
       const sealed = await vaultApi.sealAttachment(
         sessionId,
         attachment.name,
-        attachment.mime || "application/octet-stream",
+        attachment.mime || mimeFromName(attachment.name),
         bytes,
       );
       await getStorage().writeBlob(vaultPath, sealed.meta.id, sealed.blob);

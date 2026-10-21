@@ -12,6 +12,12 @@ pub fn import_parse(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(file_b64)
         .map_err(|_| ApiError::bad_base64())?;
+    if bytes.len() > 500 * 1024 * 1024 {
+        return Err(ApiError::new(
+            "import_too_large",
+            "Файл импорта больше 500 МБ",
+        ));
+    }
     let keyfile = keyfile_b64
         .map(|value| {
             base64::engine::general_purpose::STANDARD
