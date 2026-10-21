@@ -328,5 +328,9 @@ export const vaultApi = {
   async pmsImport(archive: string, destination: string): Promise<string> {
     return call<string>("pms_import", { archive, destination });
   },
+
+  async setAppIcon(icon: string): Promise<void> {
+    await call<void>("app_icon_set", { icon });
+  },
 };
 export { fromBase64, toBase64 };

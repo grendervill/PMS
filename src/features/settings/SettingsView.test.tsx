@@ -37,6 +37,7 @@ describe("SettingsView biometrics", () => {
       data,
     });
     vi.spyOn(vaultApi, "biometricStatus").mockResolvedValue({ available: false });
+    vi.spyOn(vaultApi, "setAppIcon").mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -54,6 +55,23 @@ describe("SettingsView biometrics", () => {
         name: "Всегда разблокировать при помощи биометрии",
       }),
     ).toBeDisabled();
+  });
+
+  it("selects and persists an application icon", async () => {
+    renderSettings();
+
+    const green = screen.getByRole("button", { name: "Зелёный замок" });
+    expect(green).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Синий щит" }));
+
+    await waitFor(() => {
+      expect(localStorage.getItem("pms.appIcon")).toBe("blue-shield");
+    });
+    expect(vaultApi.setAppIcon).toHaveBeenCalledWith("blue-shield");
+    expect(screen.getByRole("button", { name: "Синий щит" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("enrolls biometrics when available and the switch is enabled", async () => {

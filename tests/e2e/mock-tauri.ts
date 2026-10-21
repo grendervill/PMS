@@ -280,6 +280,8 @@ export async function installMockTauri(page: Page) {
           };
         case "pms_export":
           return null;
+        case "app_icon_set":
+          return null;
         case "pms_import":
           return String(args.destination);
         case "share_encode":

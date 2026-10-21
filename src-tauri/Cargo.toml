@@ -58,6 +58,9 @@ quick-xml = "0.38"
 security-framework = "3.7"
 security-framework-sys = "2.17"
 objc2-local-authentication = { version = "0.3.2", features = ["LAContext"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSResponder", "NSImage"] }
+objc2-foundation = { version = "0.3.2", features = ["NSData"] }
 
 [dev-dependencies]
 tempfile = "3"

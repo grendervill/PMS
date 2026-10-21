@@ -343,3 +343,23 @@ test("imports a manager file and exports a pmsvault backup", async ({ page }) =>
   await page.getByRole("button", { name: "Экспорт .pmsvault" }).click();
   await expect(page.getByText("Резервная копия создана")).toBeVisible();
 });
+
+test("selects an application icon", async ({ page }) => {
+  await createVault(page);
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: "/tmp/pms-app-icons.png" });
+  await expect(page.getByRole("button", { name: "Зелёный замок" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.getByRole("button", { name: "Синий щит" }).click();
+  await expect(page.getByRole("button", { name: "Синий щит" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByText("Значок приложения обновлён")).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("pms.appIcon")))
+    .toBe("blue-shield");
+});

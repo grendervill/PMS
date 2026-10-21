@@ -1,15 +1,22 @@
-import { Fingerprint, KeyRound, Loader2, ShieldCheck, Upload } from "lucide-react";
+import { Check, Fingerprint, KeyRound, Loader2, Palette, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/toast-context";
 import { ImportWizard } from "@/features/import/ImportWizard";
+import {
+  APP_ICONS,
+  getSelectedAppIcon,
+  setSelectedAppIcon,
+  type AppIconId,
+} from "@/features/settings/appIcon";
 import { vaultApi } from "@/features/vault/api";
 import { isBiometricEnabled } from "@/features/vault/biometric";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import { getStorage } from "@/lib/storage";
+import { cn } from "@/lib/cn";
 
 export function SettingsView() {
   const data = useVaultStore((state) => state.data);
@@ -22,6 +29,8 @@ export function SettingsView() {
   const toast = useToast();
   const [importOpen, setImportOpen] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [selectedIcon, setSelectedIcon] = useState<AppIconId>(() => getSelectedAppIcon());
+  const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(true);
   const [enabled, setEnabled] = useState(() => isBiometricEnabled(data?.id));
@@ -73,6 +82,24 @@ export function SettingsView() {
           tone: "error",
         });
       }
+    }
+  };
+
+  const chooseIcon = async (icon: AppIconId) => {
+    setIconBusy(icon);
+    try {
+      await vaultApi.setAppIcon(icon);
+      setSelectedIcon(icon);
+      setSelectedAppIcon(icon);
+      toast.show({ title: "Значок приложения обновлён", tone: "success" });
+    } catch (error) {
+      toast.show({
+        title: "Не удалось изменить значок",
+        description: errorText(error),
+        tone: "error",
+      });
+    } finally {
+      setIconBusy(null);
     }
   };
 
@@ -153,6 +180,64 @@ export function SettingsView() {
                 Проверяем биометрию
               </span>
             ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+            <Palette size={15} className="text-[var(--accent-soft)]" />
+            <h2 className="pms-display text-lg">Выбрать значок приложения</h2>
+          </div>
+          <div className="px-4 py-4">
+            <div className="grid grid-cols-3 gap-2.5">
+              {APP_ICONS.map((option) => {
+                const active = selectedIcon === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={active}
+                    aria-label={option.label}
+                    disabled={iconBusy !== null}
+                    onClick={() => void chooseIcon(option.id)}
+                    className={cn(
+                      "group relative flex min-w-0 flex-col items-center gap-2 rounded-[var(--radius-md)] border px-2 py-2.5 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                      active
+                        ? "border-[var(--accent)]/60 bg-[var(--accent)]/8"
+                        : "border-[var(--border)] bg-[var(--surface-2)]/40 hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]",
+                    )}
+                  >
+                    <span className="relative">
+                      <img
+                        src={option.image}
+                        alt=""
+                        className="size-14 rounded-[14px] object-cover shadow-[0_4px_14px_rgba(0,0,0,0.25)]"
+                      />
+                      {active ? (
+                        <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--accent)] text-[#08110d]">
+                          <Check size={11} strokeWidth={3} />
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-medium text-[var(--text-soft)]">
+                        {option.label}
+                      </span>
+                      <span className="mt-0.5 hidden text-[9.5px] text-[var(--muted)] sm:block">
+                        {option.description}
+                      </span>
+                    </span>
+                    {iconBusy === option.id ? (
+                      <Loader2 size={14} className="absolute right-2 top-2 animate-spin text-[var(--accent-soft)]" />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-[10.5px] leading-relaxed text-[var(--muted)]">
+              Значок в Dock меняется сразу. После перезапуска приложение восстановит
+              выбранный вариант.
+            </p>
           </div>
         </section>
 

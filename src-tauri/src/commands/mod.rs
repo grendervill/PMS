@@ -1,3 +1,4 @@
+pub mod app_icon;
 pub mod attachments;
 pub mod biometric;
 pub mod generator;

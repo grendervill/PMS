@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { vaultApi } from "@/features/vault/api";
+import { getSelectedAppIcon } from "@/features/settings/appIcon";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ConfirmProvider } from "@/components/ui/ConfirmProvider";
 import { AppShell } from "@/app/AppShell";
@@ -13,6 +15,10 @@ export default function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    void vaultApi.setAppIcon(getSelectedAppIcon()).catch(() => undefined);
+  }, []);
 
   return (
     <ToastProvider>

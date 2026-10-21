@@ -37,6 +37,7 @@ pub fn run() {
             commands::import::import_parse,
             commands::pms_archive::pms_export,
             commands::pms_archive::pms_import,
+            commands::app_icon::app_icon_set,
             commands::storage::storage_read_file,
             commands::storage::storage_write_atomic,
             commands::storage::storage_exists,

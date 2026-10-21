@@ -27,6 +27,7 @@
 - Предупреждения о слабых и повторяющихся паролях; экран «Проверка».
 - Автоблокировка и зашифрованные черновики несохранённых форм.
 - Атомарная запись vault-файла, права 600/700 на macOS/Linux.
+- Три значка приложения с выбором в настройках; по умолчанию — зелёный замок.
 - Сборка macOS Apple Silicon: `.app` и `.dmg`.
 
 ## Чего пока нет
@@ -47,8 +48,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 100 frontend-тестов
-pnpm test:e2e      # 9 Playwright-сценариев, мок Tauri IPC
+pnpm test          # 101 frontend-тест
+pnpm test:e2e      # 10 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 pnpm tauri build   # macOS ARM: .app + .dmg
