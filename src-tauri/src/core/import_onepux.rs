@@ -111,6 +111,16 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                 }
 
                 let mut comment = text(details.get("notesPlain"));
+                if let Some(tags) = overview.get("tags").and_then(Value::as_array) {
+                    let tags = tags
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|tag| !tag.is_empty())
+                        .collect::<Vec<_>>();
+                    if !tags.is_empty() {
+                        comment = format!("Теги: {}\n{comment}", tags.join(", "));
+                    }
+                }
                 if let Some(fields) = details.get("loginFields").and_then(Value::as_array) {
                     for field in fields {
                         let designation = text(field.get("designation"));
