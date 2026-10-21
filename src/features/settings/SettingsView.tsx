@@ -268,7 +268,6 @@ export function SettingsView() {
           </div>
         </section>
 
-        {!android ? (
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
             <Palette size={15} className="text-[var(--accent-soft)]" />
@@ -321,12 +320,12 @@ export function SettingsView() {
               })}
             </div>
             <p className="mt-3 text-[10.5px] leading-relaxed text-[var(--muted)]">
-              Значок в Dock меняется сразу. После перезапуска приложение восстановит
-              выбранный вариант.
+              {android
+                ? "Значок на главном экране меняется сразу. Если система кэширует старый значок, перезапустите launcher."
+                : "Значок в Dock меняется сразу. После перезапуска приложение восстановит выбранный вариант."}
             </p>
           </div>
         </section>
-        ) : null}
 
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
