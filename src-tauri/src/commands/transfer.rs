@@ -119,8 +119,21 @@ fn device_name() -> String {
 }
 
 fn local_address() -> Result<IpAddr, ApiError> {
-    local_ip_address::local_ip()
-        .map_err(|error| ApiError::new("transfer_network", error.to_string()))
+    let detected = local_ip_address::local_ip()
+        .map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
+    if detected.is_ipv4() {
+        return Ok(detected);
+    }
+    if let Ok(interfaces) = if_addrs::get_if_addrs() {
+        for interface in interfaces {
+            if let if_addrs::IfAddr::V4(address) = interface.addr {
+                if !address.ip.is_loopback() && !address.ip.is_link_local() {
+                    return Ok(IpAddr::V4(address.ip));
+                }
+            }
+        }
+    }
+    Ok(detected)
 }
 
 fn dns_hostname() -> String {

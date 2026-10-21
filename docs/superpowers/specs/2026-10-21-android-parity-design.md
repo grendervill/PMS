@@ -46,5 +46,6 @@ Android-биометрия использует `tauri-plugin-biometric` (`Biome
 - [x] QR-камера через WebView, SAF save pickers, SSH export.
 - [x] `.pmsvault` import/export staging for Android.
 - [x] Emulator biometric/camera/SAF verification; real-device providers pending.
+- [x] QR-поле увеличено под мобильный экран; обмен получил UDP-broadcast fallback и ручной ввод IP.
 - [ ] Android transfer discovery and manual device testing.
 - [ ] App lifecycle/back-button and background-lock polish.
