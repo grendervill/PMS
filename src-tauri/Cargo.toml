@@ -44,6 +44,7 @@ sha1 = "0.10"
 data-encoding = "2"
 url = "2"
 libc = "0.2"
+flate2 = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"

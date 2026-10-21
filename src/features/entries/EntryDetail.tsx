@@ -7,6 +7,7 @@ import {
   History,
   KeySquare,
   Pencil,
+  QrCode,
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -17,7 +18,9 @@ import { IconButton } from "@/components/ui/IconButton";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
+import { ShareCardDialog } from "@/features/qr/ShareCardDialog";
 import { TotpCode } from "@/features/totp/TotpCode";
+import { TotpQrDialog } from "@/features/totp/TotpQrDialog";
 import { hostFromUrl, monogram, safeHttpUrl, entryUrls } from "@/features/entries/entries";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
@@ -46,6 +49,8 @@ export function EntryDetail({
   onHistory: () => void;
 }) {
   const [revealed, setRevealed] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [totpQrOpen, setTotpQrOpen] = useState(false);
   const confirm = useConfirm();
   const toast = useToast();
   const data = useVaultStore((state) => state.data);
@@ -116,6 +121,9 @@ export function EntryDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            <IconButton label="Поделиться по QR" onClick={() => setShareOpen(true)}>
+              <QrCode size={15} />
+            </IconButton>
             <IconButton label="Редактировать" onClick={onEdit}>
               <Pencil size={15} />
             </IconButton>
@@ -200,7 +208,12 @@ export function EntryDetail({
           {entry.totp ? (
             <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
               <span className="text-[11.5px] text-[var(--muted)]">TOTP</span>
-              <TotpCode config={entry.totp} />
+              <div className="flex items-center gap-2">
+                <TotpCode config={entry.totp} />
+                <IconButton label="Показать TOTP QR" size="sm" onClick={() => setTotpQrOpen(true)}>
+                  <QrCode size={14} />
+                </IconButton>
+              </div>
             </div>
           ) : null}
 
@@ -230,6 +243,13 @@ export function EntryDetail({
         </div>
         <AttachmentsSection entry={entry} />
       </div>
+
+      {shareOpen ? (
+        <ShareCardDialog entry={entry} onClose={() => setShareOpen(false)} />
+      ) : null}
+      {totpQrOpen && entry.totp ? (
+        <TotpQrDialog config={entry.totp} onClose={() => setTotpQrOpen(false)} />
+      ) : null}
 
       <div className="border-t border-[var(--border)] px-5 py-3.5 sm:px-7">
         <div className="flex flex-wrap items-center justify-between gap-3">

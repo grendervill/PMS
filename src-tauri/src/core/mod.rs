@@ -6,6 +6,7 @@ pub mod error;
 pub mod generator;
 pub mod models;
 pub mod session;
+pub mod share;
 pub mod ssh;
 pub mod totp;
 pub mod vault;

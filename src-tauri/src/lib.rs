@@ -32,6 +32,8 @@ pub fn run() {
             commands::biometric::biometric_enroll,
             commands::biometric::biometric_disable,
             commands::biometric::biometric_unlock,
+            commands::share::share_encode,
+            commands::share::share_decode,
             commands::storage::storage_read_file,
             commands::storage::storage_write_atomic,
             commands::storage::storage_exists,

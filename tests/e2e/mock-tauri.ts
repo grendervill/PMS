@@ -258,6 +258,17 @@ export async function installMockTauri(page: Page) {
             ownedByCurrentUser: true,
             ok: true,
           };
+        case "share_encode":
+          return "PMSQR1:mock-shared-card";
+        case "share_decode":
+          return args.card ?? {
+            name: "Shared",
+            login: "alex",
+            password: "s3cret",
+            urls: ["https://shared.example"],
+            comment: "from qr",
+            totp: null,
+          };
         case "biometric_status":
           return { available: state.biometricAvailable };
         case "biometric_enroll":

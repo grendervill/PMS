@@ -3224,6 +3224,7 @@ dependencies = [
  "chrono",
  "data-encoding",
  "ed25519-dalek",
+ "flate2",
  "hex",
  "hkdf",
  "hmac",

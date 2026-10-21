@@ -1,4 +1,5 @@
 import { KeyRound } from "lucide-react";
+import { QrImportDialog } from "@/features/qr/QrImportDialog";
 import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useConfirm } from "@/components/ui/confirm-context";
@@ -51,6 +52,7 @@ export function EntriesView({
     };
   });
   const [historyEntry, setHistoryEntry] = useState<Entry | null>(null);
+  const [qrImportOpen, setQrImportOpen] = useState(false);
 
   const visibleEntries = useMemo(
     () => sortEntries(searchEntries(entries, query), sort),
@@ -102,6 +104,7 @@ export function EntriesView({
           onSort={setSort}
           onSelect={setSelectedId}
           onCreate={() => setEditor({ entry: null })}
+          onScanQr={() => setQrImportOpen(true)}
         />
       </section>
 
@@ -140,6 +143,15 @@ export function EntriesView({
           onClose={() => setEditor(null)}
           onSaved={onSaved}
           onRequestLock={onRequestLock}
+        />
+      ) : null}
+
+      {qrImportOpen ? (
+        <QrImportDialog
+          onClose={() => setQrImportOpen(false)}
+          onImported={(id) => {
+            if (id) setSelectedId(id);
+          }}
         />
       ) : null}
 

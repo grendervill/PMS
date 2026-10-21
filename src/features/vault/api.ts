@@ -70,6 +70,15 @@ export type BiometricStatus = {
   available: boolean;
 };
 
+export type SharedCard = {
+  name: string;
+  login: string;
+  password: string;
+  urls: string[];
+  comment: string;
+  totp: TotpConfig | null;
+};
+
 export type SshGenerateOptions = {
   keyType: SshKeyType;
   rsaBits?: number | null;
@@ -258,6 +267,14 @@ export const vaultApi = {
       fileB64: toBase64(file),
       vaultId,
     });
+  },
+
+  async shareEncode(card: SharedCard, password?: string): Promise<string> {
+    return call<string>("share_encode", { card, password });
+  },
+
+  async shareDecode(payload: string, password?: string): Promise<SharedCard> {
+    return call<SharedCard>("share_decode", { payload, password });
   },
 };
 export { fromBase64, toBase64 };

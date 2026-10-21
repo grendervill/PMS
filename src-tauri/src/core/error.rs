@@ -50,6 +50,14 @@ pub enum VaultError {
     InvalidSshName,
     #[error("invalid SSH private key")]
     SshKeyInvalid,
+    #[error("QR password required")]
+    QrPasswordRequired,
+    #[error("QR password invalid")]
+    QrPasswordInvalid,
+    #[error("invalid QR payload")]
+    QrInvalid,
+    #[error("QR payload too large")]
+    QrTooLarge,
     #[error("empty character set")]
     EmptyCharset,
     #[error("vault id mismatch")]
@@ -90,6 +98,10 @@ impl VaultError {
             Self::SshPassphraseInvalid => "ssh_passphrase_invalid",
             Self::InvalidSshName => "invalid_ssh_name",
             Self::SshKeyInvalid => "ssh_key_invalid",
+            Self::QrPasswordRequired => "qr_password_required",
+            Self::QrPasswordInvalid => "qr_password_invalid",
+            Self::QrInvalid => "qr_invalid",
+            Self::QrTooLarge => "qr_too_large",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",

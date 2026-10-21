@@ -1,6 +1,7 @@
-import { Plus, Search } from "lucide-react";
+import { Plus, QrCode, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { EntryCard } from "@/features/entries/EntryCard";
 import type { SortMode } from "@/features/entries/entries";
@@ -17,6 +18,7 @@ export function EntryList({
   onSort,
   onSelect,
   onCreate,
+  onScanQr,
 }: {
   entries: Entry[];
   total: number;
@@ -27,6 +29,7 @@ export function EntryList({
   onSort: (value: SortMode) => void;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onScanQr: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -45,6 +48,9 @@ export function EntryList({
               className="h-8 pl-8 text-[12px]"
             />
           </div>
+          <IconButton label="Добавить по QR" size="sm" onClick={onScanQr}>
+            <QrCode size={15} />
+          </IconButton>
           <Button size="sm" onClick={onCreate}>
             <Plus size={14} />
             Запись

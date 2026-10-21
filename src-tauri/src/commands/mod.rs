@@ -1,6 +1,7 @@
 pub mod attachments;
 pub mod biometric;
 pub mod generator;
+pub mod share;
 pub mod storage;
 pub mod ssh;
 pub mod totp;

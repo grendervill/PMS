@@ -283,3 +283,39 @@ test("enables Touch ID, auto unlocks and falls back after five failures", async 
   await page.getByRole("button", { name: "Разблокировать" }).click();
   await expect(page.getByRole("heading", { name: "Записи" })).toBeVisible();
 });
+
+test("shares a card by QR and shows a TOTP QR", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("Share me");
+  await page.getByLabel("Логин", { exact: true }).fill("alex");
+  await page.getByLabel("Пароль", { exact: true }).fill("s3cret");
+  await page.getByLabel("URL", { exact: true }).fill("https://shared.example");
+  await page.getByLabel("TOTP", { exact: true }).fill("JBSWY3DPEHPK3PXP");
+  await page.getByLabel("TOTP", { exact: true }).press("Tab");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+
+  await page.getByRole("button", { name: "Поделиться по QR" }).click();
+  await expect(page.getByRole("dialog", { name: "Поделиться карточкой" })).toBeVisible();
+  await expect(page.getByAltText("QR-код карточки")).toBeVisible();
+  await expect(page.getByText(/данные карточки лежат в QR открыто/)).toBeVisible();
+  await page.getByRole("button", { name: "С паролем" }).click();
+  const createQr = page.getByRole("button", { name: "Создать QR" });
+  await expect(createQr).toBeDisabled();
+  await page.getByLabel("Пароль QR").fill("qr-pass");
+  await expect(createQr).toBeEnabled();
+  await createQr.click();
+  await expect(page.getByAltText("QR-код карточки")).toBeVisible();
+  await page.getByRole("button", { name: "Закрыть", exact: true }).last().click();
+
+  await page.getByRole("button", { name: "Показать TOTP QR" }).click();
+  await expect(page.getByRole("dialog", { name: "TOTP QR" })).toBeVisible();
+  await expect(page.getByAltText("TOTP QR")).toBeVisible();
+  await page.getByRole("button", { name: "Закрыть", exact: true }).last().click();
+
+  await page.getByRole("button", { name: "Добавить по QR" }).click();
+  await expect(page.getByRole("dialog", { name: "Импорт карточки по QR" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Изображение", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Камера" })).toBeVisible();
+});

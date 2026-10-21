@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, Lock, Save, ShieldCheck, Wand2 } from "lucide-react";
+import { AlertTriangle, Loader2, Lock, QrCode, Save, ShieldCheck, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -11,6 +11,7 @@ import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentPicker } from "@/features/attachments/AttachmentPicker";
 import { UrlListInput } from "@/features/entries/UrlListInput";
+import { QrScannerDialog } from "@/features/qr/QrScannerDialog";
 import { SshKeyPicker } from "@/features/ssh/SshKeyPicker";
 import { errorText } from "@/features/vault/errors";
 import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
@@ -70,6 +71,7 @@ export function EntryEditor({
   const [saving, setSaving] = useState(false);
   const [generatorMode, setGeneratorMode] = useState<"password" | "login" | null>(null);
   const [totpError, setTotpError] = useState<string | null>(null);
+  const [totpScannerOpen, setTotpScannerOpen] = useState(false);
 
   const duplicates = useMemo(
     () => findDuplicatePasswords(data?.entries ?? [], draft.password, entry?.id),
@@ -273,6 +275,15 @@ export function EntryEditor({
             }}
             onBlur={() => void parseTotp()}
             placeholder="JBSWY3DPEHPK3PXP или otpauth://…"
+            action={
+              <IconButton
+                label="Сканировать TOTP QR"
+                size="sm"
+                onClick={() => setTotpScannerOpen(true)}
+              >
+                <QrCode size={14} />
+              </IconButton>
+            }
           />
           {draft.totp ? (
             <div className="mt-1.5">
@@ -415,6 +426,34 @@ export function EntryEditor({
           onChange={(sshKeyIds) => update("sshKeyIds", sshKeyIds)}
         />
       </div>
+
+      {totpScannerOpen ? (
+        <QrScannerDialog
+          open
+          title="TOTP QR"
+          onOpenChange={(open) => {
+            if (!open) setTotpScannerOpen(false);
+          }}
+          onResult={(text) => {
+            setTotpScannerOpen(false);
+            void vaultApi
+              .inspectTotp(text)
+              .then((config) => {
+                setDraft((current) => ({
+                  ...current,
+                  totpRaw: text,
+                  totp: config,
+                }));
+                setTotpError(null);
+              })
+              .catch(() => {
+                setTotpError(
+                  "Не удалось разобрать TOTP из QR. Проверьте, что это otpauth:// или base32.",
+                );
+              });
+          }}
+        />
+      ) : null}
 
       {generatorMode ? (
         <GeneratorDialog
