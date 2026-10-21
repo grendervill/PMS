@@ -347,8 +347,6 @@ test("imports a manager file and exports a pmsvault backup", async ({ page }) =>
 test("selects an application icon", async ({ page }) => {
   await createVault(page);
   await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
-  await page.waitForTimeout(250);
-  await page.screenshot({ path: "/tmp/pms-app-icons.png" });
   await expect(page.getByRole("button", { name: "Зелёный замок" })).toHaveAttribute(
     "aria-pressed",
     "true",

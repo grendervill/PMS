@@ -50,6 +50,7 @@ pub fn biometric_unlock(
     let file = base64::engine::general_purpose::STANDARD
         .decode(file_b64)
         .map_err(|_| ApiError::bad_base64())?;
+    imp::unlock(vault_id)?;
     let key = imp::read(vault_id)?;
     let (session, data) = unlock_vault_with_key(&file, &key).map_err(ApiError::from)?;
     let session_id = session.id;
@@ -60,26 +61,31 @@ pub fn biometric_unlock(
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use security_framework::access_control::{ProtectionMode, SecAccessControl};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use block2::RcBlock;
+    use objc2::runtime::Bool;
+    use objc2_foundation::{NSError, NSString};
+    use objc2_local_authentication::{LAContext, LAPolicy};
     use security_framework::base::Error as SecurityError;
     use security_framework::passwords::{
-        AccessControlOptions, PasswordOptions, delete_generic_password, generic_password,
-        set_generic_password_options,
+        PasswordOptions, delete_generic_password, generic_password, set_generic_password_options,
     };
-    use security_framework_sys::base::{
-        errSecAuthFailed as ERR_SEC_AUTH_FAILED, errSecItemNotFound as ERR_SEC_ITEM_NOT_FOUND,
-    };
-
-    const ERR_SEC_USER_CANCELED: i32 = -128;
-    const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25308;
+    use security_framework_sys::base::{errSecAuthFailed as ERR_SEC_AUTH_FAILED, errSecItemNotFound as ERR_SEC_ITEM_NOT_FOUND};
     use uuid::Uuid;
     use zeroize::Zeroizing;
 
     use super::SERVICE;
     use crate::commands::{ApiError, ApiResult};
 
+    const ERR_USER_CANCELED: i32 = -2;
+    const ERR_USER_FALLBACK: i32 = -3;
+    const ERR_BIOMETRY_NOT_AVAILABLE: i32 = -6;
+    const ERR_BIOMETRY_NOT_ENROLLED: i32 = -7;
+    const ERR_BIOMETRY_LOCKOUT: i32 = -8;
+
     pub fn available() -> bool {
-        use objc2_local_authentication::{LAContext, LAPolicy};
         let context = unsafe { LAContext::new() };
         unsafe {
             context
@@ -90,34 +96,69 @@ mod imp {
 
     fn map_keychain_error(error: SecurityError) -> ApiError {
         match error.code() {
-            ERR_SEC_USER_CANCELED => ApiError::new("biometric_cancelled", "Вход по отпечатку отменён"),
             ERR_SEC_ITEM_NOT_FOUND => ApiError::new(
                 "biometric_key_missing",
                 "Сохранённый ключ биометрии не найден",
             ),
-            ERR_SEC_INTERACTION_NOT_ALLOWED => ApiError::new(
-                "biometric_lockout",
-                "Биометрия временно заблокирована. Введите пароль-фразу",
-            ),
             ERR_SEC_AUTH_FAILED => ApiError::new(
                 "biometric_failed",
-                "Отпечаток не распознан",
+                "Не удалось прочитать сохранённый ключ",
             ),
-            _ => ApiError::new("biometric_failed", "Не удалось пройти биометрию"),
+            _ => ApiError::new("biometric_failed", "Не удалось прочитать сохранённый ключ"),
         }
     }
 
-    fn access_control() -> ApiResult<SecAccessControl> {
-        SecAccessControl::create_with_protection(
-            Some(ProtectionMode::AccessibleWhenPasscodeSetThisDeviceOnly),
-            AccessControlOptions::BIOMETRY_CURRENT_SET.bits(),
-        )
-        .map_err(|_| {
-            ApiError::new(
+    fn map_la_error(code: i32) -> ApiError {
+        match code {
+            ERR_USER_CANCELED | ERR_USER_FALLBACK => {
+                ApiError::new("biometric_cancelled", "Вход по отпечатку отменён")
+            }
+            ERR_BIOMETRY_LOCKOUT => ApiError::new(
+                "biometric_lockout",
+                "Биометрия временно заблокирована. Введите пароль-фразу",
+            ),
+            ERR_BIOMETRY_NOT_AVAILABLE | ERR_BIOMETRY_NOT_ENROLLED => ApiError::new(
                 "biometric_unavailable",
-                "Не удалось настроить защиту ключа биометрией",
-            )
-        })
+                "Биометрия на этом устройстве недоступна",
+            ),
+            _ => ApiError::new("biometric_failed", "Отпечаток не распознан"),
+        }
+    }
+
+    fn evaluate() -> ApiResult<()> {
+        let context = unsafe { LAContext::new() };
+        let (sender, receiver) = mpsc::channel::<(bool, i32)>();
+        let block = RcBlock::new(move |success: Bool, error: *mut NSError| {
+            let code = if error.is_null() {
+                0
+            } else {
+                unsafe { (*error).code() as i32 }
+            };
+            let _ = sender.send((success.as_bool(), code));
+        });
+        let reason = NSString::from_str("Разблокировать хранилище PMS");
+        unsafe {
+            context.evaluatePolicy_localizedReason_reply(
+                LAPolicy::DeviceOwnerAuthenticationWithBiometrics,
+                &reason,
+                &block,
+            );
+        }
+        let (success, code) = receiver
+            .recv_timeout(Duration::from_secs(120))
+            .map_err(|_| ApiError::new("biometric_failed", "Биометрия не ответила"))?;
+        if success {
+            Ok(())
+        } else {
+            Err(map_la_error(code))
+        }
+    }
+
+    fn store(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
+        let account = vault_id.to_string();
+        let options = PasswordOptions::new_generic_password(SERVICE, &account);
+        let secret = Zeroizing::new(key.to_vec());
+        set_generic_password_options(&secret, options).map_err(map_keychain_error)
     }
 
     pub fn enroll(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
@@ -127,20 +168,18 @@ mod imp {
                 "Биометрия на этом устройстве недоступна",
             ));
         }
-        let account = vault_id.to_string();
-        let mut options = PasswordOptions::new_generic_password(SERVICE, &account);
-        options.set_access_control(access_control()?);
+        evaluate()?;
+        store(vault_id, key)
+    }
 
-        let secret = Zeroizing::new(key.to_vec());
-        set_generic_password_options(&secret, options).map_err(map_keychain_error)?;
-
-        // Force the first biometric check now, so enabling cannot silently store
-        // a key that the user never confirmed.
-        if let Err(error) = generic_password(PasswordOptions::new_generic_password(SERVICE, &account)) {
-            let _ = delete_generic_password(SERVICE, &account);
-            return Err(map_keychain_error(error));
+    pub fn unlock(_vault_id: Uuid) -> ApiResult<()> {
+        if !available() {
+            return Err(ApiError::new(
+                "biometric_unavailable",
+                "Биометрия на этом устройстве недоступна",
+            ));
         }
-        Ok(())
+        evaluate()
     }
 
     pub fn disable(vault_id: Uuid) -> ApiResult<()> {
@@ -172,25 +211,36 @@ mod imp {
         use super::*;
 
         #[test]
+        fn maps_cancel_and_lockout_errors() {
+            assert_eq!(
+                map_la_error(ERR_USER_CANCELED).code,
+                "biometric_cancelled"
+            );
+            assert_eq!(map_la_error(ERR_BIOMETRY_LOCKOUT).code, "biometric_lockout");
+            assert_eq!(map_la_error(-999).code, "biometric_failed");
+        }
+
+        #[test]
         fn availability_query_is_safe() {
             let _ = available();
         }
 
         #[test]
-        fn disabling_a_missing_item_is_idempotent() {
-            assert!(disable(Uuid::new_v4()).is_ok());
+        fn stores_and_reads_key_without_a_biometric_prompt() {
+            let vault_id = Uuid::new_v4();
+            let key = [7u8; 32];
+            store(vault_id, &key).unwrap();
+            assert_eq!(read(vault_id).unwrap(), key);
+            disable(vault_id).unwrap();
+            assert!(matches!(
+                read(vault_id),
+                Err(ApiError { code, .. }) if code == "biometric_key_missing"
+            ));
         }
 
         #[test]
-        fn maps_cancelled_and_failed_errors() {
-            assert_eq!(
-                map_keychain_error(SecurityError::from_code(ERR_SEC_USER_CANCELED)).code,
-                "biometric_cancelled"
-            );
-            assert_eq!(
-                map_keychain_error(SecurityError::from_code(ERR_SEC_AUTH_FAILED)).code,
-                "biometric_failed"
-            );
+        fn disabling_a_missing_item_is_idempotent() {
+            assert!(disable(Uuid::new_v4()).is_ok());
         }
     }
 }
@@ -214,6 +264,13 @@ mod imp {
 
     pub fn disable(_vault_id: Uuid) -> ApiResult<()> {
         Ok(())
+    }
+
+    pub fn unlock(_vault_id: Uuid) -> ApiResult<()> {
+        Err(ApiError::new(
+            "biometric_unavailable",
+            "Биометрия пока поддерживается только на macOS",
+        ))
     }
 
     pub fn read(_vault_id: Uuid) -> ApiResult<[u8; 32]> {

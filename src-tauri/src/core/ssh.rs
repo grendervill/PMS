@@ -225,7 +225,7 @@ fn public_openssh(key: &PrivateKey) -> Result<String, VaultError> {
         .public_key()
         .to_openssh()
         .map_err(|_| VaultError::Crypto)?;
-    if !key.comment().is_empty() {
+    if !key.comment().is_empty() && !value.ends_with(key.comment()) {
         value.push(' ');
         value.push_str(key.comment());
     }
@@ -287,6 +287,7 @@ mod tests {
         assert!(generated.private_key.contains("BEGIN OPENSSH PRIVATE KEY"));
         assert!(generated.public_key.starts_with("ssh-ed25519 "));
         assert!(generated.public_key.ends_with(" alex@test"));
+        assert_eq!(generated.public_key.matches("alex@test").count(), 1);
         assert!(generated.fingerprint.starts_with("SHA256:"));
 
         let formats = formats(&generated.private_key, None).unwrap();
