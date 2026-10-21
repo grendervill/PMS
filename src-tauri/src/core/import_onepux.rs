@@ -52,7 +52,9 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
     let mut files = HashMap::new();
     let mut data = None;
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|_| VaultError::ImportCorrupt)?;
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|_| VaultError::ImportCorrupt)?;
         let name = entry
             .name()
             .map_err(|_| VaultError::ImportCorrupt)?
@@ -224,7 +226,8 @@ mod tests {
         let mut buffer = Cursor::new(Vec::new());
         {
             let mut zip = ZipWriter::new(&mut buffer);
-            let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
             zip.start_file("export.data", options).unwrap();
             use std::io::Write;
             zip.write_all(export).unwrap();

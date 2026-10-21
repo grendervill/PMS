@@ -110,7 +110,12 @@ fn decrypt_export(bytes: &[u8], password: Option<&str>) -> Result<Vec<u8>, Vault
 
     let mut master = [0u8; 32];
     if kdf_type == 0 {
-        pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), iterations, &mut master);
+        pbkdf2_hmac::<Sha256>(
+            password.as_bytes(),
+            salt.as_bytes(),
+            iterations,
+            &mut master,
+        );
     } else if kdf_type == 1 {
         let memory = root.get("kdfMemory").and_then(Value::as_u64).unwrap_or(64) as u32;
         let parallelism = root
@@ -119,11 +124,8 @@ fn decrypt_export(bytes: &[u8], password: Option<&str>) -> Result<Vec<u8>, Vault
             .unwrap_or(4) as u32;
         let params = argon2::Params::new(memory * 1024, iterations, parallelism, Some(32))
             .map_err(|_| VaultError::ImportCorrupt)?;
-        let argon = argon2::Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            params,
-        );
+        let argon =
+            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         argon
             .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut master)
             .map_err(|_| VaultError::ImportPasswordInvalid)?;
@@ -133,7 +135,10 @@ fn decrypt_export(bytes: &[u8], password: Option<&str>) -> Result<Vec<u8>, Vault
 
     let enc_key = hkdf_expand(&master, b"enc", 32)?;
     let mac_key = hkdf_expand(&master, b"mac", 32)?;
-    if let Some(validation) = root.get("encKeyValidation_DO_NOT_EDIT").and_then(Value::as_str) {
+    if let Some(validation) = root
+        .get("encKeyValidation_DO_NOT_EDIT")
+        .and_then(Value::as_str)
+    {
         decrypt_enc(validation, &enc_key, &mac_key)?;
     }
     let data = root
@@ -295,7 +300,9 @@ pub fn parse(
             for old in history {
                 let password = text(old.get("password"));
                 if !password.is_empty() {
-                    entry.comment.push_str(&format!("\nСтарый пароль: {password}"));
+                    entry
+                        .comment
+                        .push_str(&format!("\nСтарый пароль: {password}"));
                 }
             }
         }
@@ -310,7 +317,9 @@ pub fn parse(
                 if let Some(file) = attachment_for(attachments, &item_id, &file_name) {
                     entry.attachments.push(file);
                 } else {
-                    warnings.push(format!("{name}: вложение «{file_name}» отсутствует в архиве"));
+                    warnings.push(format!(
+                        "{name}: вложение «{file_name}» отсутствует в архиве"
+                    ));
                 }
             }
         }
@@ -335,10 +344,7 @@ mod tests {
     fn attaches_bitwarden_zip_files_by_item_and_name() {
         let json = br#"{"items":[{"id":"i1","type":1,"name":"With file","login":{},"attachments":[{"id":"a1","fileName":"doc.txt"}]}]}"#;
         let mut files = HashMap::new();
-        files.insert(
-            "attachments/i1/doc.txt".to_string(),
-            b"hello".to_vec(),
-        );
+        files.insert("attachments/i1/doc.txt".to_string(), b"hello".to_vec());
         let bundle = parse(json, None, &files).unwrap();
         assert_eq!(bundle.items[0].attachments.len(), 1);
         assert_eq!(bundle.items[0].attachments[0].name, "doc.txt");

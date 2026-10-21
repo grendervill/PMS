@@ -1,5 +1,5 @@
-use crate::commands::{ApiResult, ApiError};
-use crate::core::share::{SharedCard, decode, encode};
+use crate::commands::{ApiError, ApiResult};
+use crate::core::share::{decode, encode, SharedCard};
 
 #[tauri::command]
 pub fn share_encode(card: SharedCard, password: Option<String>) -> ApiResult<String> {

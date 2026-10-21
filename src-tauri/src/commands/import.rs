@@ -1,7 +1,7 @@
 use base64::Engine as _;
 
 use crate::commands::{ApiError, ApiResult};
-use crate::core::import::{ImportBundle, parse};
+use crate::core::import::{parse, ImportBundle};
 
 #[tauri::command]
 pub fn import_parse(

@@ -3,8 +3,11 @@ use crate::core::pms_archive;
 
 #[tauri::command]
 pub fn pms_export(folder: String, destination: String) -> ApiResult<()> {
-    pms_archive::export(std::path::Path::new(&folder), std::path::Path::new(&destination))
-        .map_err(ApiError::from)
+    pms_archive::export(
+        std::path::Path::new(&folder),
+        std::path::Path::new(&destination),
+    )
+    .map_err(ApiError::from)
 }
 
 #[tauri::command]

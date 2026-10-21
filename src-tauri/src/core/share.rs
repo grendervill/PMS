@@ -3,9 +3,9 @@ use std::io::{Read, Write};
 use base64::Engine as _;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
+use flate2::Compression;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -86,11 +86,7 @@ pub fn encode(card: &SharedCard, password: Option<&str>) -> Result<String, Vault
 
     let params =
         argon2::Params::new(19 * 1024, 2, 1, Some(32)).map_err(|_| VaultError::QrInvalid)?;
-    let argon = argon2::Argon2::new(
-        argon2::Algorithm::Argon2id,
-        argon2::Version::V0x13,
-        params,
-    );
+    let argon = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     let key = Zeroizing::new([0u8; 32]);
     let mut key = key;
     argon
@@ -140,11 +136,8 @@ pub fn decode(payload: &str, password: Option<&str>) -> Result<SharedCard, Vault
 
         let params =
             argon2::Params::new(19 * 1024, 2, 1, Some(32)).map_err(|_| VaultError::QrInvalid)?;
-        let argon = argon2::Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            params,
-        );
+        let argon =
+            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let mut key = Zeroizing::new([0u8; 32]);
         argon
             .hash_password_into(password.as_bytes(), salt, &mut *key)
@@ -209,10 +202,7 @@ mod tests {
     fn encrypted_roundtrip_requires_password() {
         let encoded = encode(&card(), Some("qr-pass")).unwrap();
         assert!(encoded.starts_with(ENCRYPTED_PREFIX));
-        assert_eq!(
-            decode(&encoded, None),
-            Err(VaultError::QrPasswordRequired)
-        );
+        assert_eq!(decode(&encoded, None), Err(VaultError::QrPasswordRequired));
         assert_eq!(
             decode(&encoded, Some("wrong")),
             Err(VaultError::QrPasswordInvalid)

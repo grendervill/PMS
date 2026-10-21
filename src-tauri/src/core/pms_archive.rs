@@ -42,7 +42,8 @@ fn storage(error: impl std::fmt::Display) -> VaultError {
 }
 
 fn parse_manifest(bytes: &[u8]) -> Result<Manifest, VaultError> {
-    let manifest: Manifest = serde_json::from_slice(bytes).map_err(|_| VaultError::ImportCorrupt)?;
+    let manifest: Manifest =
+        serde_json::from_slice(bytes).map_err(|_| VaultError::ImportCorrupt)?;
     if manifest.format != "pmsvault" || manifest.version != 1 {
         return Err(VaultError::ImportUnsupported);
     }
@@ -53,7 +54,9 @@ fn safe_path(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
         && !path.starts_with('\\')
-        && !path.split(['/', '\\']).any(|part| part == ".." || part.is_empty())
+        && !path
+            .split(['/', '\\'])
+            .any(|part| part == ".." || part.is_empty())
 }
 
 pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
@@ -109,8 +112,7 @@ pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
     zip.start_file(MANIFEST, options)
         .map_err(|_| VaultError::ImportCorrupt)?;
-    zip.write_all(&manifest_json)
-        .map_err(storage)?;
+    zip.write_all(&manifest_json).map_err(storage)?;
     for (path, bytes) in files {
         zip.start_file(path, options)
             .map_err(|_| VaultError::ImportCorrupt)?;
@@ -122,24 +124,21 @@ pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
 
 pub fn import(archive_path: &Path, destination: &Path) -> Result<(), VaultError> {
     if destination.exists() {
-        let has_entries = fs::read_dir(destination)
-            .map_err(storage)?
-            .next()
-            .is_some();
+        let has_entries = fs::read_dir(destination).map_err(storage)?.next().is_some();
         if has_entries {
             return Err(VaultError::ImportDestinationNotEmpty);
         }
     }
 
-    let archive_size = fs::metadata(archive_path)
-        .map_err(storage)?
-        .len();
+    let archive_size = fs::metadata(archive_path).map_err(storage)?.len();
     let file = File::open(archive_path).map_err(storage)?;
     let mut archive = ZipArchive::new(file).map_err(|_| VaultError::ImportCorrupt)?;
 
     let mut total = 0u64;
     for index in 0..archive.len() {
-        let entry = archive.by_index(index).map_err(|_| VaultError::ImportCorrupt)?;
+        let entry = archive
+            .by_index(index)
+            .map_err(|_| VaultError::ImportCorrupt)?;
         let name = entry
             .name()
             .map_err(|_| VaultError::ImportCorrupt)?
@@ -161,7 +160,9 @@ pub fn import(archive_path: &Path, destination: &Path) -> Result<(), VaultError>
             .by_name(MANIFEST)
             .map_err(|_| VaultError::ImportCorrupt)?;
         let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes).map_err(|_| VaultError::ImportCorrupt)?;
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|_| VaultError::ImportCorrupt)?;
         bytes
     };
     let manifest = parse_manifest(&manifest_bytes)?;
@@ -181,9 +182,12 @@ pub fn import(archive_path: &Path, destination: &Path) -> Result<(), VaultError>
             let _ = fs::remove_dir_all(destination);
         }
     };
+    let mut extracted = std::collections::HashSet::new();
 
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|_| VaultError::ImportCorrupt)?;
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|_| VaultError::ImportCorrupt)?;
         let name = entry
             .name()
             .map_err(|_| VaultError::ImportCorrupt)?
@@ -207,6 +211,12 @@ pub fn import(archive_path: &Path, destination: &Path) -> Result<(), VaultError>
         }
         let mut output = File::create(&target).map_err(storage)?;
         output.write_all(&bytes).map_err(storage)?;
+        extracted.insert(name);
+    }
+
+    if expected.keys().any(|path| !extracted.contains(path)) {
+        cleanup();
+        return Err(VaultError::ImportCorrupt);
     }
 
     Ok(())
@@ -229,7 +239,10 @@ mod tests {
         let target = tempdir().unwrap();
         let destination = target.path().join("restored");
         import(&archive, &destination).unwrap();
-        assert_eq!(fs::read(destination.join(VAULT)).unwrap(), b"encrypted-vault");
+        assert_eq!(
+            fs::read(destination.join(VAULT)).unwrap(),
+            b"encrypted-vault"
+        );
         assert_eq!(
             fs::read(destination.join("attachments/a.pmsa")).unwrap(),
             b"attachment"

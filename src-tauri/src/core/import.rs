@@ -87,7 +87,11 @@ fn decode_text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-pub fn parse(bytes: &[u8], password: Option<&str>, keyfile: Option<&[u8]>) -> Result<ImportBundle, VaultError> {
+pub fn parse(
+    bytes: &[u8],
+    password: Option<&str>,
+    keyfile: Option<&[u8]>,
+) -> Result<ImportBundle, VaultError> {
     if bytes.is_empty() {
         return Err(VaultError::ImportCorrupt);
     }
@@ -99,7 +103,9 @@ pub fn parse(bytes: &[u8], password: Option<&str>, keyfile: Option<&[u8]>) -> Re
     if let Ok(mut archive) = zip::ZipArchive::new(Cursor::new(bytes)) {
         let mut names = Vec::new();
         for index in 0..archive.len() {
-            let entry = archive.by_index(index).map_err(|_| VaultError::ImportCorrupt)?;
+            let entry = archive
+                .by_index(index)
+                .map_err(|_| VaultError::ImportCorrupt)?;
             names.push(
                 entry
                     .name()
@@ -227,7 +233,10 @@ fn parse_csv(text: &str) -> Result<ImportBundle, VaultError> {
         let url = value(&["url", "uri", "login_uri", "website", "website url"]);
         let mut urls = Vec::new();
         if !url.is_empty() {
-            for item in url.split([',', ' ']).filter(|value| !value.trim().is_empty()) {
+            for item in url
+                .split([',', ' '])
+                .filter(|value| !value.trim().is_empty())
+            {
                 urls.push(item.trim().to_string());
             }
         }
@@ -267,12 +276,36 @@ fn parse_csv(text: &str) -> Result<ImportBundle, VaultError> {
                 if value.is_empty()
                     || matches!(
                         header.as_str(),
-                        "name" | "title" | "account" | "website name" | "url" | "uri"
-                            | "login_uri" | "website" | "website url" | "username" | "login"
-                            | "login_username" | "user" | "login name" | "password"
-                            | "login_password" | "pass" | "notes" | "note" | "comment"
-                            | "login_notes" | "folder" | "group" | "collection" | "totp"
-                            | "login_totp" | "otpauth" | "otp" | "type" | "favorite"
+                        "name"
+                            | "title"
+                            | "account"
+                            | "website name"
+                            | "url"
+                            | "uri"
+                            | "login_uri"
+                            | "website"
+                            | "website url"
+                            | "username"
+                            | "login"
+                            | "login_username"
+                            | "user"
+                            | "login name"
+                            | "password"
+                            | "login_password"
+                            | "pass"
+                            | "notes"
+                            | "note"
+                            | "comment"
+                            | "login_notes"
+                            | "folder"
+                            | "group"
+                            | "collection"
+                            | "totp"
+                            | "login_totp"
+                            | "otpauth"
+                            | "otp"
+                            | "type"
+                            | "favorite"
                             | "reprompt"
                     )
                 {
@@ -385,7 +418,11 @@ fn parse_kaspersky(text: &str) -> Result<ImportBundle, VaultError> {
             "Comment" | "Text" => {
                 if let Some(item) = current.as_mut() {
                     item.comment = value.to_string();
-                    field = Some(if label == "Comment" { "comment" } else { "text" });
+                    field = Some(if label == "Comment" {
+                        "comment"
+                    } else {
+                        "text"
+                    });
                 }
             }
             _ => {}
