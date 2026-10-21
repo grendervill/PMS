@@ -1,0 +1,9 @@
+{
+  "encrypted": true,
+  "passwordProtected": true,
+  "salt": "bitwarden-salt",
+  "kdfType": 0,
+  "kdfIterations": 100000,
+  "encKeyValidation_DO_NOT_EDIT": "2.HekCm2H23xh48ECHmujDnA==|u6SmUj1BpnLs++iVUjCSkA==|nq1f7ia7zJWlk46a77k7/Sg8/VoTpG4zxq3C5EdOX4U=",
+  "data": "2.YUNeo3Rb3m+drFZnshPBnQ==|viCoxeuSElLUQHuQURcS4vrL6zad8ino13YqcYsLNOBzszMz1WVqeVE3zD9GEQF/H4T96pL2sVhhuGcrI8vgg5WJ+qtFeNNmkC8kcAUllZvX4PBiB68/D4klzG6jdcekd6WRLifiEh3IIOMf9dPKroD3CefBvKRSrxt+a0HMpCxujKUMi/btkoQsOmuVTGtnN6m6W6MPzACW7qrvw3UMGIgMyfc1wNYFCoFahSnNfdShqARUy6603lYo64IOnGYQFsLmu6MWdznnOloTw/oBgw==|iFWbQ8apFhmPwKb4UWNV0qHZDoUaUfuAy6W2sGskiq4="
+}

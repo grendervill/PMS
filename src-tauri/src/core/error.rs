@@ -58,6 +58,16 @@ pub enum VaultError {
     QrInvalid,
     #[error("QR payload too large")]
     QrTooLarge,
+    #[error("unsupported import format")]
+    ImportUnsupported,
+    #[error("invalid import file")]
+    ImportCorrupt,
+    #[error("import password required")]
+    ImportPasswordRequired,
+    #[error("import password invalid")]
+    ImportPasswordInvalid,
+    #[error("import destination is not empty")]
+    ImportDestinationNotEmpty,
     #[error("empty character set")]
     EmptyCharset,
     #[error("vault id mismatch")]
@@ -102,6 +112,11 @@ impl VaultError {
             Self::QrPasswordInvalid => "qr_password_invalid",
             Self::QrInvalid => "qr_invalid",
             Self::QrTooLarge => "qr_too_large",
+            Self::ImportUnsupported => "import_unsupported",
+            Self::ImportCorrupt => "import_corrupt",
+            Self::ImportPasswordRequired => "import_password_required",
+            Self::ImportPasswordInvalid => "import_password_invalid",
+            Self::ImportDestinationNotEmpty => "import_destination_not_empty",
             Self::VaultIdMismatch => "vault_id_mismatch",
             Self::Crypto => "crypto",
             Self::Serde => "serde",

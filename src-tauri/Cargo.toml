@@ -45,6 +45,14 @@ data-encoding = "2"
 url = "2"
 libc = "0.2"
 flate2 = "1"
+zip = "9"
+csv = "1.4"
+keepass = "0.17"
+aes = "0.8"
+cbc = "0.1"
+pbkdf2 = "0.12"
+cipher = { version = "0.4", features = ["block-padding", "alloc"] }
+quick-xml = "0.38"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"

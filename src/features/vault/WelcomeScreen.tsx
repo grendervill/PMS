@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ChevronRight, FolderOpen, Lock, Plus, ShieldCheck } from "lucide-react";
+import { ChevronRight, FolderOpen, Lock, Plus, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { getStorage } from "@/lib/storage";
 import { CreateVaultWizard } from "@/features/vault/CreateVaultWizard";
+import { vaultApi } from "@/features/vault/api";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 
@@ -19,6 +20,8 @@ export function WelcomeScreen() {
   const openVault = useVaultStore((state) => state.openVault);
   const clearError = useVaultStore((state) => state.clearError);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   if (wizardOpen) {
     return <CreateVaultWizard onClose={() => setWizardOpen(false)} />;
@@ -28,6 +31,24 @@ export function WelcomeScreen() {
     clearError();
     const path = await getStorage().pickFolder();
     if (path) await openVault(path);
+  };
+
+  const importArchive = async () => {
+    setArchiveBusy(true);
+    setArchiveError(null);
+    try {
+      const storage = getStorage();
+      const archive = await storage.pickFile("Выберите .pmsvault");
+      if (!archive) return;
+      const destination = await storage.pickFolder();
+      if (!destination) return;
+      const imported = await vaultApi.pmsImport(archive, destination);
+      await openVault(imported);
+    } catch (importError) {
+      setArchiveError(errorText(importError));
+    } finally {
+      setArchiveBusy(false);
+    }
   };
 
   return (
@@ -103,7 +124,26 @@ export function WelcomeScreen() {
                 <FolderOpen size={17} />
                 Открыть существующее
               </Button>
+              <Button
+                size="md"
+                variant="secondary"
+                className="h-11 justify-start px-4"
+                onClick={() => void importArchive()}
+                disabled={busy || archiveBusy}
+              >
+                <Upload size={17} />
+                Импортировать .pmsvault
+              </Button>
             </div>
+
+            {archiveError ? (
+              <p
+                role="alert"
+                className="mt-3 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2.5 text-[11.5px] leading-relaxed text-[var(--danger)]"
+              >
+                {archiveError}
+              </p>
+            ) : null}
 
             {error ? (
               <div

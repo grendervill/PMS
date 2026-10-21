@@ -79,6 +79,38 @@ export type SharedCard = {
   totp: TotpConfig | null;
 };
 
+export type ImportedAttachment = {
+  name: string;
+  mime: string;
+  b64: string;
+};
+
+export type ImportedSshKey = {
+  name: string;
+  publicKey: string;
+  privateKey: string;
+  passphrase?: string | null;
+  comment: string;
+};
+
+export type ImportedItem = {
+  kind: "login" | "note" | "card" | "identity" | "ssh";
+  name: string;
+  login: string;
+  password: string;
+  urls: string[];
+  comment: string;
+  totp: TotpConfig | null;
+  attachments: ImportedAttachment[];
+  sshKey?: ImportedSshKey | null;
+};
+
+export type ImportBundle = {
+  format: string;
+  items: ImportedItem[];
+  warnings: string[];
+};
+
 export type SshGenerateOptions = {
   keyType: SshKeyType;
   rsaBits?: number | null;
@@ -275,6 +307,26 @@ export const vaultApi = {
 
   async shareDecode(payload: string, password?: string): Promise<SharedCard> {
     return call<SharedCard>("share_decode", { payload, password });
+  },
+
+  async importParse(
+    file: Uint8Array,
+    password?: string,
+    keyfile?: Uint8Array,
+  ): Promise<ImportBundle> {
+    return call<ImportBundle>("import_parse", {
+      fileB64: toBase64(file),
+      password,
+      keyfileB64: keyfile ? toBase64(keyfile) : undefined,
+    });
+  },
+
+  async pmsExport(folder: string, destination: string): Promise<void> {
+    await call<void>("pms_export", { folder, destination });
+  },
+
+  async pmsImport(archive: string, destination: string): Promise<string> {
+    return call<string>("pms_import", { archive, destination });
   },
 };
 export { fromBase64, toBase64 };

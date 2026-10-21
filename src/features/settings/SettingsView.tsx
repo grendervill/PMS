@@ -1,18 +1,27 @@
-import { Fingerprint, KeyRound, Loader2, ShieldCheck } from "lucide-react";
+import { Fingerprint, KeyRound, Loader2, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
+import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/toast-context";
+import { ImportWizard } from "@/features/import/ImportWizard";
 import { vaultApi } from "@/features/vault/api";
 import { isBiometricEnabled } from "@/features/vault/biometric";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
+import { getStorage } from "@/lib/storage";
 
 export function SettingsView() {
   const data = useVaultStore((state) => state.data);
   const busy = useVaultStore((state) => state.busy);
+  const vaultPath = useVaultStore((state) => state.vaultPath);
   const enrollBiometric = useVaultStore((state) => state.enrollBiometric);
   const disableBiometric = useVaultStore((state) => state.disableBiometric);
+  const openVault = useVaultStore((state) => state.openVault);
+  const lock = useVaultStore((state) => state.lock);
   const toast = useToast();
+  const [importOpen, setImportOpen] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(true);
   const [enabled, setEnabled] = useState(() => isBiometricEnabled(data?.id));
@@ -67,6 +76,49 @@ export function SettingsView() {
     }
   };
 
+  const exportArchive = async () => {
+    if (!vaultPath || !data) return;
+    setArchiveBusy(true);
+    try {
+      const destination = await save({
+        defaultPath: `${data.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "pms"}.pmsvault`,
+      });
+      if (!destination) return;
+      await vaultApi.pmsExport(vaultPath, destination);
+      toast.show({ title: "Резервная копия создана", description: destination, tone: "success" });
+    } catch (error) {
+      toast.show({
+        title: "Не удалось экспортировать хранилище",
+        description: errorText(error),
+        tone: "error",
+      });
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  const importArchive = async () => {
+    setArchiveBusy(true);
+    const storage = getStorage();
+    try {
+      const archive = await storage.pickFile("Выберите .pmsvault");
+      if (!archive) return;
+      const destination = await storage.pickFolder();
+      if (!destination) return;
+      const imported = await vaultApi.pmsImport(archive, destination);
+      await lock();
+      await openVault(imported);
+    } catch (error) {
+      toast.show({
+        title: "Не удалось импортировать хранилище",
+        description: errorText(error),
+        tone: "error",
+      });
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
   return (
     <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
       <div className="pms-rise mx-auto grid w-full max-w-3xl gap-4">
@@ -109,12 +161,38 @@ export function SettingsView() {
             <KeyRound size={15} className="text-[var(--accent-soft)]" />
             <h2 className="pms-display text-lg">Импорт и экспорт</h2>
           </div>
-          <p className="px-4 py-4 text-[11.5px] leading-relaxed text-[var(--muted)]">
-            Импорт из Bitwarden, 1Password, KeePass, Kaspersky и браузеров, а также
-            резервная копия `.pmsvault` появятся в следующем обновлении.
-          </p>
+          <div className="grid gap-3 px-4 py-4">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                <Upload size={15} />
+                Импорт из менеджера
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={archiveBusy}
+                onClick={() => void exportArchive()}
+              >
+                {archiveBusy ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                Экспорт .pmsvault
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={archiveBusy}
+                onClick={() => void importArchive()}
+              >
+                <Upload size={15} />
+                Импорт .pmsvault
+              </Button>
+            </div>
+            <p className="text-[10.5px] leading-relaxed text-[var(--muted)]">
+              Резервная копия содержит зашифрованное хранилище и вложения. Импорт
+              `.pmsvault` создаёт отдельное хранилище в пустой папке.
+            </p>
+          </div>
         </section>
       </div>
+
+      {importOpen ? <ImportWizard onClose={() => setImportOpen(false)} /> : null}
     </div>
   );
 }

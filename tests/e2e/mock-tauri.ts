@@ -258,6 +258,30 @@ export async function installMockTauri(page: Page) {
             ownedByCurrentUser: true,
             ok: true,
           };
+        case "import_parse":
+          return {
+            format: "csv",
+            warnings: ["Строка 2: пустое имя"],
+            items: [
+              {
+                kind: "login",
+                name: "Imported",
+                login: "alex",
+                password: "s3cret",
+                urls: ["https://imported.example"],
+                comment: "from csv",
+                totp: null,
+                attachments: [
+                  { name: "note.txt", mime: "text/plain", b64: "aGVsbG8=" },
+                ],
+                sshKey: null,
+              },
+            ],
+          };
+        case "pms_export":
+          return null;
+        case "pms_import":
+          return String(args.destination);
         case "share_encode":
           return "PMSQR1:mock-shared-card";
         case "share_decode":

@@ -319,3 +319,27 @@ test("shares a card by QR and shows a TOTP QR", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Изображение", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Камера" })).toBeVisible();
 });
+
+test("imports a manager file and exports a pmsvault backup", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.getByRole("button", { name: "Импорт из менеджера" }).click();
+  await expect(page.getByRole("dialog", { name: "Импорт из другого менеджера" })).toBeVisible();
+  await page.getByRole("button", { name: "Выбрать", exact: true }).click();
+  await page.getByRole("button", { name: "Проверить файл" }).click();
+  await expect(page.getByText("Формат: csv")).toBeVisible();
+  await expect(page.getByText(/Записей: 1/)).toBeVisible();
+  await page.getByRole("button", { name: "Импортировать" }).click();
+  await expect(page.getByText("Импорт завершён")).toBeVisible();
+  await page.getByRole("button", { name: "Закрыть", exact: true }).last().click();
+
+  await page.getByRole("button", { name: "Записи", exact: true }).first().click();
+  await expect(page.getByText("Imported")).toBeVisible();
+  await page.getByRole("button", { name: /Imported/ }).first().click();
+  await expect(page.getByText("note.txt")).toBeVisible();
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.getByRole("button", { name: "Экспорт .pmsvault" }).click();
+  await expect(page.getByText("Резервная копия создана")).toBeVisible();
+});
