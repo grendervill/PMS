@@ -1,9 +1,7 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
-use std::path::Path;
-#[cfg(not(target_os = "android"))]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -11,7 +9,7 @@ use std::time::{Duration, Instant};
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tiny_http::{Method, Response, Server, StatusCode};
 use uuid::Uuid;
 
@@ -102,6 +100,17 @@ impl TransferManager {
             }
         }
     }
+}
+
+fn transfer_temp_dir(app: &AppHandle) -> ApiResult<PathBuf> {
+    let base = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| ApiError::new("transfer_storage", error.to_string()))?;
+    let dir = base.join("transfer");
+    fs::create_dir_all(&dir)
+        .map_err(|error| ApiError::new("transfer_storage", error.to_string()))?;
+    Ok(dir)
 }
 
 fn device_name() -> String {
@@ -310,6 +319,7 @@ pub fn transfer_receive_start(
         let _ = (&destination, replace_current);
     }
 
+    let temp_dir = transfer_temp_dir(&app)?;
     let server = Arc::new(
         Server::http("0.0.0.0:0")
             .map_err(|error| ApiError::new("transfer_server", error.to_string()))?,
@@ -336,6 +346,7 @@ pub fn transfer_receive_start(
     let server_thread = server.clone();
     let thread_code = code.clone();
     let thread_destination = destination.clone();
+    let thread_temp_dir = temp_dir;
 
     std::thread::spawn(move || {
         while !stop_thread.load(Ordering::Relaxed) {
@@ -346,7 +357,7 @@ pub fn transfer_receive_start(
 
             let path = request.url().to_string();
             if request.method() != &Method::Post || path != "/upload" {
-                let _ = request.respond(Response::from_string("not found").with_status_code(404));
+                let _ = request.respond(Response::from_string("path").with_status_code(404));
                 continue;
             }
             let header_value = |request: &tiny_http::Request, key: &str| {
@@ -357,14 +368,13 @@ pub fn transfer_receive_start(
                     .map(|header| header.value.as_str().to_string())
                     .unwrap_or_default()
             };
-            if header_value(&request, "X-PMS-Code") != thread_code {
+            if header_value(&request, "X-PMS-Code").trim() != thread_code {
                 std::thread::sleep(Duration::from_millis(250));
-                let _ = request.respond(Response::from_string("forbidden").with_status_code(403));
+                let _ = request.respond(Response::from_string("code").with_status_code(403));
                 continue;
             }
             let sender = header_value(&request, "X-PMS-Name");
-            let temp =
-                std::env::temp_dir().join(format!("pms-transfer-{}.pmsvault", Uuid::new_v4()));
+            let temp = thread_temp_dir.join(format!("pms-transfer-{}.pmsvault", Uuid::new_v4()));
             let mut output = match File::create(&temp) {
                 Ok(file) => {
                     secure_file(&temp);
@@ -381,7 +391,7 @@ pub fn transfer_receive_start(
             drop(output);
             if copied.is_err() || size == 0 || size > MAX_ARCHIVE {
                 let _ = fs::remove_file(&temp);
-                let _ = request.respond(Response::from_string("too large").with_status_code(413));
+                let _ = request.respond(Response::from_string("size").with_status_code(413));
                 continue;
             }
             let _ = request.respond(Response::from_string("ok").with_status_code(StatusCode(200)));
@@ -496,22 +506,32 @@ fn scan_peers(duration_ms: Option<u64>) -> ApiResult<Vec<TransferPeer>> {
 
 #[tauri::command]
 pub async fn transfer_send(
+    app: AppHandle,
     host: String,
     port: u16,
     code: String,
     vault_path: String,
 ) -> ApiResult<()> {
-    tauri::async_runtime::spawn_blocking(move || send_archive(host, port, code, vault_path))
-        .await
-        .map_err(|error| ApiError::new("transfer_send", error.to_string()))?
+    let temp_dir = transfer_temp_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        send_archive(host, port, code, vault_path, temp_dir)
+    })
+    .await
+    .map_err(|error| ApiError::new("transfer_send", error.to_string()))?
 }
 
-fn send_archive(host: String, port: u16, code: String, vault_path: String) -> ApiResult<()> {
+fn send_archive(
+    host: String,
+    port: u16,
+    code: String,
+    vault_path: String,
+    temp_dir: PathBuf,
+) -> ApiResult<()> {
     let peer = format!("{host}:{port}");
     let address: SocketAddr = peer
         .parse()
         .map_err(|_| ApiError::new("transfer_network", "Некорректный адрес устройства"))?;
-    let archive = std::env::temp_dir().join(format!("pms-send-{}.pmsvault", Uuid::new_v4()));
+    let archive = temp_dir.join(format!("pms-send-{}.pmsvault", Uuid::new_v4()));
     pms_archive::export(Path::new(&vault_path), &archive).map_err(ApiError::from)?;
     secure_file(&archive);
     let result = (|| -> ApiResult<()> {
@@ -537,11 +557,30 @@ fn send_archive(host: String, port: u16, code: String, vault_path: String) -> Ap
         stream
             .read_to_string(&mut response)
             .map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
-        if !response.starts_with("HTTP/1.1 200") && !response.starts_with("HTTP/1.0 200") {
-            return Err(ApiError::new(
-                "transfer_rejected",
-                "Принимающее устройство отклонило передачу",
-            ));
+        let status_line = response.lines().next().unwrap_or("").trim().to_string();
+        if !status_line.starts_with("HTTP/1.1 200") && !status_line.starts_with("HTTP/1.0 200") {
+            let status = status_line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<u16>().ok());
+            let message = match status {
+                Some(403) => {
+                    "Неверный код подтверждения. Проверьте код на принимающем устройстве."
+                }
+                Some(404) => {
+                    "Принимающее устройство не приняло запрос. Обновите список устройств и попробуйте снова."
+                }
+                Some(413) => {
+                    "Принимающее устройство не смогло принять архив: он слишком большой или не записался."
+                }
+                Some(500) => {
+                    "Принимающее устройство не смогло сохранить архив. Проверьте свободное место."
+                }
+                _ => "Принимающее устройство отклонило передачу.",
+            };
+            let body = response.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+            eprintln!("PMS transfer: upload rejected peer={peer} status={status_line} body={body}");
+            return Err(ApiError::new("transfer_rejected", message));
         }
         Ok(())
     })();
@@ -562,12 +601,21 @@ pub async fn transfer_install(
     .map_err(|error| ApiError::new("transfer_install", error.to_string()))?
 }
 
+struct RemoveOnDrop<'a>(&'a Path);
+
+impl Drop for RemoveOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.0);
+    }
+}
+
 fn install_archive(
     archive_path: String,
     destination: String,
     replace_current: bool,
 ) -> ApiResult<String> {
     let archive = Path::new(&archive_path);
+    let _cleanup = RemoveOnDrop(archive);
     let destination = Path::new(&destination);
     if replace_current {
         secure_dir(destination);
@@ -624,7 +672,6 @@ fn install_archive(
             }
         }
     }
-    let _ = fs::remove_file(archive);
     Ok(destination.to_string_lossy().into_owned())
 }
 
@@ -797,11 +844,13 @@ mod tests {
             tx.send((code, body)).unwrap();
         });
 
+        let temp = tempfile::tempdir().unwrap();
         send_archive(
             "127.0.0.1".to_string(),
             port,
             "123456".to_string(),
             source.path().to_string_lossy().into_owned(),
+            temp.path().to_path_buf(),
         )
         .unwrap();
 
@@ -815,6 +864,89 @@ mod tests {
         assert_eq!(
             fs::read(destination.join("pms.vault")).unwrap(),
             b"encrypted-sent"
+        );
+    }
+
+    #[test]
+    fn failed_install_removes_the_received_archive() {
+        let source = tempfile::tempdir().unwrap();
+        let archive = source.path().join("bad.pmsvault");
+        fs::write(&archive, b"not-a-zip").unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let destination = target.path().join("restored");
+
+        let error = install_archive(
+            archive.to_string_lossy().into_owned(),
+            destination.to_string_lossy().into_owned(),
+            false,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "import_corrupt");
+        assert!(!archive.exists());
+    }
+
+    #[test]
+    fn http_transfer_reports_a_rejected_code() {
+        let source = tempfile::tempdir().unwrap();
+        make_vault(source.path(), b"encrypted-sent", None);
+
+        let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
+        let port = server.server_addr().to_ip().unwrap().port();
+        let server_thread = server.clone();
+        std::thread::spawn(move || {
+            let mut request = server_thread.recv().unwrap();
+            let mut body = Vec::new();
+            request.as_reader().read_to_end(&mut body).unwrap();
+            let _ = request
+                .respond(Response::from_string("forbidden").with_status_code(StatusCode(403)));
+        });
+
+        let temp = tempfile::tempdir().unwrap();
+        let error = send_archive(
+            "127.0.0.1".to_string(),
+            port,
+            "000000".to_string(),
+            source.path().to_string_lossy().into_owned(),
+            temp.path().to_path_buf(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "transfer_rejected");
+        assert!(error.message.contains("Неверный код"), "{}", error.message);
+    }
+
+    #[test]
+    fn http_transfer_reports_a_receiver_storage_failure() {
+        let source = tempfile::tempdir().unwrap();
+        make_vault(source.path(), b"encrypted-sent", None);
+
+        let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
+        let port = server.server_addr().to_ip().unwrap().port();
+        let server_thread = server.clone();
+        std::thread::spawn(move || {
+            let mut request = server_thread.recv().unwrap();
+            let mut body = Vec::new();
+            request.as_reader().read_to_end(&mut body).unwrap();
+            let _ =
+                request.respond(Response::from_string("storage").with_status_code(StatusCode(500)));
+        });
+
+        let temp = tempfile::tempdir().unwrap();
+        let error = send_archive(
+            "127.0.0.1".to_string(),
+            port,
+            "123456".to_string(),
+            source.path().to_string_lossy().into_owned(),
+            temp.path().to_path_buf(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "transfer_rejected");
+        assert!(
+            error.message.contains("не смогло сохранить архив"),
+            "{}",
+            error.message
         );
     }
 }

@@ -41,7 +41,8 @@
   ручное создание; самый свежий бэкап не удаляется никогда.
 - Передача полной копии хранилища между устройствами PMS по локальной сети:
   поиск через Bonjour и UDP-broadcast, ручной IP, шестизначный код, замена текущего хранилища с бэкапом
-  или приём в новую папку.
+  или приём в новую папку. Временные архивы хранятся в кеше приложения, поэтому приём
+  работает и на Android, где системный `/tmp` недоступен.
 - Атомарная запись vault-файла, права 600/700 на macOS/Linux.
 - Три значка приложения с выбором в настройках; по умолчанию — зелёный замок.
 - Автозапуск приложения при входе в систему (macOS/Windows/Linux).
@@ -74,7 +75,7 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 132 frontend-теста
+pnpm test          # 133 frontend-теста
 pnpm test:e2e      # 18 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings

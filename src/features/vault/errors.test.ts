@@ -12,6 +12,12 @@ describe("vault error messages", () => {
     expect(errorText({ code: "storage", message: "io" })).toContain("папке");
   });
 
+  it("explains a transfer storage failure", () => {
+    expect(
+      errorText({ code: "transfer_storage", message: "No space left on device" }),
+    ).toContain("временн");
+  });
+
   it("never exposes raw English internals", () => {
     expect(errorText({ code: "some_internal", message: "serde: missing field" })).toBe(
       "Не удалось выполнить операцию.",
