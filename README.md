@@ -14,6 +14,10 @@
 - Argon2id + XChaCha20-Poly1305 или AES-256-GCM; параметры KDF хранятся
   в заголовке и не перезатираются.
 - Записи: имя, логин, пароль, несколько URL, комментарий; скрытие/показ и копирование.
+- Три режима отображения карточек: компактный список, обычный список и
+  продвинутые карточки с URL, логином, маскированным паролем и комментарием.
+- Значки сайтов подтягиваются по домену через Google S2; загрузку можно
+  отключить в настройках.
 - TOTP-секреты: `otpauth://` или base32, живые коды с таймером, общий экран TOTP,
   сканирование и показ QR.
 - Передача карточки PMS по QR (без вложений и SSH), с паролем или без.
@@ -21,6 +25,8 @@
   экспорт/импорт зашифрованного `.pmsvault`.
 - SSH-ключи: ed25519, RSA 2048/3072/4096, ECDSA P-256/P-384/P-521; OpenSSH,
   PEM/PKCS#8, установка в `~/.ssh` с правами 600/700 и проверкой, привязка к записям.
+  В карточке ключ открывается в разделе SSH, публичный ключ и fingerprint можно
+  скопировать из меню.
 - Зашифрованные вложения: фото, PDF, текст и другие файлы; превью, скачивание.
 - История логинов и паролей; повторное использование старого пароля
   блокируется.
@@ -37,6 +43,7 @@
   или приём в новую папку.
 - Атомарная запись vault-файла, права 600/700 на macOS/Linux.
 - Три значка приложения с выбором в настройках; по умолчанию — зелёный замок.
+- Автозапуск приложения при входе в систему (macOS/Windows/Linux).
 - Сборка macOS Apple Silicon: `.app` и `.dmg`.
 - Android: Tauri-приложение на том же React UI; SAF-хранилище, создание/вход,
   записи, вложения, бэкапы, QR-камера, импорт/экспорт `.pmsvault`, SSH-экспорт,
@@ -66,8 +73,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 114 frontend-тестов
-pnpm test:e2e      # 16 Playwright-сценариев, мок Tauri IPC
+pnpm test          # 119 frontend-тестов
+pnpm test:e2e      # 17 Playwright-сценариев, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 
@@ -76,6 +83,7 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 pnpm tauri android build --debug -t aarch64 --apk
 pnpm tauri build   # macOS ARM: .app + .dmg
+pnpm build:all     # macOS + Android ARM APK; ANDROID_HOME должен быть задан
 ```
 
 Тестовый vault для ручной проверки можно создать через UI; он не входит в репозиторий.

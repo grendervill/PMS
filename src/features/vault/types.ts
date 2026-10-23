@@ -73,6 +73,7 @@ export type Draft = {
 
 export type VaultSettings = {
   autoLock?: import("./autoLock").AutoLockOption;
+  cardLayout?: import("../entries/cardLayout").CardLayout;
   autoLockMinutes: number;
   clipboardClearSeconds: number;
   backupRetentionDays: number;
@@ -132,6 +133,7 @@ export type VaultStatus = "welcome" | "locked" | "unlocking" | "unlocked";
 export function defaultVaultSettings(): VaultSettings {
   return {
     autoLock: "5m",
+    cardLayout: "list",
     autoLockMinutes: 5,
     clipboardClearSeconds: 30,
     backupRetentionDays: 7,

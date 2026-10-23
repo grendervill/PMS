@@ -6,11 +6,13 @@ import {
   EyeOff,
   History,
   KeySquare,
+  MoreHorizontal,
   Pencil,
   QrCode,
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
@@ -22,6 +24,7 @@ import { ShareCardDialog } from "@/features/qr/ShareCardDialog";
 import { TotpCode } from "@/features/totp/TotpCode";
 import { TotpQrDialog } from "@/features/totp/TotpQrDialog";
 import { hostFromUrl, monogram, safeHttpUrl, entryUrls } from "@/features/entries/entries";
+import { copySecret } from "@/lib/clipboard";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { Entry } from "@/features/vault/types";
@@ -41,12 +44,14 @@ export function EntryDetail({
   onEdit,
   onDelete,
   onHistory,
+  onOpenSshKey,
 }: {
   entry: Entry;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onHistory: () => void;
+  onOpenSshKey?: (id: string) => void;
 }) {
   const [revealed, setRevealed] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -224,10 +229,81 @@ export function EntryDetail({
                 {linkedSshKeys.map((key) => (
                   <span
                     key={key.id}
-                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border border-[var(--accent)]/25 bg-[var(--accent)]/5 px-2.5 py-1 text-[11px] text-[var(--accent-soft)]"
+                    className="inline-flex items-center gap-0.5 rounded-[var(--radius-pill)] border border-[var(--accent)]/25 bg-[var(--accent)]/5 py-0.5 pl-2.5 pr-0.5 text-[11px] text-[var(--accent-soft)]"
                   >
                     <KeySquare size={11} />
-                    {key.name}
+                    <button
+                      type="button"
+                      onClick={() => onOpenSshKey?.(key.id)}
+                      className="max-w-[180px] truncate rounded px-0.5 text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    >
+                      {key.name}
+                    </button>
+                    <Popover.Root>
+                      <Popover.Trigger asChild>
+                        <IconButton
+                          label={`Действия с ключом ${key.name}`}
+                          size="sm"
+                          className="size-6"
+                        >
+                          <MoreHorizontal size={13} />
+                        </IconButton>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          align="end"
+                          sideOffset={6}
+                          className="z-50 grid min-w-[210px] gap-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[var(--shadow-float)] outline-none"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onOpenSshKey?.(key.id)}
+                            className="rounded-[6px] px-2.5 py-2 text-left text-[11.5px] text-[var(--text-soft)] hover:bg-[var(--surface-2)]"
+                          >
+                            Открыть ключ в SSH
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void copySecret(key.publicKey)
+                                .then(() =>
+                                  toast.show({
+                                    title: "Публичный ключ скопирован",
+                                    description: "Буфер обмена очистится через 30 секунд.",
+                                    tone: "success",
+                                  }),
+                                )
+                                .catch(() =>
+                                  toast.show({ title: "Не удалось скопировать ключ", tone: "error" }),
+                                );
+                            }}
+                            className="rounded-[6px] px-2.5 py-2 text-left text-[11.5px] text-[var(--text-soft)] hover:bg-[var(--surface-2)]"
+                          >
+                            Копировать публичный ключ
+                          </button>
+                          {key.fingerprint ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void copySecret(key.fingerprint ?? "")
+                                  .then(() =>
+                                    toast.show({
+                                      title: "Fingerprint скопирован",
+                                      tone: "success",
+                                    }),
+                                  )
+                                  .catch(() =>
+                                    toast.show({ title: "Не удалось скопировать fingerprint", tone: "error" }),
+                                  );
+                              }}
+                              className="rounded-[6px] px-2.5 py-2 text-left text-[11.5px] text-[var(--text-soft)] hover:bg-[var(--surface-2)]"
+                            >
+                              Копировать fingerprint
+                            </button>
+                          ) : null}
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
                   </span>
                 ))}
               </div>

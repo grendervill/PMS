@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { EntryCard } from "@/features/entries/EntryCard";
+import type { CardLayout } from "@/features/entries/cardLayout";
 import type { SortMode } from "@/features/entries/entries";
 import type { Entry } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
@@ -19,6 +20,8 @@ export function EntryList({
   onSelect,
   onCreate,
   onScanQr,
+  layout,
+  faviconEnabled,
 }: {
   entries: Entry[];
   total: number;
@@ -30,6 +33,8 @@ export function EntryList({
   onSelect: (id: string) => void;
   onCreate: () => void;
   onScanQr: () => void;
+  layout: CardLayout;
+  faviconEnabled: boolean;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -88,12 +93,20 @@ export function EntryList({
 
       <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto">
         {entries.length > 0 ? (
-          <div className="divide-y divide-[var(--border)]/70">
+          <div
+            className={
+              layout === "advanced"
+                ? "grid gap-2 p-3"
+                : "divide-y divide-[var(--border)]/70"
+            }
+          >
             {entries.map((entry) => (
               <EntryCard
                 key={entry.id}
                 entry={entry}
                 active={entry.id === selectedId}
+                layout={layout}
+                faviconEnabled={faviconEnabled}
                 onSelect={() => onSelect(entry.id)}
               />
             ))}

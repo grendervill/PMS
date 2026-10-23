@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { EntryDetail } from "@/features/entries/EntryDetail";
+import { resolveCardLayout } from "@/features/entries/cardLayout";
 import { EntryEditor } from "@/features/entries/EntryEditor";
 import { EntryList } from "@/features/entries/EntryList";
 import { HistoryDialog } from "@/features/entries/HistoryDialog";
@@ -23,16 +24,20 @@ export function EntriesView({
   initialEntryId,
   initialDraft,
   onRequestLock,
+  onOpenSshKey,
 }: {
   initialEntryId?: string | null;
   initialDraft?: { id: string; payload: EntryDraft } | null;
   onRequestLock?: () => void;
+  onOpenSshKey?: (id: string) => void;
 }) {
   const data = useVaultStore((state) => state.data);
   const deleteEntry = useVaultStore((state) => state.deleteEntry);
   const confirm = useConfirm();
   const toast = useToast();
   const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
+  const layout = resolveCardLayout(data?.settings ?? {});
+  const faviconEnabled = data?.settings.faviconFetch ?? true;
   const [selectedId, setSelectedId] = useState<string | null>(
     initialDraft?.id ?? initialEntryId ?? null,
   );
@@ -131,6 +136,8 @@ export function EntriesView({
           onSelect={setSelectedId}
           onCreate={() => setEditor({ entry: null })}
           onScanQr={() => setQrImportOpen(true)}
+          layout={layout}
+          faviconEnabled={faviconEnabled}
         />
       </section>
 
@@ -148,6 +155,7 @@ export function EntriesView({
             onEdit={() => setEditor({ entry: selected })}
             onHistory={() => setHistoryEntry(selected)}
             onDelete={() => void remove(selected)}
+            onOpenSshKey={onOpenSshKey}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center p-6">

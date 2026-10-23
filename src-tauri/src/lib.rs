@@ -10,6 +10,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init());
 
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_autostart::Builder::new().build());
+
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(tauri_plugin_android_fs::init())

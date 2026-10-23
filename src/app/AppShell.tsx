@@ -101,6 +101,7 @@ export function AppShell() {
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [sshKeyToOpen, setSshKeyToOpen] = useState<string | null>(null);
   const data = useVaultStore((state) => state.data);
   const lock = useVaultStore((state) => state.lock);
   const removeDraft = useVaultStore((state) => state.removeDraft);
@@ -183,12 +184,20 @@ export function AppShell() {
 
   const navigate = (section: AppSection) => {
     setActive(section);
+    setSshKeyToOpen(null);
     if (section !== "entries") setEntryToOpen(null);
   };
 
   const openEntry = (id: string) => {
     setEntryToOpen(id);
+    setSshKeyToOpen(null);
     setActive("entries");
+  };
+
+  const openSshKey = (id: string) => {
+    setSshKeyToOpen(id);
+    setEntryToOpen(null);
+    setActive("ssh");
   };
 
   const restoreDraft = (id: string, payload: EntryDraft) => {
@@ -268,13 +277,18 @@ export function AppShell() {
             initialEntryId={entryToOpen}
             initialDraft={draftToRestore}
             onRequestLock={requestLock}
+            onOpenSshKey={openSshKey}
           />
         ) : active === "generator" ? (
           <GeneratorView />
         ) : active === "totp" ? (
           <TOTPView onOpenEntry={openEntry} />
         ) : active === "ssh" ? (
-          <SSHView onOpenEntry={openEntry} />
+          <SSHView
+            key={sshKeyToOpen ?? "ssh"}
+            initialKeyId={sshKeyToOpen}
+            onOpenEntry={openEntry}
+          />
         ) : active === "transfer" ? (
           <TransferView />
         ) : active === "audit" ? (

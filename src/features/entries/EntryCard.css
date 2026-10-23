@@ -1,0 +1,63 @@
+.entry-card-advanced {
+  --mx: 50%;
+  --my: 50%;
+  position: relative;
+  isolation: isolate;
+  border-color: var(--border);
+  background:
+    radial-gradient(
+      120% 120% at 0% 0%,
+      color-mix(in srgb, var(--accent) 7%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(145deg, color-mix(in srgb, var(--accent) 4%, var(--surface)), var(--surface));
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.entry-card-advanced::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    200px circle at var(--mx) var(--my),
+    color-mix(in srgb, var(--accent) 14%, transparent),
+    transparent 72%
+  );
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
+}
+
+.entry-card-advanced:hover {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+  box-shadow:
+    0 10px 26px color-mix(in srgb, var(--accent) 9%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.entry-card-advanced:hover::after {
+  opacity: 1;
+}
+
+.entry-card-advanced--active {
+  border-color: color-mix(in srgb, var(--seal) 65%, var(--border));
+  background:
+    radial-gradient(
+      120% 120% at 0% 0%,
+      color-mix(in srgb, var(--seal) 9%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(145deg, color-mix(in srgb, var(--seal) 5%, var(--surface)), var(--surface));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-card-advanced,
+  .entry-card-advanced::after {
+    transition: none;
+  }
+}

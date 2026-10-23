@@ -1,4 +1,15 @@
-import { Archive, Check, Fingerprint, KeyRound, Loader2, Palette, ShieldCheck, Upload } from "lucide-react";
+import {
+  Archive,
+  Check,
+  Fingerprint,
+  KeyRound,
+  LayoutGrid,
+  Loader2,
+  Power,
+  Palette,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
@@ -18,6 +29,11 @@ import {
 import { vaultApi } from "@/features/vault/api";
 import { isBiometricEnabled } from "@/features/vault/biometric";
 import {
+  CARD_LAYOUT_OPTIONS,
+  resolveCardLayout,
+  type CardLayout,
+} from "@/features/entries/cardLayout";
+import {
   AUTO_LOCK_OPTIONS,
   autoLockLabel,
   resolveAutoLockOption,
@@ -28,6 +44,11 @@ import { useVaultStore } from "@/features/vault/store";
 import { getStorage } from "@/lib/storage";
 import { exportVaultArchive, importVaultArchive } from "@/lib/storage/archive";
 import { isAndroidPlatform } from "@/lib/platform";
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
 import { cn } from "@/lib/cn";
 
 export function SettingsView() {
@@ -46,12 +67,16 @@ export function SettingsView() {
   const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
   const android = isAndroidPlatform();
   const autoLock = data ? resolveAutoLockOption(data.settings) : "5m";
+  const cardLayout = resolveCardLayout(data?.settings ?? {});
   const autoLockChoice = AUTO_LOCK_OPTIONS.find((option) => option.value === autoLock);
   const [backupBusy, setBackupBusy] = useState(false);
   const [lastBackup, setLastBackup] = useState<Date | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(true);
   const [enabled, setEnabled] = useState(() => isBiometricEnabled(data?.id));
+  const [autostart, setAutostart] = useState(false);
+  const [autostartAvailable, setAutostartAvailable] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -70,6 +95,22 @@ export function SettingsView() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (android) return;
+    let active = true;
+    void isAutostartEnabled()
+      .then((value) => {
+        if (active) {
+          setAutostart(value);
+          setAutostartAvailable(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [android]);
 
   useEffect(() => {
     if (!vaultPath) return;
@@ -133,6 +174,57 @@ export function SettingsView() {
       });
     } finally {
       setBackupBusy(false);
+    }
+  };
+
+  const changeCardLayout = async (next: CardLayout) => {
+    if (!data) return;
+    const saved = await saveVault({
+      ...data,
+      settings: { ...data.settings, cardLayout: next },
+    });
+    if (!saved) {
+      toast.show({
+        title: "Не удалось сохранить отображение",
+        description: errorText(useVaultStore.getState().error),
+        tone: "error",
+      });
+    }
+  };
+
+  const toggleFavicons = async (next: boolean) => {
+    if (!data) return;
+    const saved = await saveVault({
+      ...data,
+      settings: { ...data.settings, faviconFetch: next },
+    });
+    if (!saved) {
+      toast.show({
+        title: "Не удалось сохранить настройку",
+        description: errorText(useVaultStore.getState().error),
+        tone: "error",
+      });
+    }
+  };
+
+  const changeAutostart = async (next: boolean) => {
+    setAutostartBusy(true);
+    try {
+      if (next) await enableAutostart();
+      else await disableAutostart();
+      setAutostart(next);
+      toast.show({
+        title: next ? "Автозапуск включён" : "Автозапуск выключен",
+        tone: "success",
+      });
+    } catch (error) {
+      toast.show({
+        title: "Не удалось изменить автозапуск",
+        description: errorText(error),
+        tone: "error",
+      });
+    } finally {
+      setAutostartBusy(false);
     }
   };
 
@@ -321,6 +413,92 @@ export function SettingsView() {
             </label>
           </div>
         </section>
+
+        <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+            <LayoutGrid size={15} className="text-[var(--accent-soft)]" />
+            <h2 className="pms-display text-lg">Отображение карточек</h2>
+          </div>
+          <div className="grid gap-3 px-4 py-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {CARD_LAYOUT_OPTIONS.map((option) => {
+                const active = cardLayout === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={active}
+                    disabled={busy}
+                    onClick={() => void changeCardLayout(option.value)}
+                    className={cn(
+                      "rounded-[var(--radius-md)] border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:opacity-50",
+                      active
+                        ? "border-[var(--accent)]/55 bg-[var(--accent)]/8"
+                        : "border-[var(--border)] bg-[var(--surface-2)]/40 hover:border-[var(--border-strong)]",
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--text-soft)]">
+                      {active ? <Check size={12} className="text-[var(--accent)]" /> : null}
+                      {option.label}
+                    </span>
+                    <span className="mt-1 block text-[10px] leading-relaxed text-[var(--muted)]">
+                      {option.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)]/35 px-3 py-2.5">
+              <input
+                type="checkbox"
+                aria-label="Загружать значки сайтов"
+                checked={data?.settings.faviconFetch ?? true}
+                onChange={(event) => void toggleFavicons(event.target.checked)}
+                disabled={busy}
+                className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-[11.5px] font-medium text-[var(--text-soft)]">
+                  Загружать значки сайтов
+                </span>
+                <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--muted)]">
+                  Значок запрашивается у Google S2 по домену из URL карточки. Без URL показывается монограмма.
+                </span>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        {!android ? (
+          <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
+            <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+              <Power size={15} className="text-[var(--accent-soft)]" />
+              <h2 className="pms-display text-lg">Приложение</h2>
+            </div>
+            <div className="px-4 py-4">
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)]/35 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  aria-label="Запускать автоматически при входе в систему"
+                  checked={autostart}
+                  onChange={(event) => void changeAutostart(event.target.checked)}
+                  disabled={!autostartAvailable || autostartBusy}
+                  className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[11.5px] font-medium text-[var(--text-soft)]">
+                    Запускать автоматически при входе в систему
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--muted)]">
+                    {autostartAvailable
+                      ? "Приложение будет открываться вместе с системой."
+                      : "Автозапуск недоступен в этой сборке."}
+                  </span>
+                </span>
+              </label>
+            </div>
+          </section>
+        ) : null}
 
         {!android ? (
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">

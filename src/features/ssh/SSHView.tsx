@@ -19,16 +19,23 @@ function typeLabel(key: SshKey) {
   return "Ed25519";
 }
 
-export function SSHView({ onOpenEntry }: { onOpenEntry?: (id: string) => void }) {
+export function SSHView({
+  onOpenEntry,
+  initialKeyId,
+}: {
+  onOpenEntry?: (id: string) => void;
+  initialKeyId?: string | null;
+}) {
   const data = useVaultStore((state) => state.data);
   const deleteSshKey = useVaultStore((state) => state.deleteSshKey);
   const confirm = useConfirm();
   const toast = useToast();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialKeyId ?? null);
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
   const keys = useMemo(() => data?.sshKeys ?? [], [data?.sshKeys]);
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return keys;

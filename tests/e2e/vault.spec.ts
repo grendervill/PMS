@@ -210,6 +210,10 @@ test("creates an SSH key, links it to an entry and installs it", async ({ page }
   await expect(page.getByText("SSH-ключи")).toBeVisible();
   await expect(page.getByText("GitHub key")).toBeVisible();
 
+  await page.getByRole("button", { name: "GitHub key", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "SSH", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "GitHub key" })).toBeVisible();
+
   await page.getByRole("button", { name: "SSH", exact: true }).first().click();
   await page
     .getByRole("button", { name: /GitHub key/ })
@@ -503,4 +507,30 @@ test("locks the vault after the selected idle timeout", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Открыть хранилище" })).toBeVisible({
     timeout: 12_000,
   });
+});
+
+test("switches between compact, list and advanced card layouts", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("GitHub");
+  await page.getByLabel("Логин", { exact: true }).fill("alex");
+  await page.getByLabel("Пароль", { exact: true }).fill("s3cret");
+  await page.getByLabel("URL", { exact: true }).fill("https://github.com");
+  await page.getByLabel("Комментарий").fill("Личный аккаунт");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.getByRole("button", { name: /Продвинуто/ }).click();
+  await page.getByRole("button", { name: "Записи", exact: true }).first().click();
+  await expect(page.getByText("https://github.com")).toBeVisible();
+  await expect(page.getByText("alex")).toBeVisible();
+  await expect(page.getByText("•••••")).toBeVisible();
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.getByRole("button", { name: /Компактно/ }).click();
+  await page.getByRole("button", { name: "Записи", exact: true }).first().click();
+  await expect(page.getByText("GitHub")).toBeVisible();
+  await expect(page.getByText("alex")).toHaveCount(0);
+  await expect(page.getByText("Личный аккаунт")).toHaveCount(0);
 });
