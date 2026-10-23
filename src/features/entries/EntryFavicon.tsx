@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { monogram } from "@/features/entries/entries";
+import { loadFavicon } from "@/features/entries/faviconCache";
 import { cn } from "@/lib/cn";
 
-function faviconUrl(host: string): string {
-  return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`;
-}
+type LoadedIcon = {
+  host: string;
+  dataUrl: string | null;
+};
 
 export function EntryFavicon({
   name,
@@ -19,43 +21,49 @@ export function EntryFavicon({
   size?: "sm" | "md";
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState<LoadedIcon | null>(null);
+  const [broken, setBroken] = useState<string | null>(null);
   const dimension = size === "sm" ? "size-7 rounded-[8px]" : "size-9 rounded-[10px]";
 
-  if (!host || !enabled || failed) {
-    return (
-      <span
-        className={cn(
-          "grid shrink-0 place-items-center border border-[var(--border)] bg-[var(--surface-2)] font-medium text-[var(--accent-soft)]",
-          dimension,
-          size === "sm" ? "text-[11px]" : "text-[13px]",
-          className,
-        )}
-      >
-        {monogram(name)}
-      </span>
-    );
-  }
+  useEffect(() => {
+    if (!host || !enabled) return;
+    let active = true;
+    void loadFavicon(host).then((dataUrl) => {
+      if (active) setLoaded({ host, dataUrl });
+    });
+    return () => {
+      active = false;
+    };
+  }, [host, enabled]);
+
+  const current = host && enabled && loaded?.host === host ? loaded : null;
+  const dataUrl = current?.dataUrl && current.dataUrl !== broken ? current.dataUrl : null;
 
   return (
     <span
       className={cn(
-        "grid shrink-0 place-items-center overflow-hidden border border-[var(--border)] bg-white/95",
+        "grid shrink-0 place-items-center border border-[var(--border)]",
         dimension,
+        dataUrl
+          ? "overflow-hidden bg-white/95"
+          : "bg-[var(--surface-2)] font-medium text-[var(--accent-soft)]",
+        !dataUrl && (size === "sm" ? "text-[11px]" : "text-[13px]"),
         className,
       )}
     >
-      <img
-        src={faviconUrl(host)}
-        alt=""
-        width={64}
-        height={64}
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        className="size-full object-contain p-1"
-        onError={() => setFailed(true)}
-      />
+      {dataUrl ? (
+        <img
+          src={dataUrl}
+          alt=""
+          width={64}
+          height={64}
+          decoding="async"
+          className="size-full object-contain p-1"
+          onError={() => setBroken(dataUrl)}
+        />
+      ) : (
+        monogram(name)
+      )}
     </span>
   );
 }

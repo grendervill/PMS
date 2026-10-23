@@ -31,6 +31,10 @@ export async function installMockTauri(page: Page) {
       biometricFailures: 0,
     };
 
+    const faviconCalls: string[] = [];
+    (window as unknown as { __E2E_FAVICON_CALLS__?: string[] }).__E2E_FAVICON_CALLS__ =
+      faviconCalls;
+
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
     let nextCallbackId = 0;
@@ -142,6 +146,9 @@ export async function installMockTauri(page: Page) {
         case "storage_remove_file":
           state.files.delete(path);
           return null;
+        case "favicon_fetch":
+          faviconCalls.push(String(args.host));
+          return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         case "vault_create": {
           const now = new Date().toISOString();
           const id = "vault-e2e";

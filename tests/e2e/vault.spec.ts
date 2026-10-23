@@ -534,3 +534,23 @@ test("switches between compact, list and advanced card layouts", async ({ page }
   await expect(page.getByText("alex")).toHaveCount(0);
   await expect(page.getByText("Личный аккаунт")).toHaveCount(0);
 });
+
+test("reuses a cached favicon when cards remount", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("GitHub");
+  await page.getByLabel("URL", { exact: true }).fill("https://github.com");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+
+  const calls = () =>
+    page.evaluate(
+      () => (window as unknown as { __E2E_FAVICON_CALLS__?: string[] }).__E2E_FAVICON_CALLS__ ?? [],
+    );
+  await expect.poll(calls).toEqual(["github.com"]);
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await page.getByRole("button", { name: "Записи", exact: true }).first().click();
+  await expect(page.getByText("GitHub")).toBeVisible();
+  await expect.poll(calls).toEqual(["github.com"]);
+});

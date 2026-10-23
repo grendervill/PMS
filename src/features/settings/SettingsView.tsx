@@ -462,7 +462,7 @@ export function SettingsView() {
                   Загружать значки сайтов
                 </span>
                 <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--muted)]">
-                  Значок запрашивается у Google S2 по домену из URL карточки. Без URL показывается монограмма.
+                  Значок запрашивается у Google S2 по домену из URL карточки и хранится в кеше 30 дней. Без URL показывается монограмма.
                 </span>
               </span>
             </label>

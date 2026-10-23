@@ -62,6 +62,7 @@ pub fn run() {
             commands::storage::storage_list_dir,
             commands::storage::storage_remove_file,
             commands::storage::storage_remove_dir,
+            commands::favicon::favicon_fetch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");

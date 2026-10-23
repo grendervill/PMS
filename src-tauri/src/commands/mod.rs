@@ -1,5 +1,6 @@
 pub mod app_icon;
 pub mod attachments;
+pub mod favicon;
 pub mod biometric;
 pub mod generator;
 pub mod import;
