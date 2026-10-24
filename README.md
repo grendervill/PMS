@@ -103,6 +103,7 @@ pnpm build:all     # macOS + Android ARM APK; ANDROID_HOME должен быть
 - план первого среза: `docs/superpowers/plans/2026-10-20-01-foundation-vault-entries.md`
 - план обмена: `docs/superpowers/plans/2026-10-21-08-local-transfer.md`
 - Android: `docs/superpowers/specs/2026-10-21-android-parity-design.md`
+- карты и документы: `docs/superpowers/specs/2026-10-24-cards-documents-design.md`
 
 ## Безопасность
 
