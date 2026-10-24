@@ -23,7 +23,7 @@ export function normalizeHolder(value: string): string {
     .toUpperCase()
     .replace(/[^A-Z '-]/g, "")
     .replace(/\s+/g, " ")
-    .trim();
+    .replace(/^\s+/, "");
 }
 
 export function validateCardDraft(draft: BankCardDraft): Record<string, string> {
@@ -49,7 +49,7 @@ export function validateCardDraft(draft: BankCardDraft): Record<string, string> 
     errors.cvv = "CVV должен содержать 3–4 цифры";
   }
 
-  const holder = normalizeHolder(draft.holder);
+  const holder = normalizeHolder(draft.holder).trim();
   if (!/^[A-Z][A-Z'’-]*(?: [A-Z][A-Z'’-]*)+$/.test(holder)) {
     errors.holder = "Введите имя и фамилию латиницей";
   }

@@ -36,6 +36,8 @@ describe("card formatting", () => {
 
   it("uppercases and keeps only Latin holder characters", () => {
     expect(normalizeHolder("ivan petrov-ivanov")).toBe("IVAN PETROV-IVANOV");
+    expect(normalizeHolder("IVAN ")).toBe("IVAN ");
+    expect(normalizeHolder(" IVAN  PETROV ")).toBe("IVAN PETROV ");
     expect(normalizeHolder("иван иванов")).toBe("");
   });
 });
@@ -72,6 +74,18 @@ describe("card validation", () => {
         expiry: "12/29",
         cvv: "123",
         holder: "IVAN IVANOV",
+      }),
+    ).toEqual({});
+  });
+
+  it("ignores a trailing space in the holder", () => {
+    expect(
+      validateCardDraft({
+        ...emptyCardDraft(),
+        number: "4111111111111111",
+        expiry: "12/29",
+        cvv: "123",
+        holder: "IVAN IVANOV ",
       }),
     ).toEqual({});
   });

@@ -36,9 +36,7 @@ test("creates a bank card, opens it and flips to CVV", async ({ page }) => {
   await page.getByRole("button", { name: "Сохранить" }).click();
 
   await expect(page.getByText("Основная · 1111")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Показать обратную сторону" }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Показать обратную сторону" })).toBeVisible();
   await page.getByRole("button", { name: "Показать обратную сторону" }).click();
   await expect(page.getByRole("button", { name: "Показать лицевую сторону" })).toBeVisible();
   await expect(page.getByText("123").last()).toBeVisible();
@@ -110,4 +108,17 @@ test("attaches a scan and exposes cards/documents on mobile", async ({ page }) =
   await page.getByRole("button", { name: "Ещё" }).click();
   await expect(page.getByRole("button", { name: "Карты" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Документы" })).toBeVisible();
+});
+
+test("accepts a space in the cardholder name while typing", async ({ page }) => {
+  await createVault(page);
+  await openSection(page, "Карты");
+  await page.getByRole("button", { name: "Добавить карту" }).click();
+
+  const holder = page.getByLabel("Имя владельца");
+  await holder.fill("IVAN");
+  await holder.press("Space");
+  await expect(holder).toHaveValue("IVAN ");
+  await holder.type("IVANOV");
+  await expect(holder).toHaveValue("IVAN IVANOV");
 });

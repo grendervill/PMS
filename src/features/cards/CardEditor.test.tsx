@@ -71,6 +71,8 @@ describe("CardEditor", () => {
   it("uppercases the holder and formats the expiry", () => {
     renderEditor();
     const holder = screen.getByLabelText("Имя владельца");
+    fireEvent.change(holder, { target: { value: "ivan " } });
+    expect(holder).toHaveValue("IVAN ");
     fireEvent.change(holder, { target: { value: "ivan ivanov" } });
     expect(holder).toHaveValue("IVAN IVANOV");
 
