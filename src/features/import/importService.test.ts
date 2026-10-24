@@ -47,6 +47,8 @@ const data: VaultData = {
   sshKeys: [],
   attachments: [],
   drafts: [],
+  bankCards: [],
+  documents: [],
 };
 
 describe("importService", () => {
@@ -127,13 +129,9 @@ describe("importService", () => {
       ],
     };
 
-    const result = await runImport(
-      bundle,
-      { ...data, entries: [existing] },
-      "session",
-      "/vault",
-      { skipDuplicates: true },
-    );
+    const result = await runImport(bundle, { ...data, entries: [existing] }, "session", "/vault", {
+      skipDuplicates: true,
+    });
 
     expect(result.result.skipped).toBe(1);
     expect(result.data.entries).toHaveLength(1);

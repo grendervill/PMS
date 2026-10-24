@@ -27,6 +27,8 @@ const data: VaultData = {
   sshKeys: [],
   attachments: [],
   drafts: [],
+  bankCards: [],
+  documents: [],
 };
 
 function renderSettings() {

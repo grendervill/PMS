@@ -45,6 +45,8 @@ const vaultData: VaultData = {
   sshKeys: [],
   attachments: [],
   drafts: [],
+  bankCards: [],
+  documents: [],
 };
 
 const publicInfo: VaultPublicInfo = {
@@ -197,9 +199,7 @@ describe("vault store", () => {
       new VaultApiError("invalid_credentials", "Неверный пароль"),
     );
 
-    const unlocked = await useVaultStore
-      .getState()
-      .unlock({ kind: "passphrase", value: "wrong" });
+    const unlocked = await useVaultStore.getState().unlock({ kind: "passphrase", value: "wrong" });
 
     expect(unlocked).toBe(false);
     expect(useVaultStore.getState().status).toBe("locked");
@@ -304,7 +304,17 @@ describe("vault store", () => {
   it("blocks a historical password through the store", async () => {
     const entry = {
       ...createEntry(
-        { name: "GitHub", login: "alex", password: "current", urls: [], comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
+        {
+          name: "GitHub",
+          login: "alex",
+          password: "current",
+          urls: [],
+          comment: "",
+          attachmentIds: [],
+          sshKeyIds: [],
+          totp: null,
+          totpRaw: "",
+        },
         createdAt,
       ),
       passwordHistory: [{ value: "old", changedAt: createdAt }],
@@ -334,7 +344,17 @@ describe("vault store", () => {
 
   it("deletes an entry through save", async () => {
     const entry = createEntry(
-      { name: "GitHub", login: "", password: "", urls: [], comment: "", attachmentIds: [], sshKeyIds: [], totp: null, totpRaw: "" },
+      {
+        name: "GitHub",
+        login: "",
+        password: "",
+        urls: [],
+        comment: "",
+        attachmentIds: [],
+        sshKeyIds: [],
+        totp: null,
+        totpRaw: "",
+      },
       createdAt,
     );
     useVaultStore.setState({
@@ -478,5 +498,4 @@ describe("vault store", () => {
     expect(await useVaultStore.getState().disableBiometric()).toBe(true);
     expect(isBiometricEnabled("vault-1")).toBe(false);
   });
-
 });

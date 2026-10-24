@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfirmProvider } from "@/components/ui/ConfirmProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { initialVaultState, useVaultStore } from "@/features/vault/store";
-import { defaultVaultSettings, type Entry, type SshKey, type VaultData } from "@/features/vault/types";
+import {
+  defaultVaultSettings,
+  type Entry,
+  type SshKey,
+  type VaultData,
+} from "@/features/vault/types";
 import { EntryDetail } from "./EntryDetail";
 
 const entry: Entry = {
@@ -25,10 +30,7 @@ const entry: Entry = {
   updatedAt: "2026-10-20T10:00:00.000Z",
 };
 
-function renderDetail(
-  currentEntry: Entry = entry,
-  onOpenSshKey: (id: string) => void = vi.fn(),
-) {
+function renderDetail(currentEntry: Entry = entry, onOpenSshKey: (id: string) => void = vi.fn()) {
   return render(
     <ToastProvider>
       <ConfirmProvider>
@@ -76,39 +78,41 @@ describe("EntryDetail", () => {
   });
 });
 
-  it("opens a linked SSH key from its name and menu", () => {
-    const sshKey: SshKey = {
-      id: "ssh-1",
-      name: "GitHub key",
-      type: "ed25519",
-      publicKey: "ssh-ed25519 AAAA test",
-      privateKey: "private",
-      comment: "",
-      attachmentIds: [],
-      createdAt: "2026-10-20T10:00:00.000Z",
-      updatedAt: "2026-10-20T10:00:00.000Z",
-    };
-    const linkedEntry: Entry = { ...entry, sshKeyIds: [sshKey.id] };
-    const vaultData: VaultData = {
-      schemaVersion: 1,
-      id: "vault-1",
-      name: "Личное",
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
-      settings: defaultVaultSettings(),
-      entries: [linkedEntry],
-      sshKeys: [sshKey],
-      attachments: [],
-      drafts: [],
-    };
-    useVaultStore.setState({ ...initialVaultState, status: "unlocked", data: vaultData });
-    const onOpenSshKey = vi.fn();
-    renderDetail(linkedEntry, onOpenSshKey);
+it("opens a linked SSH key from its name and menu", () => {
+  const sshKey: SshKey = {
+    id: "ssh-1",
+    name: "GitHub key",
+    type: "ed25519",
+    publicKey: "ssh-ed25519 AAAA test",
+    privateKey: "private",
+    comment: "",
+    attachmentIds: [],
+    createdAt: "2026-10-20T10:00:00.000Z",
+    updatedAt: "2026-10-20T10:00:00.000Z",
+  };
+  const linkedEntry: Entry = { ...entry, sshKeyIds: [sshKey.id] };
+  const vaultData: VaultData = {
+    schemaVersion: 1,
+    id: "vault-1",
+    name: "Личное",
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    settings: defaultVaultSettings(),
+    entries: [linkedEntry],
+    sshKeys: [sshKey],
+    attachments: [],
+    drafts: [],
+    bankCards: [],
+    documents: [],
+  };
+  useVaultStore.setState({ ...initialVaultState, status: "unlocked", data: vaultData });
+  const onOpenSshKey = vi.fn();
+  renderDetail(linkedEntry, onOpenSshKey);
 
-    fireEvent.click(screen.getByRole("button", { name: "GitHub key" }));
-    expect(onOpenSshKey).toHaveBeenCalledWith("ssh-1");
+  fireEvent.click(screen.getByRole("button", { name: "GitHub key" }));
+  expect(onOpenSshKey).toHaveBeenCalledWith("ssh-1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Действия с ключом GitHub key" }));
-    fireEvent.click(screen.getByRole("button", { name: "Открыть ключ в SSH" }));
-    expect(onOpenSshKey).toHaveBeenCalledTimes(2);
-  });
+  fireEvent.click(screen.getByRole("button", { name: "Действия с ключом GitHub key" }));
+  fireEvent.click(screen.getByRole("button", { name: "Открыть ключ в SSH" }));
+  expect(onOpenSshKey).toHaveBeenCalledTimes(2);
+});

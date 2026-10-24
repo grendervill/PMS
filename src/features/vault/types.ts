@@ -54,6 +54,65 @@ export type SshKey = {
 
 export type SshKeyType = SshKey["type"];
 
+export type CardImagePreset =
+  | "emerald"
+  | "graphite"
+  | "midnight"
+  | "oxblood"
+  | "sand"
+  | "copper";
+
+export type BankCard = {
+  id: string;
+  schemaVersion: number;
+  number: string;
+  expiry: string;
+  cvv: string;
+  holder: string;
+  purpose: string;
+  country: string;
+  address: string;
+  postalCode: string;
+  imagePreset: CardImagePreset;
+  imageAttachmentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BankCardDraft = Omit<
+  BankCard,
+  "id" | "schemaVersion" | "createdAt" | "updatedAt"
+>;
+
+export type DocumentKind = "passport" | "snils" | "driver-license";
+export type PassportKind = "main" | "foreign";
+
+export type VaultDocument = {
+  id: string;
+  schemaVersion: number;
+  kind: DocumentKind;
+  passportKind: PassportKind | null;
+  fullName: string;
+  series: string;
+  number: string;
+  issuedBy: string;
+  departmentCode: string;
+  issuedAt: string;
+  registrationAddress: string;
+  validUntil: string;
+  categories: string;
+  birthDate: string;
+  birthPlace: string;
+  attachmentIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DocumentDraft = Omit<
+  VaultDocument,
+  "id" | "schemaVersion" | "createdAt" | "updatedAt"
+>;
+
 export type AttachmentMeta = {
   id: string;
   name: string;
@@ -91,6 +150,8 @@ export type VaultData = {
   settings: VaultSettings;
   entries: Entry[];
   sshKeys: SshKey[];
+  bankCards: BankCard[];
+  documents: VaultDocument[];
   attachments: AttachmentMeta[];
   drafts: Draft[];
 };

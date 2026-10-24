@@ -237,6 +237,8 @@ fn empty_vault_data(name: &str, vault_id: Uuid, timestamp: &str) -> VaultData {
         settings: Default::default(),
         entries: Vec::new(),
         ssh_keys: Vec::new(),
+        bank_cards: Vec::new(),
+        documents: Vec::new(),
         attachments: Vec::new(),
         drafts: Vec::new(),
     }

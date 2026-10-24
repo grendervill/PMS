@@ -14,6 +14,8 @@ const data: VaultData = {
   sshKeys: [],
   attachments: [],
   drafts: [],
+  bankCards: [],
+  documents: [],
 };
 
 describe("drafts", () => {
