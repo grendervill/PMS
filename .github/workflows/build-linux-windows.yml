@@ -94,17 +94,17 @@ jobs:
       - name: Collect installable bundles
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p release-assets
           base="src-tauri/target/${{ matrix.target }}/release/bundle"
-          find "$base" -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) -exec cp -v {} dist/ \;
-          ls -lh dist
+          find "$base" -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) -exec cp -v {} release-assets/ \;
+          ls -lh release-assets
 
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
           name: pms-${{ matrix.artifact }}
           if-no-files-found: error
-          path: dist/**/*
+          path: release-assets/**/*
 
   release:
     name: Publish release
