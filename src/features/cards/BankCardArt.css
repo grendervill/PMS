@@ -16,34 +16,34 @@
     inset 0 1px 0 color-mix(in srgb, var(--card-ink) 10%, transparent);
 }
 
-.pms-card-art[data-preset="emerald"] {
+:where(.pms-card-art, .pms-card-swatch)[data-preset="emerald"] {
   --card-base: #103d2f;
   --card-deep: #071c16;
   --card-glow: #2e8b6a;
 }
 
-.pms-card-art[data-preset="graphite"] {
+:where(.pms-card-art, .pms-card-swatch)[data-preset="graphite"] {
   --card-base: #252b2a;
   --card-deep: #101413;
   --card-glow: #8b9a92;
   --card-ink: #f4f6f4;
 }
 
-.pms-card-art[data-preset="midnight"] {
+:where(.pms-card-art, .pms-card-swatch)[data-preset="midnight"] {
   --card-base: #14233f;
   --card-deep: #080e1b;
   --card-glow: #4f74b8;
   --card-ink: #f1f4fb;
 }
 
-.pms-card-art[data-preset="oxblood"] {
+:where(.pms-card-art, .pms-card-swatch)[data-preset="oxblood"] {
   --card-base: #441923;
   --card-deep: #1d090d;
   --card-glow: #b34b5f;
   --card-ink: #fbf2f3;
 }
 
-.pms-card-art[data-preset="sand"] {
+:where(.pms-card-art, .pms-card-swatch)[data-preset="sand"] {
   --card-base: #b8a17d;
   --card-deep: #55462e;
   --card-glow: #f0dfbd;
@@ -51,7 +51,7 @@
   --card-muted: color-mix(in srgb, var(--card-ink) 82%, transparent);
 }
 
-.pms-card-art[data-preset="copper"] {
+:where(.pms-card-art, .pms-card-swatch)[data-preset="copper"] {
   --card-base: #6f422a;
   --card-deep: #2a1710;
   --card-glow: #d58a5e;
@@ -238,4 +238,38 @@
   .pms-card-art__inner {
     transition: none;
   }
+}
+
+.pms-card-swatch {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.586;
+  overflow: hidden;
+  border-radius: 7px;
+  background:
+    radial-gradient(
+      120% 110% at 0% 0%,
+      color-mix(in srgb, var(--card-glow) 26%, transparent),
+      transparent 58%
+    ),
+    linear-gradient(145deg, var(--card-base), var(--card-deep));
+}
+
+.pms-card-swatch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  background-image:
+    repeating-linear-gradient(
+      118deg,
+      transparent 0 13px,
+      rgba(255, 255, 255, 0.08) 13px 14px
+    ),
+    repeating-linear-gradient(
+      28deg,
+      transparent 0 23px,
+      rgba(0, 0, 0, 0.16) 23px 24px
+    );
 }
