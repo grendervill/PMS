@@ -1,5 +1,7 @@
 # PMS
 
+[![Build Linux and Windows](https://github.com/grendervill/PMS/actions/workflows/build-linux-windows.yml/badge.svg)](https://github.com/grendervill/PMS/actions/workflows/build-linux-windows.yml)
+
 Локальный менеджер паролей, TOTP-секретов и SSH-ключей. Хранилище — переносимая
 зашифрованная папка, без сервера и телеметрии.
 
@@ -76,6 +78,8 @@ Bluetooth-обнаружение также требует отдельного 
 ## Сборки Linux и Windows
 
 Публичный репозиторий: https://github.com/grendervill/PMS
+
+Готовые сборки: https://github.com/grendervill/PMS/releases
 
 Сборки выполняет workflow `.github/workflows/build-linux-windows.yml`:
 
