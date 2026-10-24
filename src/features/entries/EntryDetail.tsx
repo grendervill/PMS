@@ -317,7 +317,7 @@ export function EntryDetail({
             </p>
           </div>
         </div>
-        <AttachmentsSection entry={entry} />
+        <AttachmentsSection attachmentIds={entry.attachmentIds} />
       </div>
 
       {shareOpen ? (

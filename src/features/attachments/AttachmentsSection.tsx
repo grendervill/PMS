@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { AttachmentPreviewModal } from "@/features/attachments/AttachmentPreviewModal";
 import { formatBytes } from "@/features/attachments/mime";
 import { useVaultStore } from "@/features/vault/store";
-import type { AttachmentMeta, Entry } from "@/features/vault/types";
+import type { AttachmentMeta } from "@/features/vault/types";
 
 function kindIcon(kind: AttachmentMeta["kind"]) {
   if (kind === "image") return ImageIcon;
@@ -11,15 +11,19 @@ function kindIcon(kind: AttachmentMeta["kind"]) {
   return File;
 }
 
-export function AttachmentsSection({ entry }: { entry: Entry }) {
+export function AttachmentsSection({
+  attachmentIds,
+}: {
+  attachmentIds: string[];
+}) {
   const data = useVaultStore((state) => state.data);
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
   const attachments = useMemo(() => {
     const byId = new Map((data?.attachments ?? []).map((item) => [item.id, item]));
-    return entry.attachmentIds
+    return attachmentIds
       .map((id) => byId.get(id))
       .filter((item): item is AttachmentMeta => item !== undefined);
-  }, [data?.attachments, entry.attachmentIds]);
+  }, [data?.attachments, attachmentIds]);
 
   if (attachments.length === 0) return null;
 
