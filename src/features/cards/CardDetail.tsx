@@ -81,10 +81,19 @@ export function CardDetail({
             }
             action={<CopyButton value={card.number} label="Копировать номер" />}
           />
-          <DetailRow label="Владелец" value={card.holder} />
+          <DetailRow
+            label="Владелец"
+            value={card.holder}
+            action={<CopyButton value={card.holder} label="Копировать владельца" />}
+          />
           <DetailRow
             label="Срок"
             value={flipped ? card.expiry : "На обороте"}
+            action={
+              flipped ? (
+                <CopyButton value={card.expiry} label="Копировать срок" />
+              ) : undefined
+            }
           />
           <DetailRow
             label="CVV"
@@ -95,11 +104,33 @@ export function CardDetail({
               ) : undefined
             }
           />
-          {card.purpose ? <DetailRow label="Назначение" value={card.purpose} /> : null}
-          {card.country ? <DetailRow label="Страна" value={card.country} /> : null}
-          {card.address ? <DetailRow label="Адрес" value={card.address} /> : null}
+          {card.purpose ? (
+            <DetailRow
+              label="Назначение"
+              value={card.purpose}
+              action={<CopyButton value={card.purpose} label="Копировать назначение" />}
+            />
+          ) : null}
+          {card.country ? (
+            <DetailRow
+              label="Страна"
+              value={card.country}
+              action={<CopyButton value={card.country} label="Копировать страну" />}
+            />
+          ) : null}
+          {card.address ? (
+            <DetailRow
+              label="Адрес"
+              value={card.address}
+              action={<CopyButton value={card.address} label="Копировать адрес" />}
+            />
+          ) : null}
           {card.postalCode ? (
-            <DetailRow label="Индекс" value={card.postalCode} />
+            <DetailRow
+              label="Индекс"
+              value={card.postalCode}
+              action={<CopyButton value={card.postalCode} label="Копировать индекс" />}
+            />
           ) : null}
         </div>
       </div>

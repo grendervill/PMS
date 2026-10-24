@@ -72,4 +72,34 @@ describe("CardDetail", () => {
     expect(screen.getByText("Москва")).toBeInTheDocument();
     expect(screen.getByText("101000")).toBeInTheDocument();
   });
+
+  it("offers copy actions for every visible card field", () => {
+    renderDetail();
+    for (const label of [
+      "Копировать номер",
+      "Копировать владельца",
+      "Копировать назначение",
+      "Копировать страну",
+      "Копировать адрес",
+      "Копировать индекс",
+    ]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    expect(
+      screen.queryByRole("button", { name: "Копировать срок" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Копировать CVV" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Показать обратную сторону" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Копировать срок" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Копировать CVV" }),
+    ).toBeInTheDocument();
+  });
 });

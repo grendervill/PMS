@@ -39,13 +39,13 @@ const data: VaultData = {
   drafts: [],
 };
 
-function renderDetail() {
+function renderDetail(document = passport) {
   useVaultStore.setState({
     ...initialVaultState,
     status: "unlocked",
     sessionId: "session-1",
     vaultPath: "/vault",
-    data,
+    data: { ...data, documents: [document] },
   });
   const onClose = vi.fn();
   const onEdit = vi.fn();
@@ -53,7 +53,7 @@ function renderDetail() {
   render(
     <ToastProvider>
       <DocumentDetail
-        document={passport}
+        document={document}
         onClose={onClose}
         onEdit={onEdit}
         onDelete={onDelete}
@@ -72,6 +72,46 @@ describe("DocumentDetail", () => {
     expect(screen.getByText("ОВД района")).toBeInTheDocument();
     expect(screen.getByText("770-001")).toBeInTheDocument();
     expect(screen.getByText("01.01.2020")).toBeInTheDocument();
+  });
+
+  it("offers copy actions for every visible document field", () => {
+    renderDetail();
+    for (const label of [
+      "Копировать ФИО",
+      "Копировать номер",
+      "Копировать, кем выдан",
+      "Копировать код подразделения",
+      "Копировать дату выдачи",
+      "Копировать адрес",
+    ]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("offers copy actions for driver's license fields", () => {
+    const driver = createDocument({
+      ...emptyDocumentDraft("driver-license"),
+      fullName: "ИВАНОВ ИВАН",
+      series: "9900",
+      number: "123456",
+      issuedBy: "Госавтоинспекция",
+      issuedAt: "2020-01-01",
+      validUntil: "2030-01-01",
+      categories: "B, M",
+      birthDate: "1990-01-01",
+      birthPlace: "Москва",
+      registrationAddress: "Москва",
+    });
+    renderDetail(driver);
+    for (const label of [
+      "Копировать срок действия",
+      "Копировать категории",
+      "Копировать дату рождения",
+      "Копировать место рождения",
+      "Копировать адрес",
+    ]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
   });
 
   it("exposes edit and delete actions", () => {

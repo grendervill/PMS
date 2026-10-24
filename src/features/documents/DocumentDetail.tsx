@@ -56,7 +56,11 @@ export function DocumentDetail({
 
         <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-2)]/45 px-4 py-2">
           {document.fullName ? (
-            <DetailRow label="ФИО" value={document.fullName} />
+            <DetailRow
+              label="ФИО"
+              value={document.fullName}
+              action={<CopyButton value={document.fullName} label="Копировать ФИО" />}
+            />
           ) : null}
           <DetailRow
             label="Номер"
@@ -73,34 +77,88 @@ export function DocumentDetail({
             }
           />
           {document.issuedBy ? (
-            <DetailRow label="Кем выдан" value={document.issuedBy} />
+            <DetailRow
+              label="Кем выдан"
+              value={document.issuedBy}
+              action={
+                <CopyButton
+                  value={document.issuedBy}
+                  label="Копировать, кем выдан"
+                />
+              }
+            />
           ) : null}
           {document.departmentCode ? (
-            <DetailRow label="Код подразделения" value={document.departmentCode} />
+            <DetailRow
+              label="Код подразделения"
+              value={document.departmentCode}
+              action={
+                <CopyButton
+                  value={document.departmentCode}
+                  label="Копировать код подразделения"
+                />
+              }
+            />
           ) : null}
           {document.issuedAt ? (
             <DetailRow
               label="Дата выдачи"
               value={formatDocumentDate(document.issuedAt)}
+              action={
+                <CopyButton
+                  value={formatDocumentDate(document.issuedAt)}
+                  label="Копировать дату выдачи"
+                />
+              }
             />
           ) : null}
           {document.validUntil ? (
             <DetailRow
               label="Действует до"
               value={formatDocumentDate(document.validUntil)}
+              action={
+                <CopyButton
+                  value={formatDocumentDate(document.validUntil)}
+                  label="Копировать срок действия"
+                />
+              }
             />
           ) : null}
           {document.categories ? (
-            <DetailRow label="Категории" value={document.categories} />
+            <DetailRow
+              label="Категории"
+              value={document.categories}
+              action={
+                <CopyButton
+                  value={document.categories}
+                  label="Копировать категории"
+                />
+              }
+            />
           ) : null}
           {document.birthDate ? (
             <DetailRow
               label="Дата рождения"
               value={formatDocumentDate(document.birthDate)}
+              action={
+                <CopyButton
+                  value={formatDocumentDate(document.birthDate)}
+                  label="Копировать дату рождения"
+                />
+              }
             />
           ) : null}
           {document.birthPlace ? (
-            <DetailRow label="Место рождения" value={document.birthPlace} />
+            <DetailRow
+              label="Место рождения"
+              value={document.birthPlace}
+              action={
+                <CopyButton
+                  value={document.birthPlace}
+                  label="Копировать место рождения"
+                />
+              }
+            />
           ) : null}
           {document.registrationAddress ? (
             <DetailRow
@@ -110,6 +168,12 @@ export function DocumentDetail({
                   : "Адрес регистрации"
               }
               value={document.registrationAddress}
+              action={
+                <CopyButton
+                  value={document.registrationAddress}
+                  label="Копировать адрес"
+                />
+              }
             />
           ) : null}
         </div>
