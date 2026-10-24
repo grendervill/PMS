@@ -1,5 +1,7 @@
 import {
   ArrowLeftRight,
+  CreditCard,
+  IdCard,
   KeyRound,
   KeySquare,
   Settings2,
@@ -9,10 +11,20 @@ import {
 } from "lucide-react";
 
 export type AppSection =
-  "entries" | "totp" | "ssh" | "transfer" | "generator" | "audit" | "settings";
+  | "entries"
+  | "cards"
+  | "documents"
+  | "totp"
+  | "ssh"
+  | "transfer"
+  | "generator"
+  | "audit"
+  | "settings";
 
 export const navItems = [
   { id: "entries", label: "Записи", icon: KeyRound },
+  { id: "cards", label: "Карты", icon: CreditCard },
+  { id: "documents", label: "Документы", icon: IdCard },
   { id: "totp", label: "TOTP", icon: Timer },
   { id: "ssh", label: "SSH", icon: KeySquare },
   { id: "transfer", label: "Обмен", icon: ArrowLeftRight },

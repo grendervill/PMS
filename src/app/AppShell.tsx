@@ -1,13 +1,15 @@
 import {
   ArrowLeftRight,
+  CreditCard,
+  FileWarning,
+  IdCard,
   Lock,
   KeySquare,
+  MoreHorizontal,
   Settings2,
   ShieldCheck,
   Timer,
   Wand2,
-  FileWarning,
-  MoreHorizontal,
 } from "lucide-react";
 import { KeyRound } from "lucide-react";
 import { exit, onBackButtonPress } from "@tauri-apps/api/app";
@@ -18,6 +20,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/toast-context";
 import { AuditView } from "@/features/audit/AuditView";
+import { CardsView } from "@/features/cards/CardsView";
+import { DocumentsView } from "@/features/documents/DocumentsView";
 import { EntriesView } from "@/features/entries/EntriesView";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import type { EntryDraft } from "@/features/entries/entries";
@@ -40,6 +44,8 @@ import { isAndroidPlatform } from "@/lib/platform";
 
 const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   entries: { title: "Записи", subtitle: "Логины, пароли и всё, что нужно помнить" },
+  cards: { title: "Карты", subtitle: "Банковские карты, срок действия и CVV" },
+  documents: { title: "Документы", subtitle: "Паспорта, СНИЛС и водительские права" },
   totp: { title: "TOTP", subtitle: "Живые коды двухфакторной аутентификации" },
   ssh: { title: "SSH", subtitle: "Ключи для серверов и Git" },
   transfer: { title: "Обмен", subtitle: "Передача хранилища между устройствами PMS" },
@@ -57,6 +63,16 @@ const sectionEmpty = {
     icon: KeyRound,
     title: "Здесь появятся записи",
     description: "Создайте хранилище, и первая карточка станет началом вашего сейфа.",
+  },
+  cards: {
+    icon: CreditCard,
+    title: "Пока нет карт",
+    description: "Добавьте банковскую карту, чтобы держать номер, срок и CVV под рукой.",
+  },
+  documents: {
+    icon: IdCard,
+    title: "Пока нет документов",
+    description: "Паспорт, СНИЛС или водительские права — с оригиналами во вложениях.",
   },
   totp: {
     icon: Timer,
@@ -279,6 +295,10 @@ export function AppShell() {
             onRequestLock={requestLock}
             onOpenSshKey={openSshKey}
           />
+        ) : active === "cards" ? (
+          <CardsView />
+        ) : active === "documents" ? (
+          <DocumentsView />
         ) : active === "generator" ? (
           <GeneratorView />
         ) : active === "totp" ? (
