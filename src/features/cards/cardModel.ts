@@ -65,3 +65,18 @@ export function cardLabel(
   const last4 = card.number.replace(/\D/g, "").slice(-4);
   return last4 ? `${purpose} · ${last4}` : purpose;
 }
+
+export function cardToDraft(card: BankCard): BankCardDraft {
+  return {
+    number: card.number,
+    expiry: card.expiry,
+    cvv: card.cvv,
+    holder: card.holder,
+    purpose: card.purpose,
+    country: card.country,
+    address: card.address,
+    postalCode: card.postalCode,
+    imagePreset: card.imagePreset,
+    imageAttachmentId: card.imageAttachmentId,
+  };
+}

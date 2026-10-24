@@ -11,8 +11,12 @@ import {
   type EntryDraft,
 } from "@/features/entries/entries";
 import { removeDraft as removeDraftFromData } from "@/features/vault/drafts";
+import { createBankCard } from "@/features/cards/cardModel";
+import { createDocument } from "@/features/documents/documentModel";
 import type {
+  BankCardDraft,
   CreateVaultInput,
+  DocumentDraft,
   UnlockSecret,
   VaultData,
   VaultErrorInfo,
@@ -56,6 +60,12 @@ export type VaultActions = {
     patch: Partial<Omit<SshKey, "id" | "createdAt">>,
   ) => Promise<boolean>;
   deleteSshKey: (id: string) => Promise<boolean>;
+  addBankCard: (draft: BankCardDraft) => Promise<boolean>;
+  updateBankCard: (id: string, draft: BankCardDraft) => Promise<boolean>;
+  deleteBankCard: (id: string) => Promise<boolean>;
+  addDocument: (draft: DocumentDraft) => Promise<boolean>;
+  updateDocument: (id: string, draft: DocumentDraft) => Promise<boolean>;
+  deleteDocument: (id: string) => Promise<boolean>;
   removeDraft: (id: string) => Promise<boolean>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
@@ -430,6 +440,90 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
         ...entry,
         sshKeyIds: (entry.sshKeyIds ?? []).filter((keyId) => keyId !== id),
       })),
+      updatedAt: new Date().toISOString(),
+    });
+  },
+
+  async addBankCard(draft) {
+    const data = get().data;
+    if (!data) return false;
+    const card = createBankCard(draft);
+    return get().save({
+      ...data,
+      bankCards: [card, ...data.bankCards],
+      updatedAt: card.updatedAt,
+    });
+  },
+
+  async updateBankCard(id, draft) {
+    const data = get().data;
+    if (!data) return false;
+    const current = data.bankCards.find((card) => card.id === id);
+    if (!current) return false;
+    const next = {
+      ...current,
+      ...draft,
+      id,
+      schemaVersion: current.schemaVersion,
+      createdAt: current.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    return get().save({
+      ...data,
+      bankCards: data.bankCards.map((card) => (card.id === id ? next : card)),
+      updatedAt: next.updatedAt,
+    });
+  },
+
+  async deleteBankCard(id) {
+    const data = get().data;
+    if (!data) return false;
+    return get().save({
+      ...data,
+      bankCards: data.bankCards.filter((card) => card.id !== id),
+      updatedAt: new Date().toISOString(),
+    });
+  },
+
+  async addDocument(draft) {
+    const data = get().data;
+    if (!data) return false;
+    const document = createDocument(draft);
+    return get().save({
+      ...data,
+      documents: [document, ...data.documents],
+      updatedAt: document.updatedAt,
+    });
+  },
+
+  async updateDocument(id, draft) {
+    const data = get().data;
+    if (!data) return false;
+    const current = data.documents.find((document) => document.id === id);
+    if (!current) return false;
+    const next = {
+      ...current,
+      ...draft,
+      id,
+      schemaVersion: current.schemaVersion,
+      createdAt: current.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    return get().save({
+      ...data,
+      documents: data.documents.map((document) =>
+        document.id === id ? next : document,
+      ),
+      updatedAt: next.updatedAt,
+    });
+  },
+
+  async deleteDocument(id) {
+    const data = get().data;
+    if (!data) return false;
+    return get().save({
+      ...data,
+      documents: data.documents.filter((document) => document.id !== id),
       updatedAt: new Date().toISOString(),
     });
   },
