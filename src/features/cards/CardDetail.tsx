@@ -1,34 +1,14 @@
 import { Pencil, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
+import { DetailRow } from "@/components/ui/DetailRow";
 import { Modal } from "@/components/ui/Modal";
 import { useAttachmentUrl } from "@/features/attachments/useAttachmentUrl";
 import type { BankCard } from "@/features/vault/types";
 import { BankCardArt } from "./BankCardArt";
 import { cardLabel } from "./cardModel";
 import { formatCardNumber } from "./cardValidation";
-
-function Row({
-  label,
-  value,
-  action,
-}: {
-  label: string;
-  value: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 items-start justify-between gap-3 border-b border-[var(--border)]/70 py-2 last:border-b-0">
-      <span className="shrink-0 text-[11px] text-[var(--muted)]">{label}</span>
-      <span className="flex min-w-0 items-center gap-1 text-right text-[12px] text-[var(--text-soft)]">
-        <span className="min-w-0 break-words">{value}</span>
-        {action}
-      </span>
-    </div>
-  );
-}
 
 export function CardDetail({
   card,
@@ -94,19 +74,19 @@ export function CardDetail({
         </p>
 
         <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-2)]/45 px-4 py-2">
-          <Row
+          <DetailRow
             label="Номер"
             value={
               <span className="pms-mono">{formatCardNumber(card.number)}</span>
             }
             action={<CopyButton value={card.number} label="Копировать номер" />}
           />
-          <Row label="Владелец" value={card.holder} />
-          <Row
+          <DetailRow label="Владелец" value={card.holder} />
+          <DetailRow
             label="Срок"
             value={flipped ? card.expiry : "На обороте"}
           />
-          <Row
+          <DetailRow
             label="CVV"
             value={flipped ? card.cvv : "На обороте"}
             action={
@@ -115,11 +95,11 @@ export function CardDetail({
               ) : undefined
             }
           />
-          {card.purpose ? <Row label="Назначение" value={card.purpose} /> : null}
-          {card.country ? <Row label="Страна" value={card.country} /> : null}
-          {card.address ? <Row label="Адрес" value={card.address} /> : null}
+          {card.purpose ? <DetailRow label="Назначение" value={card.purpose} /> : null}
+          {card.country ? <DetailRow label="Страна" value={card.country} /> : null}
+          {card.address ? <DetailRow label="Адрес" value={card.address} /> : null}
           {card.postalCode ? (
-            <Row label="Индекс" value={card.postalCode} />
+            <DetailRow label="Индекс" value={card.postalCode} />
           ) : null}
         </div>
       </div>

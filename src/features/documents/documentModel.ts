@@ -151,3 +151,36 @@ export function maskDocumentNumber(
   const digits = `${document.series}${document.number}`.replace(/\D/g, "");
   return `•••• ${digits.slice(-4)}`;
 }
+
+export function documentToDraft(document: VaultDocument): DocumentDraft {
+  return {
+    kind: document.kind,
+    passportKind: document.passportKind,
+    fullName: document.fullName,
+    series: document.series,
+    number: document.number,
+    issuedBy: document.issuedBy,
+    departmentCode: document.departmentCode,
+    issuedAt: document.issuedAt,
+    registrationAddress: document.registrationAddress,
+    validUntil: document.validUntil,
+    categories: document.categories,
+    birthDate: document.birthDate,
+    birthPlace: document.birthPlace,
+    attachmentIds: [...document.attachmentIds],
+  };
+}
+
+export function formatDocumentDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
+}
+
+export function documentLabel(
+  document: Pick<VaultDocument, "kind" | "passportKind" | "series" | "number">,
+): string {
+  const digits = `${document.series}${document.number}`.replace(/\D/g, "");
+  return digits
+    ? `${documentTitle(document)} · ${digits.slice(-4)}`
+    : documentTitle(document);
+}
