@@ -185,7 +185,6 @@ export function CardEditor({
               inputMode="numeric"
               autoComplete="cc-number"
               className="pms-mono"
-              autoFocus
             />
           </Field>
           <Field label="Срок действия" htmlFor="card-expiry" error={errors.expiry}>

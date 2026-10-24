@@ -29,7 +29,7 @@ function DocumentTile({
       type="button"
       aria-label={documentLabel(document)}
       onClick={onSelect}
-      className="flex min-h-[160px] flex-col rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/55 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] hover:border-[var(--border-strong)]"
+      className="flex min-h-[140px] flex-col rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/55 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] hover:border-[var(--border-strong)]"
     >
       <span className="w-fit rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/8 px-2.5 py-1 text-[10.5px] text-[var(--accent-soft)]">
         {documentChip(document)}
@@ -40,7 +40,7 @@ function DocumentTile({
       <span className="pms-mono mt-1 block text-[12px] text-[var(--muted)]">
         {maskDocumentNumber(document)}
       </span>
-      <span className="mt-auto flex items-center gap-1.5 pt-4 text-[10.5px] text-[var(--muted)]">
+      <span className="mt-auto flex items-center gap-1.5 pt-3 text-[10.5px] text-[var(--muted)]">
         <Paperclip size={12} />
         Вложений: {document.attachmentIds.length}
       </span>
@@ -121,7 +121,7 @@ export function DocumentsView() {
   return (
     <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <Search
               size={14}
@@ -135,7 +135,7 @@ export function DocumentsView() {
               className="pl-9"
             />
           </div>
-          <Button onClick={() => setEditor("new")}>
+          <Button className="w-full sm:w-auto" onClick={() => setEditor("new")}>
             <Plus size={15} />
             Добавить документ
           </Button>

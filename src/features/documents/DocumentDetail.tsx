@@ -104,7 +104,11 @@ export function DocumentDetail({
           ) : null}
           {document.registrationAddress ? (
             <DetailRow
-              label="Адрес регистрации"
+              label={
+                document.kind === "passport"
+                  ? "Адрес прописки"
+                  : "Адрес регистрации"
+              }
               value={document.registrationAddress}
             />
           ) : null}
