@@ -57,6 +57,8 @@
 - Android: Tauri-приложение на том же React UI; SAF-хранилище, создание/вход,
   записи, карты, документы, вложения, бэкапы, QR-камера, импорт/экспорт
   `.pmsvault`, SSH-экспорт, Android-биометрия и мобильная навигация с разделом «Ещё».
+- GitHub Actions собирает Linux (x64/arm64) и Windows (x64/arm64):
+  `.deb`, `.AppImage`, `.msi` и NSIS `.exe`.
 
 ## Чего пока нет
 
@@ -68,8 +70,24 @@
 Раздел обмена пока **не доделан**: автоматическое обнаружение устройств
 ненадёжно, поэтому его нужно считать экспериментальным до отдельного этапа.
 Bluetooth-обнаружение также требует отдельного CoreBluetooth-слоя.
-Windows/Linux и полировка — после Android. Дизайн и планы лежат в
-`docs/superpowers/`.
+Сборки Windows/Linux уже есть, но полноценная проверка этих платформ
+ещё впереди. Дизайн и планы лежат в `docs/superpowers/`.
+
+## Сборки Linux и Windows
+
+Публичный репозиторий: https://github.com/grendervill/PMS
+
+Сборки выполняет workflow `.github/workflows/build-linux-windows.yml`:
+
+- Linux x64 — `.deb` и `.AppImage`;
+- Linux arm64 — `.deb`;
+- Windows x64 — `.msi` и NSIS `.exe`;
+- Windows arm64 — NSIS `.exe`.
+
+Запуск: вкладка Actions → **Build Linux and Windows** → Run workflow,
+либо пуш тега `v*`. Готовые файлы прикрепляются к GitHub Release.
+Сборки не подписаны, поэтому Windows SmartScreen и пакетные менеджеры
+могут показать предупреждение.
 
 ## Разработка
 
@@ -82,7 +100,7 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 186 frontend-тестов
+pnpm test          # 187 frontend-тестов
 pnpm test:e2e      # 22 Playwright-сценария, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings

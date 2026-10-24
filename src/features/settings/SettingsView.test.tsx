@@ -4,7 +4,13 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { vaultApi } from "@/features/vault/api";
 import { initialVaultState, useVaultStore } from "@/features/vault/store";
 import { defaultVaultSettings, type VaultData } from "@/features/vault/types";
+import { isMacosPlatform } from "@/lib/platform";
 import { SettingsView } from "./SettingsView";
+
+vi.mock("@/lib/platform", () => ({
+  isAndroidPlatform: vi.fn(() => false),
+  isMacosPlatform: vi.fn(() => true),
+}));
 import {
   enable as enableAutostart,
   isEnabled as isAutostartEnabled,
@@ -67,6 +73,13 @@ describe("SettingsView biometrics", () => {
         name: "Всегда разблокировать при помощи биометрии",
       }),
     ).toBeDisabled();
+  });
+
+  it("hides the app icon picker outside macOS", () => {
+    vi.mocked(isMacosPlatform).mockReturnValue(false);
+    renderSettings();
+    expect(screen.queryByText("Выбрать значок приложения")).not.toBeInTheDocument();
+    vi.mocked(isMacosPlatform).mockReturnValue(true);
   });
 
   it("selects and persists an application icon", async () => {

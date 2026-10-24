@@ -43,7 +43,7 @@ import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import { getStorage } from "@/lib/storage";
 import { exportVaultArchive, importVaultArchive } from "@/lib/storage/archive";
-import { isAndroidPlatform } from "@/lib/platform";
+import { isAndroidPlatform, isMacosPlatform } from "@/lib/platform";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -66,6 +66,7 @@ export function SettingsView() {
   const [selectedIcon, setSelectedIcon] = useState<AppIconId>(() => getSelectedAppIcon());
   const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
   const android = isAndroidPlatform();
+  const macos = isMacosPlatform();
   const autoLock = data ? resolveAutoLockOption(data.settings) : "5m";
   const cardLayout = resolveCardLayout(data?.settings ?? {});
   const autoLockChoice = AUTO_LOCK_OPTIONS.find((option) => option.value === autoLock);
@@ -500,7 +501,7 @@ export function SettingsView() {
           </section>
         ) : null}
 
-        {!android ? (
+        {macos ? (
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
             <Palette size={15} className="text-[var(--accent-soft)]" />

@@ -8,3 +8,8 @@ export function isAndroidPlatform(): boolean {
   if (typeof internals?.isAndroid === "boolean") return internals.isAndroid;
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 }
+
+export function isMacosPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Macintosh|Mac OS X/.test(navigator.userAgent) && !isAndroidPlatform();
+}
