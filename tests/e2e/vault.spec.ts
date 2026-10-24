@@ -509,6 +509,19 @@ test("locks the vault after the selected idle timeout", async ({ page }) => {
   });
 });
 
+test("persists the clipboard auto-clear timeout", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  const select = page.getByLabel("Автоочистка буфера обмена");
+  await select.selectOption("60");
+  await expect(select).toHaveValue("60");
+
+  await page.getByRole("button", { name: "Записи", exact: true }).first().click();
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  await expect(page.getByLabel("Автоочистка буфера обмена")).toHaveValue("60");
+});
+
 test("switches between compact, list and advanced card layouts", async ({ page }) => {
   await createVault(page);
 

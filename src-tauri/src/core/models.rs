@@ -91,6 +91,8 @@ pub struct VaultSettings {
     #[serde(default)]
     pub card_layout: Option<String>,
     pub clipboard_clear_seconds: u32,
+    #[serde(default)]
+    pub secure_screen: bool,
     pub backup_retention_days: u32,
     pub auto_backup_days: u32,
     pub favicon_fetch: bool,
@@ -104,6 +106,7 @@ impl Default for VaultSettings {
             auto_lock: None,
             card_layout: None,
             clipboard_clear_seconds: 30,
+            secure_screen: false,
             backup_retention_days: 7,
             auto_backup_days: 1,
             favicon_fetch: true,
@@ -416,6 +419,7 @@ mod tests {
         assert_eq!(serialized["documents"][0]["kind"], "passport");
         assert_eq!(serialized["settings"]["autoLock"], "10s");
         assert_eq!(serialized["settings"]["cardLayout"], "advanced");
+        assert_eq!(serialized["settings"]["secureScreen"], false);
 
         let restored: VaultData = serde_json::from_value(serialized).unwrap();
         assert_eq!(restored, data);
@@ -448,5 +452,6 @@ mod tests {
         assert!(restored.documents.is_empty());
         assert_eq!(restored.settings.auto_lock, None);
         assert_eq!(restored.settings.card_layout, None);
+        assert!(!restored.settings.secure_screen);
     }
 }

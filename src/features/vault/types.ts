@@ -135,6 +135,7 @@ export type VaultSettings = {
   cardLayout?: import("../entries/cardLayout").CardLayout;
   autoLockMinutes: number;
   clipboardClearSeconds: number;
+  secureScreen?: boolean;
   backupRetentionDays: number;
   autoBackupDays: number;
   faviconFetch: boolean;
@@ -197,6 +198,7 @@ export function defaultVaultSettings(): VaultSettings {
     cardLayout: "list",
     autoLockMinutes: 5,
     clipboardClearSeconds: 30,
+    secureScreen: false,
     backupRetentionDays: 7,
     autoBackupDays: 1,
     faviconFetch: true,

@@ -24,6 +24,11 @@ import { ShareCardDialog } from "@/features/qr/ShareCardDialog";
 import { TotpCode } from "@/features/totp/TotpCode";
 import { TotpQrDialog } from "@/features/totp/TotpQrDialog";
 import { hostFromUrl, monogram, safeHttpUrl, entryUrls } from "@/features/entries/entries";
+import {
+  clipboardClearDelayMs,
+  clipboardClearToast,
+  currentClipboardClearSeconds,
+} from "@/features/settings/clipboardClear";
 import { copySecret } from "@/lib/clipboard";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
@@ -65,6 +70,19 @@ export function EntryDetail({
   const linkedSshKeys = (data?.sshKeys ?? []).filter((key) =>
     (entry.sshKeyIds ?? []).includes(key.id),
   );
+
+  const copySshValue = (value: string, successTitle: string, failureTitle: string) => {
+    const seconds = currentClipboardClearSeconds();
+    void copySecret(value, { clearAfterMs: clipboardClearDelayMs(seconds) })
+      .then(() =>
+        toast.show({
+          title: successTitle,
+          description: clipboardClearToast(seconds),
+          tone: "success",
+        }),
+      )
+      .catch(() => toast.show({ title: failureTitle, tone: "error" }));
+  };
 
   useEffect(() => {
     if (!revealed) return;
@@ -264,19 +282,13 @@ export function EntryDetail({
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              void copySecret(key.publicKey)
-                                .then(() =>
-                                  toast.show({
-                                    title: "Публичный ключ скопирован",
-                                    description: "Буфер обмена очистится через 30 секунд.",
-                                    tone: "success",
-                                  }),
-                                )
-                                .catch(() =>
-                                  toast.show({ title: "Не удалось скопировать ключ", tone: "error" }),
-                                );
-                            }}
+                            onClick={() =>
+                              copySshValue(
+                                key.publicKey,
+                                "Публичный ключ скопирован",
+                                "Не удалось скопировать ключ",
+                              )
+                            }
                             className="rounded-[6px] px-2.5 py-2 text-left text-[11.5px] text-[var(--text-soft)] hover:bg-[var(--surface-2)]"
                           >
                             Копировать публичный ключ
@@ -284,18 +296,13 @@ export function EntryDetail({
                           {key.fingerprint ? (
                             <button
                               type="button"
-                              onClick={() => {
-                                void copySecret(key.fingerprint ?? "")
-                                  .then(() =>
-                                    toast.show({
-                                      title: "Fingerprint скопирован",
-                                      tone: "success",
-                                    }),
-                                  )
-                                  .catch(() =>
-                                    toast.show({ title: "Не удалось скопировать fingerprint", tone: "error" }),
-                                  );
-                              }}
+                              onClick={() =>
+                                copySshValue(
+                                  key.fingerprint ?? "",
+                                  "Fingerprint скопирован",
+                                  "Не удалось скопировать fingerprint",
+                                )
+                              }
                               className="rounded-[6px] px-2.5 py-2 text-left text-[11.5px] text-[var(--text-soft)] hover:bg-[var(--surface-2)]"
                             >
                               Копировать fingerprint

@@ -2,9 +2,10 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
+use crate::commands::secure_screen;
 use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::crypto::{UnlockSecretInput, keyfile_kind as classify_keyfile};
 use crate::core::models::{CipherSuite, KdfSlotKind, VaultData};
@@ -134,6 +135,7 @@ pub fn vault_inspect(file_b64: String) -> ApiResult<VaultPublicInfo> {
 pub fn vault_create(
     config: CreateVaultConfig,
     secret: UnlockSecretDto,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> ApiResult<CreateVaultResponse> {
     if config.name.trim().is_empty() {
@@ -143,6 +145,7 @@ pub fn vault_create(
     let secret = UnlockSecretInput::try_from(secret)?;
     let (file, session, data) = create_vault(&config, &secret)?;
     let session_id = session.id;
+    secure_screen::apply(&app, data.settings.secure_screen);
     state.sessions.put(session);
 
     Ok(CreateVaultResponse {
@@ -156,12 +159,14 @@ pub fn vault_create(
 pub fn vault_unlock(
     file_b64: String,
     secret: UnlockSecretDto,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> ApiResult<UnlockVaultResponse> {
     let bytes = decode_file(&file_b64)?;
     let secret = UnlockSecretInput::try_from(secret)?;
     let (session, data) = unlock_vault(&bytes, &secret)?;
     let session_id = session.id;
+    secure_screen::apply(&app, data.settings.secure_screen);
     state.sessions.put(session);
 
     Ok(UnlockVaultResponse { session_id, data })
@@ -171,11 +176,13 @@ pub fn vault_unlock(
 pub fn vault_save(
     session_id: Uuid,
     data: VaultData,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> ApiResult<SaveVaultResponse> {
     let file = state
         .sessions
         .with_mut(session_id, |session| save_vault(session, &data))?;
+    secure_screen::apply(&app, data.settings.secure_screen);
 
     Ok(SaveVaultResponse {
         file_b64: encode_file(&file),

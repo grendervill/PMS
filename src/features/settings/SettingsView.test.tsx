@@ -4,7 +4,7 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { vaultApi } from "@/features/vault/api";
 import { initialVaultState, useVaultStore } from "@/features/vault/store";
 import { defaultVaultSettings, type VaultData } from "@/features/vault/types";
-import { isMacosPlatform } from "@/lib/platform";
+import { isAndroidPlatform, isMacosPlatform } from "@/lib/platform";
 import { SettingsView } from "./SettingsView";
 
 vi.mock("@/lib/platform", () => ({
@@ -48,6 +48,8 @@ function renderSettings() {
 describe("SettingsView biometrics", () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.mocked(isAndroidPlatform).mockReturnValue(false);
+    vi.mocked(isMacosPlatform).mockReturnValue(true);
     useVaultStore.setState({
       ...initialVaultState,
       status: "unlocked",
@@ -110,6 +112,39 @@ describe("SettingsView biometrics", () => {
       expect(save).toHaveBeenCalled();
     });
     expect(save.mock.calls[0]?.[0].settings.autoLock).toBe("10s");
+  });
+
+  it("persists the clipboard auto-clear timeout", async () => {
+    const save = vi.spyOn(useVaultStore.getState(), "save").mockResolvedValue(true);
+    renderSettings();
+
+    fireEvent.change(screen.getByLabelText("Автоочистка буфера обмена"), {
+      target: { value: "60" },
+    });
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]?.[0].settings.clipboardClearSeconds).toBe(60);
+  });
+
+  it("shows secure mode only on Android and persists it", async () => {
+    renderSettings();
+    expect(
+      screen.queryByRole("switch", { name: "Защищённый режим" }),
+    ).not.toBeInTheDocument();
+
+    vi.mocked(isAndroidPlatform).mockReturnValue(true);
+    const save = vi.spyOn(useVaultStore.getState(), "save").mockResolvedValue(true);
+    renderSettings();
+
+    const toggle = screen.getByRole("switch", { name: "Защищённый режим" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]?.[0].settings.secureScreen).toBe(true);
+    await waitFor(() =>
+      expect(screen.getByText("Защищённый режим включён")).toBeInTheDocument(),
+    );
   });
 
   it("persists the selected card layout", async () => {

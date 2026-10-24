@@ -5,6 +5,12 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
+# Called from Rust through JNI.
+-keep class dev.pms.vault.MainActivity {
+    public static dev.pms.vault.MainActivity current();
+    public void setSecureScreen(boolean);
+}
+
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:

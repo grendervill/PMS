@@ -26,6 +26,11 @@ import {
   setSelectedAppIcon,
   type AppIconId,
 } from "@/features/settings/appIcon";
+import {
+  CLIPBOARD_CLEAR_OPTIONS,
+  clipboardClearInLabel,
+  resolveClipboardClearSeconds,
+} from "@/features/settings/clipboardClear";
 import { vaultApi } from "@/features/vault/api";
 import { isBiometricEnabled } from "@/features/vault/biometric";
 import {
@@ -70,6 +75,9 @@ export function SettingsView() {
   const autoLock = data ? resolveAutoLockOption(data.settings) : "5m";
   const cardLayout = resolveCardLayout(data?.settings ?? {});
   const autoLockChoice = AUTO_LOCK_OPTIONS.find((option) => option.value === autoLock);
+  const clipboardClearSeconds = resolveClipboardClearSeconds(
+    data?.settings.clipboardClearSeconds,
+  );
   const [backupBusy, setBackupBusy] = useState(false);
   const [lastBackup, setLastBackup] = useState<Date | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -250,6 +258,53 @@ export function SettingsView() {
     });
   };
 
+  const changeClipboardClear = async (seconds: number) => {
+    if (!data) return;
+    const saved = await saveVault({
+      ...data,
+      settings: { ...data.settings, clipboardClearSeconds: seconds },
+    });
+    if (!saved) {
+      toast.show({
+        title: "Не удалось сохранить автоочистку",
+        description: errorText(useVaultStore.getState().error),
+        tone: "error",
+      });
+      return;
+    }
+    toast.show({
+      title: "Автоочистка обновлена",
+      description:
+        seconds > 0
+          ? `Буфер обмена очистится через ${clipboardClearInLabel(seconds)}.`
+          : "Буфер обмена не будет очищаться автоматически.",
+      tone: "success",
+    });
+  };
+
+  const changeSecureScreen = async (next: boolean) => {
+    if (!data) return;
+    const saved = await saveVault({
+      ...data,
+      settings: { ...data.settings, secureScreen: next },
+    });
+    if (!saved) {
+      toast.show({
+        title: "Не удалось изменить защищённый режим",
+        description: errorText(useVaultStore.getState().error),
+        tone: "error",
+      });
+      return;
+    }
+    toast.show({
+      title: next ? "Защищённый режим включён" : "Защищённый режим выключен",
+      description: next
+        ? "Скриншоты и запись экрана приложения теперь недоступны."
+        : "Скриншоты и запись экрана снова разрешены.",
+      tone: "success",
+    });
+  };
+
   const changeBiometric = async (next: boolean) => {
     if (next) {
       const ok = await enrollBiometric();
@@ -412,6 +467,39 @@ export function SettingsView() {
                 {" "}После блокировки потребуется пароль-фраза, ключ-файл или биометрия.
               </span>
             </label>
+            <label className="grid gap-1.5 border-t border-[var(--border)] pt-3 text-[11px] text-[var(--text-soft)]">
+              Автоочистка буфера обмена
+              <select
+                aria-label="Автоочистка буфера обмена"
+                value={clipboardClearSeconds}
+                onChange={(event) =>
+                  void changeClipboardClear(Number(event.target.value))
+                }
+                disabled={busy}
+                className="h-9 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[12px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+              >
+                {CLIPBOARD_CLEAR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[10px] leading-relaxed text-[var(--muted)]">
+                PMS очистит буфер, только если в нём всё ещё будет значение,
+                скопированное из приложения. «Никогда» отключает автоочистку.
+              </span>
+            </label>
+            {android ? (
+              <div className="border-t border-[var(--border)] pt-3">
+                <Toggle
+                  checked={data?.settings.secureScreen ?? false}
+                  disabled={busy}
+                  onCheckedChange={(next) => void changeSecureScreen(next)}
+                  label="Защищённый режим"
+                  description="Android запретит скриншоты и запись экрана приложения. Окно также не попадёт в превью недавних приложений."
+                />
+              </div>
+            ) : null}
           </div>
         </section>
 

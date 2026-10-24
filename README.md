@@ -1,6 +1,6 @@
 # PMS
 
-[![Build Linux and Windows](https://github.com/grendervill/PMS/actions/workflows/build-linux-windows.yml/badge.svg)](https://github.com/grendervill/PMS/actions/workflows/build-linux-windows.yml)
+[![Build all platforms](https://github.com/grendervill/PMS/actions/workflows/build-all.yml/badge.svg)](https://github.com/grendervill/PMS/actions/workflows/build-all.yml)
 
 Локальный менеджер паролей, TOTP-секретов и SSH-ключей. Хранилище — переносимая
 зашифрованная папка, без сервера и телеметрии.
@@ -59,8 +59,12 @@
 - Android: Tauri-приложение на том же React UI; SAF-хранилище, создание/вход,
   записи, карты, документы, вложения, бэкапы, QR-камера, импорт/экспорт
   `.pmsvault`, SSH-экспорт, Android-биометрия и мобильная навигация с разделом «Ещё».
-- GitHub Actions собирает Linux (x64/arm64) и Windows (x64/arm64):
-  `.deb`, `.AppImage`, `.msi` и NSIS `.exe`.
+- GitHub Actions собирает macOS (arm64), Linux (x64/arm64),
+  Windows (x64/arm64) и Android (arm64): `.dmg`, `.deb`, `.AppImage`,
+  `.msi`, NSIS `.exe` и `.apk`.
+- Автоочистка буфера обмена: 5/10/20/30/45 секунд, 1/2/5/10/30 минут
+  или «Никогда». Очищается только значение, скопированное из PMS.
+- Android «Защищённый режим»: запрещает скриншоты и запись экрана.
 
 ## Чего пока нет
 
@@ -75,23 +79,26 @@ Bluetooth-обнаружение также требует отдельного 
 Сборки Windows/Linux уже есть, но полноценная проверка этих платформ
 ещё впереди. Дизайн и планы лежат в `docs/superpowers/`.
 
-## Сборки Linux и Windows
+## Сборки для всех платформ
 
 Публичный репозиторий: https://github.com/grendervill/PMS
 
 Готовые сборки: https://github.com/grendervill/PMS/releases
 
-Сборки выполняет workflow `.github/workflows/build-linux-windows.yml`:
+Сборки выполняет workflow `.github/workflows/build-all.yml`:
 
+- macOS arm64 — `.dmg`;
 - Linux x64 — `.deb` и `.AppImage`;
 - Linux arm64 — `.deb`;
 - Windows x64 — `.msi` и NSIS `.exe`;
-- Windows arm64 — NSIS `.exe`.
+- Windows arm64 — NSIS `.exe`;
+- Android arm64 — `.apk`.
 
-Запуск: вкладка Actions → **Build Linux and Windows** → Run workflow,
+Запуск: вкладка Actions → **Build all platforms** → Run workflow,
 либо пуш тега `v*`. Готовые файлы прикрепляются к GitHub Release.
-Сборки не подписаны, поэтому Windows SmartScreen и пакетные менеджеры
-могут показать предупреждение.
+Android APK подписан релизным ключом PMS. Desktop-сборки не подписаны,
+поэтому Windows SmartScreen и пакетные менеджеры могут показать
+предупреждение.
 
 ## Разработка
 
@@ -104,8 +111,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 187 frontend-тестов
-pnpm test:e2e      # 22 Playwright-сценария, мок Tauri IPC
+pnpm test          # 197 frontend-тестов
+pnpm test:e2e      # 23 Playwright-сценария, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 

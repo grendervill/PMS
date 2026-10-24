@@ -2,6 +2,11 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/IconButton";
 import { useToast } from "@/components/ui/toast-context";
+import {
+  clipboardClearDelayMs,
+  clipboardClearToast,
+  currentClipboardClearSeconds,
+} from "@/features/settings/clipboardClear";
 import { copySecret } from "@/lib/clipboard";
 
 export function CopyButton({
@@ -17,11 +22,12 @@ export function CopyButton({
   const copy = async () => {
     if (!value) return;
     try {
-      await copySecret(value);
+      const seconds = currentClipboardClearSeconds();
+      await copySecret(value, { clearAfterMs: clipboardClearDelayMs(seconds) });
       setCopied(true);
       toast.show({
         title: "Скопировано",
-        description: "Буфер обмена очистится через 30 секунд.",
+        description: clipboardClearToast(seconds),
       });
       setTimeout(() => setCopied(false), 1600);
     } catch {

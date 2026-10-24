@@ -1,12 +1,12 @@
-name: Build Linux and Windows
+name: Build all platforms
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag (for example v0.1.0)"
+        description: "Release tag (for example v0.2.0)"
         required: true
-        default: "v0.1.0"
+        default: "v0.2.0"
         type: string
   push:
     tags:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  desktop:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -43,6 +43,11 @@ jobs:
             target: aarch64-pc-windows-msvc
             bundles: nsis
             artifact: windows-arm64
+          - name: macOS arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+            bundles: dmg
+            artifact: macos-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -96,7 +101,7 @@ jobs:
         run: |
           mkdir -p release-assets
           base="src-tauri/target/${{ matrix.target }}/release/bundle"
-          find "$base" -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) -exec cp -v {} release-assets/ \;
+          find "$base" -maxdepth 3 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) -exec cp -v {} release-assets/ \;
           ls -lh release-assets
 
       - name: Upload bundles
@@ -106,9 +111,88 @@ jobs:
           if-no-files-found: error
           path: release-assets/**/*
 
+  android:
+    name: Android arm64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare signing key
+        run: |
+          mkdir -p "$RUNNER_TEMP/pms-signing"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pms-signing/release.keystore"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Build Android APK
+        run: |
+          export NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.3.13750724}"
+          pnpm tauri android build -t aarch64 --apk --ci
+        env:
+          CI: true
+
+      - name: Sign APK
+        run: |
+          mkdir -p release-assets
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*-release-unsigned.apk' | head -n 1)"
+          test -n "$apk"
+          version="${TAG#v}"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/pms-signing/release.keystore" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+            --out "release-assets/PMS_${version}_arm64.apk" \
+            "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
+            --print-certs "release-assets/PMS_${version}_arm64.apk"
+          ls -lh release-assets
+        env:
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pms-android-arm64
+          if-no-files-found: error
+          path: release-assets/*.apk
+
   release:
     name: Publish release
-    needs: build
+    needs: [desktop, android]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -128,14 +212,17 @@ jobs:
           make_latest: true
           fail_on_unmatched_files: true
           body: |
-            Linux and Windows builds of PMS.
+            PMS builds for every supported platform.
 
+            - macOS arm64: `.dmg`
             - Linux x86_64: `.deb`, `.AppImage`
             - Linux arm64: `.deb`
             - Windows x86_64: `.msi`, NSIS `.exe`
             - Windows arm64: NSIS `.exe`
+            - Android arm64: `.apk`
 
-            Builds are unsigned. Windows SmartScreen and Linux package managers
+            The Android APK is signed with the PMS release key. Desktop builds
+            are unsigned, so Windows SmartScreen and Linux package managers
             may warn about that.
           files: artifacts/**/*
         env:

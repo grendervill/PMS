@@ -66,6 +66,7 @@ export async function installMockTauri(page: Page) {
       settings: {
         autoLockMinutes: 5,
         clipboardClearSeconds: 30,
+        secureScreen: false,
         backupCount: 20,
         faviconFetch: true,
         maxAttachmentMb: 50,

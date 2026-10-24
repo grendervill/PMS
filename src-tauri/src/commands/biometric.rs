@@ -122,6 +122,7 @@ pub async fn biometric_unlock(
 
     let (session, data) = unlock_vault_with_key(&file, &key).map_err(ApiError::from)?;
     let session_id = session.id;
+    crate::commands::secure_screen::apply(&app, data.settings.secure_screen);
     state.sessions.put(session);
 
     Ok(UnlockVaultResponse { session_id, data })

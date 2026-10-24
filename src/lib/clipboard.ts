@@ -8,7 +8,8 @@ export type CopyOptions = {
 
 /**
  * Copies a secret and best-effort clears the clipboard later only if the
- * clipboard still contains our value. Returns a cleanup function.
+ * clipboard still contains our value. A non-positive timeout keeps the value
+ * until the user replaces it. Returns a cleanup function.
  */
 export async function copySecret(
   value: string,
@@ -24,8 +25,10 @@ export async function copySecret(
   await writeText(value);
 
   const delay = options.clearAfterMs ?? 30_000;
-  clearTimer = setTimeout(() => {
-    clearTimer = null;
+  if (delay <= 0) return () => undefined;
+
+  const timer = setTimeout(() => {
+    if (clearTimer === timer) clearTimer = null;
     void (async () => {
       try {
         const current = await readText();
@@ -37,10 +40,11 @@ export async function copySecret(
       }
     })();
   }, delay);
+  clearTimer = timer;
 
   return () => {
-    if (clearTimer) {
-      clearTimeout(clearTimer);
+    if (clearTimer === timer) {
+      clearTimeout(timer);
       clearTimer = null;
     }
   };

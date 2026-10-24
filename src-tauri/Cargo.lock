@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "pms"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm",
@@ -3869,10 +3869,12 @@ dependencies = [
  "hmac 0.12.1",
  "hostname",
  "if-addrs",
+ "jni",
  "keepass",
  "libc",
  "local-ip-address",
  "mdns-sd",
+ "ndk-context",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
