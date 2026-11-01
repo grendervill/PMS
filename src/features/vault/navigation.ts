@@ -24,8 +24,8 @@ export type AppSection =
   | "settings";
 
 export const navItems = [
-  { id: "entries", label: "Записи", icon: KeyRound },
   { id: "favorites", label: "Избранное", icon: Star },
+  { id: "entries", label: "Записи", icon: KeyRound },
   { id: "cards", label: "Карты", icon: CreditCard },
   { id: "documents", label: "Документы", icon: IdCard },
   { id: "totp", label: "TOTP", icon: Timer },
