@@ -4,6 +4,7 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { DetailRow } from "@/components/ui/DetailRow";
 import { Modal } from "@/components/ui/Modal";
 import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
+import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import type { VaultDocument } from "@/features/vault/types";
 import {
   documentChip,
@@ -31,6 +32,7 @@ export function DocumentDetail({
       }}
       title={documentTitle(document)}
       description="Данные документа и оригиналы во вложениях."
+      headerAction={<FavoriteButton kind="document" id={document.id} />}
       className="w-[min(94vw,720px)]"
       footer={
         <>

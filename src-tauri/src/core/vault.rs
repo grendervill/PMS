@@ -241,6 +241,7 @@ fn empty_vault_data(name: &str, vault_id: Uuid, timestamp: &str) -> VaultData {
         documents: Vec::new(),
         attachments: Vec::new(),
         drafts: Vec::new(),
+        favorites: Vec::new(),
     }
 }
 

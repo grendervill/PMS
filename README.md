@@ -65,6 +65,8 @@
 - Автоочистка буфера обмена: 5/10/20/30/45 секунд, 1/2/5/10/30 минут
   или «Никогда». Очищается только значение, скопированное из PMS.
 - Android «Защищённый режим»: запрещает скриншоты и запись экрана.
+- «Избранное»: звёздочка в карточках записей, TOTP, SSH-ключей, банковских
+  карт и документов. Избранные элементы собраны в отдельном разделе.
 
 ## Чего пока нет
 
@@ -111,8 +113,8 @@ pnpm tauri dev
 
 ```bash
 pnpm typecheck
-pnpm test          # 197 frontend-тестов
-pnpm test:e2e      # 23 Playwright-сценария, мок Tauri IPC
+pnpm test          # 206 frontend-тестов
+pnpm test:e2e      # 24 Playwright-сценария, мок Tauri IPC
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 

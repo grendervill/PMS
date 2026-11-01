@@ -11,6 +11,7 @@ export type ModalProps = {
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  headerAction?: ReactNode;
   className?: string;
 };
 
@@ -21,6 +22,7 @@ export function Modal({
   description,
   children,
   footer,
+  headerAction,
   className,
 }: ModalProps) {
   return (
@@ -45,11 +47,14 @@ export function Modal({
                 </Dialog.Description>
               ) : null}
             </div>
-            <Dialog.Close asChild>
-              <IconButton label="Закрыть" size="sm">
-                <X size={16} />
-              </IconButton>
-            </Dialog.Close>
+            <div className="flex shrink-0 items-center gap-1">
+              {headerAction}
+              <Dialog.Close asChild>
+                <IconButton label="Закрыть" size="sm">
+                  <X size={16} />
+                </IconButton>
+              </Dialog.Close>
+            </div>
           </div>
 
           <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>

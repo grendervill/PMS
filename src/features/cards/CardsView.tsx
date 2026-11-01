@@ -39,14 +39,20 @@ function CardTile({
   );
 }
 
-export function CardsView() {
+export function CardsView({
+  initialCardId,
+}: {
+  initialCardId?: string | null;
+}) {
   const data = useVaultStore((state) => state.data);
   const deleteBankCard = useVaultStore((state) => state.deleteBankCard);
   const confirm = useConfirm();
   const toast = useToast();
   const cards = useMemo(() => data?.bankCards ?? [], [data?.bankCards]);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialCardId ?? null,
+  );
   const [editor, setEditor] = useState<BankCard | "new" | null>(null);
 
   const visible = useMemo(() => {

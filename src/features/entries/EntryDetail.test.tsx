@@ -76,6 +76,52 @@ describe("EntryDetail", () => {
     expect(screen.getByText("https://github.com")).toBeInTheDocument();
     expect(screen.getByText("https://gist.github.com")).toBeInTheDocument();
   });
+
+  it("adds the entry and its TOTP to favorites", async () => {
+    const toggleFavorite = vi.fn().mockResolvedValue(true);
+    const withTotp: Entry = {
+      ...entry,
+      totp: {
+        secret: "JBSWY3DPEHPK3PXP",
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+      },
+    };
+    useVaultStore.setState({
+      ...initialVaultState,
+      status: "unlocked",
+      data: {
+        schemaVersion: 1,
+        id: "vault-1",
+        name: "Личное",
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        settings: defaultVaultSettings(),
+        entries: [withTotp],
+        sshKeys: [],
+        attachments: [],
+        drafts: [],
+        bankCards: [],
+        documents: [],
+        favorites: [],
+      },
+      toggleFavorite,
+    });
+    renderDetail(withTotp);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Добавить в избранное" }));
+    });
+    expect(toggleFavorite).toHaveBeenCalledWith("entry", entry.id);
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Добавить TOTP в избранное" }),
+      );
+    });
+    expect(toggleFavorite).toHaveBeenCalledWith("totp", entry.id);
+  });
 });
 
 it("opens a linked SSH key from its name and menu", () => {

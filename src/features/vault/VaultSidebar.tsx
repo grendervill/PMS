@@ -40,7 +40,10 @@ export function VaultSidebar({
         </div>
       </div>
 
-      <nav aria-label="Основная навигация" className="flex flex-1 flex-col gap-0.5 px-3 pt-2">
+      <nav
+        aria-label="Основная навигация"
+        className="pms-scrollbar flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 pt-2"
+      >
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.id === active;

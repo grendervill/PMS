@@ -257,6 +257,23 @@ pub struct Draft {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FavoriteKind {
+    Entry,
+    Totp,
+    Ssh,
+    Card,
+    Document,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteRef {
+    pub kind: FavoriteKind,
+    pub id: Uuid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BankCard {
@@ -347,6 +364,8 @@ pub struct VaultData {
     pub attachments: Vec<AttachmentMeta>,
     #[serde(default)]
     pub drafts: Vec<Draft>,
+    #[serde(default)]
+    pub favorites: Vec<FavoriteRef>,
 }
 
 #[cfg(test)]
@@ -407,6 +426,10 @@ mod tests {
             }],
             attachments: Vec::new(),
             drafts: Vec::new(),
+            favorites: vec![FavoriteRef {
+                kind: FavoriteKind::Card,
+                id: Uuid::parse_str("00000000-0000-4000-8000-000000000002").unwrap(),
+            }],
         }
     }
 
@@ -417,6 +440,11 @@ mod tests {
 
         assert_eq!(serialized["bankCards"][0]["number"], "4111111111111111");
         assert_eq!(serialized["documents"][0]["kind"], "passport");
+        assert_eq!(serialized["favorites"][0]["kind"], "card");
+        assert_eq!(
+            serialized["favorites"][0]["id"],
+            "00000000-0000-4000-8000-000000000002"
+        );
         assert_eq!(serialized["settings"]["autoLock"], "10s");
         assert_eq!(serialized["settings"]["cardLayout"], "advanced");
         assert_eq!(serialized["settings"]["secureScreen"], false);
@@ -453,5 +481,6 @@ mod tests {
         assert_eq!(restored.settings.auto_lock, None);
         assert_eq!(restored.settings.card_layout, None);
         assert!(!restored.settings.secure_screen);
+        assert!(restored.favorites.is_empty());
     }
 }

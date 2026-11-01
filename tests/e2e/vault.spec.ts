@@ -509,6 +509,30 @@ test("locks the vault after the selected idle timeout", async ({ page }) => {
   });
 });
 
+test("adds an entry to favorites and opens it from the favorites section", async ({ page }) => {
+  await createVault(page);
+
+  await page.getByRole("button", { name: "Создать запись" }).click();
+  await page.getByLabel("Название").fill("GitHub");
+  await page.getByLabel("Логин", { exact: true }).fill("alex");
+  await page.getByLabel("Пароль", { exact: true }).fill("s3cret");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Добавить в избранное" }).click();
+  await expect(page.getByText("Добавлено в избранное")).toBeVisible();
+
+  await page
+    .getByRole("button", { name: "Избранное", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Избранное", exact: true }),
+  ).toBeVisible();
+  await page.getByText("GitHub", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "GitHub" })).toBeVisible();
+});
+
 test("persists the clipboard auto-clear timeout", async ({ page }) => {
   await createVault(page);
 

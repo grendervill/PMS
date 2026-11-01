@@ -48,14 +48,20 @@ function DocumentTile({
   );
 }
 
-export function DocumentsView() {
+export function DocumentsView({
+  initialDocumentId,
+}: {
+  initialDocumentId?: string | null;
+}) {
   const data = useVaultStore((state) => state.data);
   const deleteDocument = useVaultStore((state) => state.deleteDocument);
   const confirm = useConfirm();
   const toast = useToast();
   const documents = useMemo(() => data?.documents ?? [], [data?.documents]);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialDocumentId ?? null,
+  );
   const [editor, setEditor] = useState<VaultDocument | "new" | null>(null);
 
   const visible = useMemo(() => {

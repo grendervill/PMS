@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui/Toast";
+import { initialVaultState, useVaultStore } from "@/features/vault/store";
+import { defaultVaultSettings } from "@/features/vault/types";
 import { createBankCard, emptyCardDraft } from "./cardModel";
 import { CardDetail } from "./CardDetail";
 
@@ -64,6 +66,36 @@ describe("CardDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
     expect(onEdit).toHaveBeenCalled();
     expect(onDelete).toHaveBeenCalled();
+  });
+
+  it("adds the card to favorites from the header", async () => {
+    const toggleFavorite = vi.fn().mockResolvedValue(true);
+    useVaultStore.setState({
+      ...initialVaultState,
+      status: "unlocked",
+      data: {
+        schemaVersion: 1,
+        id: "vault-1",
+        name: "Личное",
+        createdAt: card.createdAt,
+        updatedAt: card.updatedAt,
+        settings: defaultVaultSettings(),
+        entries: [],
+        sshKeys: [],
+        bankCards: [card],
+        documents: [],
+        attachments: [],
+        drafts: [],
+        favorites: [],
+      },
+      toggleFavorite,
+    });
+    renderDetail();
+
+    fireEvent.click(screen.getByRole("button", { name: "Добавить в избранное" }));
+    await waitFor(() => {
+      expect(toggleFavorite).toHaveBeenCalledWith("card", card.id);
+    });
   });
 
   it("shows optional card fields", () => {

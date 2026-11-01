@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Settings2,
   ShieldCheck,
+  Star,
   Timer,
   Wand2,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import { DocumentsView } from "@/features/documents/DocumentsView";
 import { EntriesView } from "@/features/entries/EntriesView";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import type { EntryDraft } from "@/features/entries/entries";
+import { FavoritesView } from "@/features/favorites/FavoritesView";
 import { GeneratorView } from "@/features/generator/GeneratorView";
 import { SettingsView } from "@/features/settings/SettingsView";
 import { SSHView } from "@/features/ssh/SSHView";
@@ -44,6 +46,7 @@ import { isAndroidPlatform } from "@/lib/platform";
 
 const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   entries: { title: "Записи", subtitle: "Логины, пароли и всё, что нужно помнить" },
+  favorites: { title: "Избранное", subtitle: "Записи, TOTP, ключи, карты и документы под рукой" },
   cards: { title: "Карты", subtitle: "Банковские карты, срок действия и CVV" },
   documents: { title: "Документы", subtitle: "Паспорта, СНИЛС и водительские права" },
   totp: { title: "TOTP", subtitle: "Живые коды двухфакторной аутентификации" },
@@ -54,7 +57,12 @@ const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   settings: { title: "Настройки", subtitle: "Хранилище, безопасность и оформление" },
 };
 
-const mobilePrimarySections = new Set<AppSection>(["entries", "totp", "ssh", "settings"]);
+const mobilePrimarySections = new Set<AppSection>([
+  "entries",
+  "favorites",
+  "totp",
+  "ssh",
+]);
 const mobilePrimaryItems = navItems.filter((item) => mobilePrimarySections.has(item.id));
 const mobileMoreItems = navItems.filter((item) => !mobilePrimarySections.has(item.id));
 
@@ -63,6 +71,11 @@ const sectionEmpty = {
     icon: KeyRound,
     title: "Здесь появятся записи",
     description: "Создайте хранилище, и первая карточка станет началом вашего сейфа.",
+  },
+  favorites: {
+    icon: Star,
+    title: "Пока нет избранного",
+    description: "Отметьте звездой нужные записи, TOTP, ключи, карты и документы.",
   },
   cards: {
     icon: CreditCard,
@@ -118,6 +131,8 @@ export function AppShell() {
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [sshKeyToOpen, setSshKeyToOpen] = useState<string | null>(null);
+  const [cardToOpen, setCardToOpen] = useState<string | null>(null);
+  const [documentToOpen, setDocumentToOpen] = useState<string | null>(null);
   const data = useVaultStore((state) => state.data);
   const lock = useVaultStore((state) => state.lock);
   const removeDraft = useVaultStore((state) => state.removeDraft);
@@ -201,19 +216,41 @@ export function AppShell() {
   const navigate = (section: AppSection) => {
     setActive(section);
     setSshKeyToOpen(null);
+    setCardToOpen(null);
+    setDocumentToOpen(null);
     if (section !== "entries") setEntryToOpen(null);
   };
 
   const openEntry = (id: string) => {
     setEntryToOpen(id);
     setSshKeyToOpen(null);
+    setCardToOpen(null);
+    setDocumentToOpen(null);
     setActive("entries");
   };
 
   const openSshKey = (id: string) => {
     setSshKeyToOpen(id);
     setEntryToOpen(null);
+    setCardToOpen(null);
+    setDocumentToOpen(null);
     setActive("ssh");
+  };
+
+  const openCard = (id: string) => {
+    setCardToOpen(id);
+    setEntryToOpen(null);
+    setSshKeyToOpen(null);
+    setDocumentToOpen(null);
+    setActive("cards");
+  };
+
+  const openDocument = (id: string) => {
+    setDocumentToOpen(id);
+    setEntryToOpen(null);
+    setSshKeyToOpen(null);
+    setCardToOpen(null);
+    setActive("documents");
   };
 
   const restoreDraft = (id: string, payload: EntryDraft) => {
@@ -295,10 +332,20 @@ export function AppShell() {
             onRequestLock={requestLock}
             onOpenSshKey={openSshKey}
           />
+        ) : active === "favorites" ? (
+          <FavoritesView
+            onOpenEntry={openEntry}
+            onOpenSshKey={openSshKey}
+            onOpenCard={openCard}
+            onOpenDocument={openDocument}
+          />
         ) : active === "cards" ? (
-          <CardsView />
+          <CardsView key={cardToOpen ?? "cards"} initialCardId={cardToOpen} />
         ) : active === "documents" ? (
-          <DocumentsView />
+          <DocumentsView
+            key={documentToOpen ?? "documents"}
+            initialDocumentId={documentToOpen}
+          />
         ) : active === "generator" ? (
           <GeneratorView />
         ) : active === "totp" ? (

@@ -17,6 +17,7 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { IconButton } from "@/components/ui/IconButton";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
+import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { SshInstallDialog } from "@/features/ssh/SshInstallDialog";
 import { vaultApi } from "@/features/vault/api";
 import { errorText } from "@/features/vault/errors";
@@ -162,6 +163,7 @@ export function SshDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            <FavoriteButton kind="ssh" id={sshKey.id} />
             {!android ? (
               <IconButton label="Установить на устройство" onClick={() => setInstallOpen(true)}>
                 <Download size={15} />

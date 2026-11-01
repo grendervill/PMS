@@ -20,6 +20,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
 import { AttachmentsSection } from "@/features/attachments/AttachmentsSection";
+import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { ShareCardDialog } from "@/features/qr/ShareCardDialog";
 import { TotpCode } from "@/features/totp/TotpCode";
 import { TotpQrDialog } from "@/features/totp/TotpQrDialog";
@@ -144,6 +145,7 @@ export function EntryDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            <FavoriteButton kind="entry" id={entry.id} />
             <IconButton label="Поделиться по QR" size="sm" onClick={() => setShareOpen(true)}>
               <QrCode size={15} />
             </IconButton>
@@ -233,6 +235,12 @@ export function EntryDetail({
               <span className="text-[11.5px] text-[var(--muted)]">TOTP</span>
               <div className="flex items-center gap-2">
                 <TotpCode config={entry.totp} />
+                <FavoriteButton
+                  kind="totp"
+                  id={entry.id}
+                  label="Добавить TOTP в избранное"
+                  activeLabel="Убрать TOTP из избранного"
+                />
                 <IconButton label="Показать TOTP QR" size="sm" onClick={() => setTotpQrOpen(true)}>
                   <QrCode size={14} />
                 </IconButton>

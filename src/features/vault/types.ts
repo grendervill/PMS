@@ -130,6 +130,13 @@ export type Draft = {
   updatedAt: string;
 };
 
+export type FavoriteKind = "entry" | "totp" | "ssh" | "card" | "document";
+
+export type FavoriteRef = {
+  kind: FavoriteKind;
+  id: string;
+};
+
 export type VaultSettings = {
   autoLock?: import("./autoLock").AutoLockOption;
   cardLayout?: import("../entries/cardLayout").CardLayout;
@@ -155,6 +162,7 @@ export type VaultData = {
   documents: VaultDocument[];
   attachments: AttachmentMeta[];
   drafts: Draft[];
+  favorites?: FavoriteRef[];
 };
 
 export type VaultPublicInfo = {

@@ -5,6 +5,7 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { DetailRow } from "@/components/ui/DetailRow";
 import { Modal } from "@/components/ui/Modal";
 import { useAttachmentUrl } from "@/features/attachments/useAttachmentUrl";
+import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import type { BankCard } from "@/features/vault/types";
 import { BankCardArt } from "./BankCardArt";
 import { cardLabel } from "./cardModel";
@@ -32,6 +33,7 @@ export function CardDetail({
       }}
       title={cardLabel(card)}
       description="Нажмите на карту, чтобы увидеть срок и CVV."
+      headerAction={<FavoriteButton kind="card" id={card.id} />}
       className="w-[min(94vw,760px)]"
       footer={
         <>

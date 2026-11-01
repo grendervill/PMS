@@ -5,6 +5,7 @@ describe("navigation", () => {
   it("places cards and documents after entries", () => {
     expect(navItems.map((item) => item.id)).toEqual([
       "entries",
+      "favorites",
       "cards",
       "documents",
       "totp",

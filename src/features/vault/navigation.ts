@@ -6,12 +6,14 @@ import {
   KeySquare,
   Settings2,
   ShieldCheck,
+  Star,
   Timer,
   Wand2,
 } from "lucide-react";
 
 export type AppSection =
   | "entries"
+  | "favorites"
   | "cards"
   | "documents"
   | "totp"
@@ -23,6 +25,7 @@ export type AppSection =
 
 export const navItems = [
   { id: "entries", label: "Записи", icon: KeyRound },
+  { id: "favorites", label: "Избранное", icon: Star },
   { id: "cards", label: "Карты", icon: CreditCard },
   { id: "documents", label: "Документы", icon: IdCard },
   { id: "totp", label: "TOTP", icon: Timer },

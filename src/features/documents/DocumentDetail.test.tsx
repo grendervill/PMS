@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui/Toast";
 import { initialVaultState, useVaultStore } from "@/features/vault/store";
@@ -39,13 +39,17 @@ const data: VaultData = {
   drafts: [],
 };
 
-function renderDetail(document = passport) {
+function renderDetail(
+  document = passport,
+  toggleFavorite = useVaultStore.getState().toggleFavorite,
+) {
   useVaultStore.setState({
     ...initialVaultState,
     status: "unlocked",
     sessionId: "session-1",
     vaultPath: "/vault",
     data: { ...data, documents: [document] },
+    toggleFavorite,
   });
   const onClose = vi.fn();
   const onEdit = vi.fn();
@@ -112,6 +116,16 @@ describe("DocumentDetail", () => {
     ]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
+  });
+
+  it("adds the document to favorites from the header", async () => {
+    const toggleFavorite = vi.fn().mockResolvedValue(true);
+    renderDetail(passport, toggleFavorite);
+
+    fireEvent.click(screen.getByRole("button", { name: "Добавить в избранное" }));
+    await waitFor(() => {
+      expect(toggleFavorite).toHaveBeenCalledWith("document", passport.id);
+    });
   });
 
   it("exposes edit and delete actions", () => {

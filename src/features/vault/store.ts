@@ -13,10 +13,15 @@ import {
 import { removeDraft as removeDraftFromData } from "@/features/vault/drafts";
 import { createBankCard } from "@/features/cards/cardModel";
 import { createDocument } from "@/features/documents/documentModel";
+import {
+  withoutFavorite,
+  withoutItemFavorites,
+} from "@/features/favorites/favorites";
 import type {
   BankCardDraft,
   CreateVaultInput,
   DocumentDraft,
+  FavoriteKind,
   UnlockSecret,
   VaultData,
   VaultErrorInfo,
@@ -66,6 +71,7 @@ export type VaultActions = {
   addDocument: (draft: DocumentDraft) => Promise<boolean>;
   updateDocument: (id: string, draft: DocumentDraft) => Promise<boolean>;
   deleteDocument: (id: string) => Promise<boolean>;
+  toggleFavorite: (kind: FavoriteKind, id: string) => Promise<boolean>;
   removeDraft: (id: string) => Promise<boolean>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
@@ -363,6 +369,9 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     const saved = await get().save({
       ...data,
       entries: data.entries.map((entry) => (entry.id === id ? result.entry : entry)),
+      favorites: result.entry.totp
+        ? data.favorites
+        : withoutFavorite(data.favorites ?? [], "totp", id),
       updatedAt: result.entry.updatedAt,
     });
     return { ok: saved };
@@ -374,6 +383,11 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     return get().save({
       ...data,
       entries: removeEntry(data.entries, id),
+      favorites: withoutItemFavorites(
+        data.favorites ?? [],
+        ["entry", "totp"],
+        id,
+      ),
       updatedAt: new Date().toISOString(),
     });
   },
@@ -440,6 +454,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
         ...entry,
         sshKeyIds: (entry.sshKeyIds ?? []).filter((keyId) => keyId !== id),
       })),
+      favorites: withoutFavorite(data.favorites ?? [], "ssh", id),
       updatedAt: new Date().toISOString(),
     });
   },
@@ -481,6 +496,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     return get().save({
       ...data,
       bankCards: data.bankCards.filter((card) => card.id !== id),
+      favorites: withoutFavorite(data.favorites ?? [], "card", id),
       updatedAt: new Date().toISOString(),
     });
   },
@@ -524,6 +540,21 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     return get().save({
       ...data,
       documents: data.documents.filter((document) => document.id !== id),
+      favorites: withoutFavorite(data.favorites ?? [], "document", id),
+      updatedAt: new Date().toISOString(),
+    });
+  },
+
+  async toggleFavorite(kind, id) {
+    const data = get().data;
+    if (!data) return false;
+    const favorites = data.favorites ?? [];
+    const active = favorites.some((item) => item.kind === kind && item.id === id);
+    return get().save({
+      ...data,
+      favorites: active
+        ? withoutFavorite(favorites, kind, id)
+        : [...favorites, { kind, id }],
       updatedAt: new Date().toISOString(),
     });
   },

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { monogram } from "@/features/entries/entries";
+import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { TotpCode } from "@/features/totp/TotpCode";
 import { useVaultStore } from "@/features/vault/store";
 
@@ -56,6 +57,12 @@ export function TOTPView({ onOpenEntry }: { onOpenEntry: (id: string) => void })
                   </span>
                 </button>
                 {entry.totp ? <TotpCode config={entry.totp} compact /> : null}
+                <FavoriteButton
+                  kind="totp"
+                  id={entry.id}
+                  label="Добавить TOTP в избранное"
+                  activeLabel="Убрать TOTP из избранного"
+                />
                 <ChevronRight size={14} className="text-[var(--muted)]" />
               </div>
             ))}

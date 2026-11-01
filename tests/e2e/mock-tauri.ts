@@ -77,6 +77,7 @@ export async function installMockTauri(page: Page) {
       drafts: [],
       bankCards: [],
       documents: [],
+      favorites: [],
     });
 
     const requireVault = () => {

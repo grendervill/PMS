@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getStorage } from "@/lib/storage";
 import { addRecent } from "@/lib/storage/recent";
 import type { RecentVault, VaultStorage } from "@/lib/storage";
+import { createBankCard, emptyCardDraft } from "@/features/cards/cardModel";
+import { createDocument, emptyDocumentDraft } from "@/features/documents/documentModel";
 import { createEntry } from "@/features/entries/entries";
 import { isBiometricEnabled } from "@/features/vault/biometric";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
@@ -361,7 +363,15 @@ describe("vault store", () => {
       status: "unlocked",
       sessionId: "session-1",
       vaultPath: "/vaults/personal",
-      data: { ...vaultData, entries: [entry] },
+      data: {
+        ...vaultData,
+        entries: [entry],
+        favorites: [
+          { kind: "entry", id: entry.id },
+          { kind: "totp", id: entry.id },
+          { kind: "card", id: "card-1" },
+        ],
+      },
     });
     vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
 
@@ -369,6 +379,76 @@ describe("vault store", () => {
 
     expect(deleted).toBe(true);
     expect(useVaultStore.getState().data?.entries).toEqual([]);
+    expect(useVaultStore.getState().data?.favorites).toEqual([
+      { kind: "card", id: "card-1" },
+    ]);
+  });
+
+  it("toggles favorites through save", async () => {
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: vaultData,
+    });
+    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
+
+    expect(
+      await useVaultStore.getState().toggleFavorite("entry", "entry-1"),
+    ).toBe(true);
+    expect(useVaultStore.getState().data?.favorites).toEqual([
+      { kind: "entry", id: "entry-1" },
+    ]);
+
+    expect(
+      await useVaultStore.getState().toggleFavorite("entry", "entry-1"),
+    ).toBe(true);
+    expect(useVaultStore.getState().data?.favorites).toEqual([]);
+  });
+
+  it("removes card and document favorites when they are deleted", async () => {
+    const card = createBankCard(
+      {
+        ...emptyCardDraft(),
+        number: "4111111111111111",
+        expiry: "12/29",
+        cvv: "123",
+        holder: "IVAN IVANOV",
+      },
+      createdAt,
+    );
+    const document = createDocument(
+      {
+        ...emptyDocumentDraft("passport"),
+        passportKind: "main",
+        series: "4509",
+        number: "123456",
+      },
+      createdAt,
+    );
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/vaults/personal",
+      data: {
+        ...vaultData,
+        bankCards: [card],
+        documents: [document],
+        favorites: [
+          { kind: "card", id: card.id },
+          { kind: "document", id: document.id },
+        ],
+      },
+    });
+    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
+
+    await useVaultStore.getState().deleteBankCard(card.id);
+    expect(useVaultStore.getState().data?.favorites).toEqual([
+      { kind: "document", id: document.id },
+    ]);
+
+    await useVaultStore.getState().deleteDocument(document.id);
+    expect(useVaultStore.getState().data?.favorites).toEqual([]);
   });
 
   it("adds an SSH key through save", async () => {
@@ -432,7 +512,12 @@ describe("vault store", () => {
       status: "unlocked",
       sessionId: "session-1",
       vaultPath: "/vaults/personal",
-      data: { ...vaultData, entries: [entry], sshKeys: [key] },
+      data: {
+        ...vaultData,
+        entries: [entry],
+        sshKeys: [key],
+        favorites: [{ kind: "ssh", id: "ssh-1" }],
+      },
     });
     vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([1]));
 
@@ -441,6 +526,7 @@ describe("vault store", () => {
     expect(deleted).toBe(true);
     expect(useVaultStore.getState().data?.sshKeys).toEqual([]);
     expect(useVaultStore.getState().data?.entries[0]?.sshKeyIds).toEqual([]);
+    expect(useVaultStore.getState().data?.favorites).toEqual([]);
   });
   it("unlocks through biometrics and updates the session", async () => {
     useVaultStore.setState({
