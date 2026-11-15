@@ -46,6 +46,25 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   }
 }
 
+/**
+ * `import_parse` answers with raw JSON bytes (the Rust side streams the parsed
+ * bundle instead of building it in memory twice). Tauri hands raw payloads over
+ * as an ArrayBuffer; the e2e mock returns a typed array.
+ */
+function decodeImportPayload(raw: unknown): ImportBundle {
+  if (typeof raw === "string") return JSON.parse(raw) as ImportBundle;
+  if (raw instanceof Uint8Array) {
+    return JSON.parse(new TextDecoder().decode(raw)) as ImportBundle;
+  }
+  if (raw instanceof ArrayBuffer) {
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(raw))) as ImportBundle;
+  }
+  if (Array.isArray(raw)) {
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(raw as number[]))) as ImportBundle;
+  }
+  return raw as ImportBundle;
+}
+
 export type VaultConfig = {
   name: string;
   kdfProfile: KdfProfile;
@@ -121,6 +140,12 @@ export type ImportedItem = {
   totp: TotpConfig | null;
   attachments: ImportedAttachment[];
   sshKey?: ImportedSshKey | null;
+  passwordHistory: ImportedHistoryItem[];
+};
+
+export type ImportedHistoryItem = {
+  value: string;
+  changedAt: string | null;
 };
 
 export type ImportBundle = {
@@ -331,11 +356,12 @@ export const vaultApi = {
     password?: string,
     keyfile?: Uint8Array,
   ): Promise<ImportBundle> {
-    return call<ImportBundle>("import_parse", {
+    const raw = await call<unknown>("import_parse", {
       fileB64: toBase64(file),
       password,
       keyfileB64: keyfile ? toBase64(keyfile) : undefined,
     });
+    return decodeImportPayload(raw);
   },
 
   async pmsExport(folder: string, destination: string): Promise<void> {

@@ -1,4 +1,5 @@
 use base64::Engine as _;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
@@ -36,18 +37,18 @@ fn attachment(
     files: &HashMap<String, Vec<u8>>,
     document_id: &str,
     name: &str,
-) -> Option<ImportedAttachment> {
+) -> Option<ImportedAttachment<'static>> {
     let path = files
         .keys()
         .find(|path| path.starts_with(&format!("files/{document_id}")) || path.ends_with(name))?;
     Some(ImportedAttachment {
-        name: name.to_string(),
-        mime: "application/octet-stream".to_string(),
-        b64: base64::engine::general_purpose::STANDARD.encode(&files[path]),
+        name: Cow::Owned(name.to_string()),
+        mime: Cow::Borrowed("application/octet-stream"),
+        b64: Cow::Owned(base64::engine::general_purpose::STANDARD.encode(&files[path])),
     })
 }
 
-pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
+pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
     let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| VaultError::ImportCorrupt)?;
     let mut files = HashMap::new();
     let mut data = None;
@@ -69,8 +70,13 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
             files.insert(name, content);
         }
     }
-    let root: Value = serde_json::from_slice(&data.ok_or(VaultError::ImportCorrupt)?)
-        .map_err(|_| VaultError::ImportCorrupt)?;
+    parse_json(&data.ok_or(VaultError::ImportCorrupt)?, &files)
+}
+
+/// Parses a bare `export.data` (the 1PUX container is a zip, but the same JSON
+/// can be imported on its own).
+pub fn parse_json(data: &[u8], files: &HashMap<String, Vec<u8>>) -> Result<ImportBundle<'static>, VaultError> {
+    let root: Value = serde_json::from_slice(data).map_err(|_| VaultError::ImportCorrupt)?;
     let accounts = root
         .get("accounts")
         .and_then(Value::as_array)
@@ -91,21 +97,22 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                 let details = item.get("details").cloned().unwrap_or(Value::Null);
                 let name = text(overview.get("title"));
                 if name.is_empty() {
-                    warnings.push("1Password: запись без имени".to_string());
+                    warnings.push(Cow::Borrowed("1Password: запись без имени"));
                 }
                 let mut entry = ImportedItem::new(if name.is_empty() {
-                    "Без названия".to_string()
+                    Cow::Borrowed("Без названия")
                 } else {
-                    name.clone()
+                    Cow::Owned(name.clone())
                 });
                 if let Some(url) = overview.get("url").and_then(Value::as_str) {
                     if !url.trim().is_empty() {
-                        entry.urls.push(url.trim().to_string());
+                        entry.urls.push(Cow::Owned(url.trim().to_string()));
                     }
                 }
                 if let Some(urls) = overview.get("urls").and_then(Value::as_array) {
                     for url in urls {
                         let value = text(url.get("url"));
+                        let value: Cow<'_, str> = Cow::Owned(value);
                         if !value.is_empty() && !entry.urls.contains(&value) {
                             entry.urls.push(value);
                         }
@@ -129,9 +136,9 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                         let field_name = text(field.get("name")).to_ascii_lowercase();
                         let value = text(field.get("value"));
                         if designation == "username" || field_name == "username" {
-                            entry.login = value;
+                            entry.login = Cow::Owned(value);
                         } else if designation == "password" || field_name == "password" {
-                            entry.password = value;
+                            entry.password = Cow::Owned(value);
                         }
                     }
                 }
@@ -154,7 +161,8 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                             {
                                 match totp::inspect(&value) {
                                     Ok(config) => entry.totp = Some(config),
-                                    Err(_) => warnings.push(format!("{name}: TOTP не распознан")),
+                                    Err(_) => warnings
+                                        .push(Cow::Owned(format!("{name}: TOTP не распознан"))),
                                 }
                             } else {
                                 comment.push_str(&format!("\n{label}: {value}"));
@@ -166,9 +174,14 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                 if let Some(history) = details.get("passwordHistory").and_then(Value::as_array) {
                     for old in history {
                         let value = text(old.get("value"));
-                        if !value.is_empty() {
-                            comment.push_str(&format!("\nСтарый пароль: {value}"));
+                        if value.is_empty() {
+                            continue;
                         }
+                        let changed_at = text(old.get("createdAt"));
+                        entry.push_password_history(
+                            Cow::Owned(value),
+                            (!changed_at.is_empty()).then_some(Cow::Owned(changed_at)),
+                        );
                     }
                 }
 
@@ -176,16 +189,17 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                     let document_id = text(document.get("documentId"));
                     let file_name = text(document.get("fileName"));
                     if !file_name.is_empty() {
-                        if let Some(attachment) = attachment(&files, &document_id, &file_name) {
+                        if let Some(attachment) = attachment(files, &document_id, &file_name) {
                             entry.attachments.push(attachment);
                         } else {
-                            warnings.push(format!("{name}: файл «{file_name}» отсутствует"));
+                            warnings
+                                .push(Cow::Owned(format!("{name}: файл «{file_name}» отсутствует")));
                         }
                     }
-                    entry.kind = "note".to_string();
+                    entry.kind = Cow::Borrowed("note");
                 }
 
-                entry.comment = comment.trim().to_string();
+                entry.comment = Cow::Owned(comment.trim().to_string());
                 items.push(entry);
             }
         }
@@ -195,7 +209,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
         return Err(VaultError::ImportCorrupt);
     }
     Ok(ImportBundle {
-        format: "1password-1pux".to_string(),
+        format: Cow::Borrowed("1password-1pux"),
         items,
         warnings,
     })
@@ -242,5 +256,42 @@ mod tests {
         assert_eq!(item.urls, vec!["https://one.example"]);
         assert!(item.totp.is_some());
         assert_eq!(item.attachments.len(), 1);
+    }
+
+    #[test]
+    fn moves_1pux_password_history_out_of_notes() {
+        let export = br#"{
+          "accounts": [{"vaults": [{"items": [{
+            "overview": {"title": "One"},
+            "details": {
+              "loginFields": [{"value": "s3cret", "designation": "password"}],
+              "notesPlain": "note",
+              "passwordHistory": [
+                {"value": "old-1", "createdAt": "2024-01-01T00:00:00Z"},
+                {"value": "old-1"},
+                {"value": "s3cret"}
+              ]
+            }
+          }]}]}]
+        }"#;
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let mut zip = ZipWriter::new(&mut buffer);
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            zip.start_file("export.data", options).unwrap();
+            use std::io::Write;
+            zip.write_all(export).unwrap();
+            zip.finish().unwrap();
+        }
+        let bundle = parse(buffer.get_ref()).unwrap();
+        let item = &bundle.items[0];
+        assert_eq!(item.comment, "note");
+        assert_eq!(item.password_history.len(), 1);
+        assert_eq!(item.password_history[0].value, "old-1");
+        assert_eq!(
+            item.password_history[0].changed_at.as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
     }
 }

@@ -1,42 +1,28 @@
-use base64::Engine as _;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 
 use aes::Aes256;
+use base64::Engine as _;
 use cbc::Decryptor;
 use cipher::block_padding::Pkcs7;
 use cipher::{BlockDecryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2_hmac;
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::Deserialize;
 use serde_json::Value;
 use sha2::Sha256;
 
 use super::error::VaultError;
-use super::import::{ImportBundle, ImportedAttachment, ImportedItem, ImportedSshKey};
+use super::import::{
+    cow_str, trim_cow, ImportBundle, ImportedAttachment, ImportedItem, ImportedSshKey, Text,
+};
 use super::totp;
 
 type HmacSha256 = Hmac<Sha256>;
 
-fn text(value: Option<&Value>) -> String {
-    value
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_string()
-}
-
-fn value_text(value: &Value) -> String {
-    match value {
-        Value::String(value) => value.clone(),
-        Value::Number(value) => value.to_string(),
-        Value::Bool(value) => value.to_string(),
-        Value::Object(map) => map
-            .get("concealed")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        _ => String::new(),
-    }
-}
+// ---------------------------------------------------------------- decryption
 
 fn hkdf_expand(prk: &[u8], info: &[u8], length: usize) -> Result<Vec<u8>, VaultError> {
     let mut output = Vec::with_capacity(length);
@@ -62,16 +48,17 @@ fn parse_enc_string(value: &str) -> Result<EncParts, VaultError> {
     if kind != "2" {
         return Err(VaultError::ImportUnsupported);
     }
-    let parts = rest.split('|').collect::<Vec<_>>();
-    if parts.len() < 3 {
+    let mut parts = rest.split('|');
+    let (Some(iv), Some(ciphertext), Some(mac_value)) = (parts.next(), parts.next(), parts.next())
+    else {
         return Err(VaultError::ImportCorrupt);
-    }
+    };
     let decode = |part: &str| {
         base64::engine::general_purpose::STANDARD
             .decode(part)
             .map_err(|_| VaultError::ImportCorrupt)
     };
-    Ok((decode(parts[0])?, decode(parts[1])?, decode(parts[2])?))
+    Ok((decode(iv)?, decode(ciphertext)?, decode(mac_value)?))
 }
 
 fn decrypt_enc(value: &str, enc_key: &[u8], mac_key: &[u8]) -> Result<Vec<u8>, VaultError> {
@@ -89,240 +76,470 @@ fn decrypt_enc(value: &str, enc_key: &[u8], mac_key: &[u8]) -> Result<Vec<u8>, V
         .map_err(|_| VaultError::ImportPasswordInvalid)
 }
 
-fn decrypt_export(bytes: &[u8], password: Option<&str>) -> Result<Vec<u8>, VaultError> {
-    let root: Value = serde_json::from_slice(bytes).map_err(|_| VaultError::ImportCorrupt)?;
-    if root.get("encrypted").and_then(Value::as_bool) != Some(true) {
-        return Ok(bytes.to_vec());
+/// Returns the plain export. Unencrypted exports are borrowed straight from the
+/// input, so the parser never copies the file.
+fn decrypt_export<'a>(bytes: &'a [u8], password: Option<&str>) -> Result<Cow<'a, [u8]>, VaultError> {
+    #[derive(Deserialize)]
+    struct Envelope<'a> {
+        #[serde(default)]
+        encrypted: bool,
+        #[serde(default, rename = "passwordProtected")]
+        password_protected: bool,
+        #[serde(default)]
+        salt: Option<Cow<'a, str>>,
+        #[serde(default, rename = "kdfType")]
+        kdf_type: u64,
+        #[serde(default, rename = "kdfIterations")]
+        kdf_iterations: Option<u64>,
+        #[serde(default, rename = "kdfMemory")]
+        kdf_memory: Option<u64>,
+        #[serde(default, rename = "kdfParallelism")]
+        kdf_parallelism: Option<u64>,
+        #[serde(default, rename = "encKeyValidation_DO_NOT_EDIT")]
+        validation: Option<Cow<'a, str>>,
+        #[serde(default)]
+        data: Option<Cow<'a, str>>,
     }
-    if root.get("passwordProtected").and_then(Value::as_bool) != Some(true) {
+
+    let envelope: Envelope<'a> =
+        serde_json::from_slice(bytes).map_err(|_| VaultError::ImportCorrupt)?;
+    if !envelope.encrypted {
+        return Ok(Cow::Borrowed(bytes));
+    }
+    if !envelope.password_protected {
         return Err(VaultError::ImportUnsupported);
     }
     let password = password.ok_or(VaultError::ImportPasswordRequired)?;
-    let salt = root
-        .get("salt")
-        .and_then(Value::as_str)
-        .ok_or(VaultError::ImportCorrupt)?;
-    let kdf_type = root.get("kdfType").and_then(Value::as_u64).unwrap_or(0);
-    let iterations = root
-        .get("kdfIterations")
-        .and_then(Value::as_u64)
-        .unwrap_or(600_000) as u32;
+    let salt = envelope.salt.as_deref().ok_or(VaultError::ImportCorrupt)?;
+    let iterations = envelope.kdf_iterations.unwrap_or(600_000) as u32;
 
     let mut master = [0u8; 32];
-    if kdf_type == 0 {
-        pbkdf2_hmac::<Sha256>(
-            password.as_bytes(),
-            salt.as_bytes(),
-            iterations,
-            &mut master,
-        );
-    } else if kdf_type == 1 {
-        let memory = root.get("kdfMemory").and_then(Value::as_u64).unwrap_or(64) as u32;
-        let parallelism = root
-            .get("kdfParallelism")
-            .and_then(Value::as_u64)
-            .unwrap_or(4) as u32;
-        let params = argon2::Params::new(memory * 1024, iterations, parallelism, Some(32))
-            .map_err(|_| VaultError::ImportCorrupt)?;
-        let argon =
-            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-        argon
-            .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut master)
-            .map_err(|_| VaultError::ImportPasswordInvalid)?;
-    } else {
-        return Err(VaultError::ImportUnsupported);
+    match envelope.kdf_type {
+        0 => pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), iterations, &mut master),
+        1 => {
+            let memory = envelope.kdf_memory.unwrap_or(64) as u32;
+            let parallelism = envelope.kdf_parallelism.unwrap_or(4) as u32;
+            let params = argon2::Params::new(memory * 1024, iterations, parallelism, Some(32))
+                .map_err(|_| VaultError::ImportCorrupt)?;
+            let argon =
+                argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+            argon
+                .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut master)
+                .map_err(|_| VaultError::ImportPasswordInvalid)?;
+        }
+        _ => return Err(VaultError::ImportUnsupported),
     }
 
     let enc_key = hkdf_expand(&master, b"enc", 32)?;
     let mac_key = hkdf_expand(&master, b"mac", 32)?;
-    if let Some(validation) = root
-        .get("encKeyValidation_DO_NOT_EDIT")
-        .and_then(Value::as_str)
-    {
+    if let Some(validation) = envelope.validation.as_deref() {
         decrypt_enc(validation, &enc_key, &mac_key)?;
     }
-    let data = root
-        .get("data")
-        .and_then(Value::as_str)
-        .ok_or(VaultError::ImportCorrupt)?;
-    decrypt_enc(data, &enc_key, &mac_key)
+    let data = envelope.data.as_deref().ok_or(VaultError::ImportCorrupt)?;
+    decrypt_enc(data, &enc_key, &mac_key).map(Cow::Owned)
 }
 
-fn attachment_for(
-    attachments: &HashMap<String, Vec<u8>>,
-    item_id: &str,
-    name: &str,
-) -> Option<ImportedAttachment> {
-    let normalized = name.to_ascii_lowercase();
-    for (path, bytes) in attachments {
-        let lower = path.to_ascii_lowercase();
-        let matches_name = lower.ends_with(&normalized);
-        let matches_item = item_id.is_empty() || lower.contains(&item_id.to_ascii_lowercase());
-        if matches_name && matches_item {
-            return Some(ImportedAttachment {
-                name: name.to_string(),
-                mime: "application/octet-stream".to_string(),
-                b64: base64::engine::general_purpose::STANDARD.encode(bytes),
-            });
-        }
-    }
-    for (path, bytes) in attachments {
-        if path.to_ascii_lowercase().ends_with(&normalized) {
-            return Some(ImportedAttachment {
-                name: name.to_string(),
-                mime: "application/octet-stream".to_string(),
-                b64: base64::engine::general_purpose::STANDARD.encode(bytes),
-            });
-        }
-    }
-    None
+// ------------------------------------------------------------ export schema
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct Export<'a> {
+    #[serde(default)]
+    folders: Vec<Folder<'a>>,
+    items: Vec<Item<'a>>,
 }
 
-pub fn parse(
-    bytes: &[u8],
-    password: Option<&str>,
-    attachments: &HashMap<String, Vec<u8>>,
-) -> Result<ImportBundle, VaultError> {
-    let plaintext = decrypt_export(bytes, password)?;
-    let root: Value = serde_json::from_slice(&plaintext).map_err(|_| VaultError::ImportCorrupt)?;
-    let folders = root
-        .get("folders")
-        .and_then(Value::as_array)
-        .map(|folders| {
-            folders
-                .iter()
-                .filter_map(|folder| {
-                    Some((
-                        folder.get("id")?.as_str()?.to_string(),
-                        folder.get("name")?.as_str()?.to_string(),
-                    ))
-                })
-                .collect::<HashMap<_, _>>()
-        })
-        .unwrap_or_default();
-    let items = root
-        .get("items")
-        .and_then(Value::as_array)
-        .ok_or(VaultError::ImportCorrupt)?;
-    let mut imported = Vec::new();
-    let mut warnings = Vec::new();
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct Folder<'a> {
+    #[serde(default, deserialize_with = "cow_str")]
+    id: Cow<'a, str>,
+    #[serde(default, deserialize_with = "cow_str")]
+    name: Cow<'a, str>,
+}
 
-    for item in items {
-        let item_type = item.get("type").and_then(Value::as_u64).unwrap_or(1);
-        let name = text(item.get("name"));
-        if name.is_empty() {
-            warnings.push("Bitwarden: запись без имени".to_string());
-        }
-        let notes = text(item.get("notes"));
-        let mut comment = notes;
-        if let Some(folder_id) = item.get("folderId").and_then(Value::as_str) {
-            if let Some(folder) = folders.get(folder_id) {
-                comment = format!("Папка: {folder}\n{comment}");
-            }
-        }
-        if let Some(fields) = item.get("fields").and_then(Value::as_array) {
-            for field in fields {
-                let label = text(field.get("name"));
-                let value = value_text(field.get("value").unwrap_or(&Value::Null));
-                if !label.is_empty() && !value.is_empty() {
-                    comment.push_str(&format!("\n{label}: {value}"));
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct Item<'a> {
+    #[serde(rename = "type", default)]
+    item_type: u64,
+    #[serde(default, deserialize_with = "cow_str")]
+    id: Cow<'a, str>,
+    #[serde(default, deserialize_with = "cow_str")]
+    name: Cow<'a, str>,
+    #[serde(default, deserialize_with = "cow_str")]
+    notes: Cow<'a, str>,
+    #[serde(default, rename = "folderId", deserialize_with = "cow_str")]
+    folder_id: Cow<'a, str>,
+    #[serde(default)]
+    fields: Vec<Field<'a>>,
+    #[serde(default)]
+    login: Option<Login<'a>>,
+    #[serde(default, rename = "passwordHistory")]
+    password_history: Vec<PasswordHistory<'a>>,
+    #[serde(default)]
+    attachments: Vec<AttachmentRef<'a>>,
+    #[serde(default, rename = "sshKey")]
+    ssh_key: Option<SshKeyMaterial<'a>>,
+    /// Card and identity payloads are free-form objects; only these two item
+    /// types pay for a `serde_json::Map`.
+    #[serde(default)]
+    card: Option<serde_json::Map<String, Value>>,
+    #[serde(default)]
+    identity: Option<serde_json::Map<String, Value>>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct Field<'a> {
+    #[serde(default, deserialize_with = "cow_str")]
+    name: Cow<'a, str>,
+    #[serde(default)]
+    value: FieldValue<'a>,
+}
+
+#[derive(Default)]
+enum FieldValue<'a> {
+    #[default]
+    Empty,
+    Text(Cow<'a, str>),
+    Bool(bool),
+    Number(f64),
+}
+
+impl FieldValue<'_> {
+    fn append_to(&self, out: &mut String) {
+        match self {
+            FieldValue::Empty => {}
+            FieldValue::Text(value) => out.push_str(value),
+            FieldValue::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
+            FieldValue::Number(value) => {
+                if value.fract() == 0.0 {
+                    out.push_str(&format!("{}", *value as i64));
+                } else {
+                    out.push_str(&format!("{value}"));
                 }
             }
         }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            FieldValue::Empty => true,
+            FieldValue::Text(value) => value.trim().is_empty(),
+            _ => false,
+        }
+    }
+}
+
+impl<'de: 'a, 'a> Deserialize<'de> for FieldValue<'a> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct FieldValueVisitor;
+
+        impl<'de> Visitor<'de> for FieldValueVisitor {
+            type Value = FieldValue<'de>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string, number, boolean or { concealed } object")
+            }
+
+            fn visit_borrowed_str<E: de::Error>(self, value: &'de str) -> Result<Self::Value, E> {
+                Ok(FieldValue::Text(Cow::Borrowed(value)))
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(FieldValue::Text(Cow::Owned(value.to_owned())))
+            }
+
+            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(FieldValue::Text(Cow::Owned(value)))
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(FieldValue::Bool(value))
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(FieldValue::Number(value as f64))
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(FieldValue::Number(value as f64))
+            }
+
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                Ok(FieldValue::Number(value))
+            }
+
+            fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(FieldValue::Empty)
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(FieldValue::Empty)
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut value = FieldValue::Empty;
+                while let Some(key) = map.next_key::<Cow<'de, str>>()? {
+                    if key == "concealed" || key == "value" {
+                        let text: Option<Text<'de>> = map.next_value()?;
+                        if let Some(text) = text {
+                            value = FieldValue::Text(text.into_cow());
+                        }
+                    } else {
+                        map.next_value::<de::IgnoredAny>()?;
+                    }
+                }
+                Ok(value)
+            }
+        }
+
+        deserializer.deserialize_any(FieldValueVisitor)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct Login<'a> {
+    #[serde(default, deserialize_with = "cow_str")]
+    username: Cow<'a, str>,
+    #[serde(default, deserialize_with = "cow_str")]
+    password: Cow<'a, str>,
+    #[serde(default, deserialize_with = "cow_str")]
+    totp: Cow<'a, str>,
+    #[serde(default)]
+    uris: Vec<Uri<'a>>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct Uri<'a> {
+    #[serde(default, deserialize_with = "cow_str")]
+    uri: Cow<'a, str>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct PasswordHistory<'a> {
+    #[serde(default, deserialize_with = "cow_str")]
+    password: Cow<'a, str>,
+    #[serde(default, rename = "lastUsedDate", deserialize_with = "cow_str")]
+    last_used_date: Cow<'a, str>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct AttachmentRef<'a> {
+    #[serde(default, rename = "fileName", deserialize_with = "cow_str")]
+    file_name: Cow<'a, str>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "'de: 'a"))]
+struct SshKeyMaterial<'a> {
+    #[serde(default, rename = "publicKey", deserialize_with = "cow_str")]
+    public_key: Cow<'a, str>,
+    #[serde(default, rename = "privateKey", deserialize_with = "cow_str")]
+    private_key: Cow<'a, str>,
+}
+
+// ------------------------------------------------------------------- mapping
+
+fn attachment_for<'a>(
+    attachments: &HashMap<String, Vec<u8>>,
+    item_id: &str,
+    name: Cow<'a, str>,
+) -> Option<ImportedAttachment<'a>> {
+    if attachments.is_empty() {
+        return None;
+    }
+    let normalized = name.to_ascii_lowercase();
+    let item_lower = item_id.to_ascii_lowercase();
+    let matches = |(path, _): &(&String, &Vec<u8>)| {
+        let lower = path.to_ascii_lowercase();
+        lower.ends_with(&normalized) && (item_lower.is_empty() || lower.contains(&item_lower))
+    };
+    let by_name = |(path, _): &(&String, &Vec<u8>)| path.to_ascii_lowercase().ends_with(&normalized);
+    let bytes = attachments
+        .iter()
+        .find(matches)
+        .or_else(|| attachments.iter().find(by_name))
+        .map(|(_, bytes)| bytes)?;
+    Some(ImportedAttachment {
+        name,
+        mime: Cow::Borrowed("application/octet-stream"),
+        b64: Cow::Owned(base64::engine::general_purpose::STANDARD.encode(bytes)),
+    })
+}
+
+pub fn parse<'a>(
+    bytes: &'a [u8],
+    password: Option<&str>,
+    attachments: &HashMap<String, Vec<u8>>,
+) -> Result<ImportBundle<'a>, VaultError> {
+    match decrypt_export(bytes, password)? {
+        Cow::Borrowed(plain) => parse_plain(plain, attachments),
+        Cow::Owned(plain) => Ok(parse_plain(&plain, attachments)?.into_owned()),
+    }
+}
+
+fn parse_plain<'a>(
+    plain: &'a [u8],
+    attachments: &HashMap<String, Vec<u8>>,
+) -> Result<ImportBundle<'a>, VaultError> {
+    let export: Export<'a> =
+        serde_json::from_slice(plain).map_err(|_| VaultError::ImportCorrupt)?;
+    let folders = export
+        .folders
+        .iter()
+        .filter(|folder| !folder.id.is_empty())
+        .map(|folder| (folder.id.as_ref(), folder.name.as_ref()))
+        .collect::<HashMap<_, _>>();
+    let mut imported = Vec::with_capacity(export.items.len());
+    let mut warnings = Vec::new();
+
+    for item in export.items {
+        let item_type = item.item_type;
+        let name = trim_cow(item.name);
+        if name.is_empty() {
+            warnings.push(Cow::Borrowed("Bitwarden: запись без имени"));
+        }
+        // The comment stays a borrow of the export until there is something to
+        // add; when there is, it is built in one pre-sized buffer so the string
+        // never reallocates while it grows.
+        let mut comment = trim_cow(item.notes);
+        let folder = folders
+            .get(item.folder_id.as_ref())
+            .filter(|folder| !folder.is_empty());
+        let fields = item
+            .fields
+            .iter()
+            .filter(|field| !field.name.trim().is_empty() && !field.value.is_empty());
+        if folder.is_some() || fields.clone().next().is_some() {
+            let mut buffer = String::with_capacity(comment.len() + 64 + item.fields.len() * 48);
+            if let Some(folder) = folder {
+                buffer.push_str("Папка: ");
+                buffer.push_str(folder);
+                if !comment.is_empty() {
+                    buffer.push('\n');
+                }
+            }
+            buffer.push_str(&comment);
+            for field in fields {
+                if !buffer.is_empty() {
+                    buffer.push('\n');
+                }
+                buffer.push_str(field.name.trim());
+                buffer.push_str(": ");
+                field.value.append_to(&mut buffer);
+            }
+            comment = Cow::Owned(buffer);
+        }
 
         if item_type == 5 {
-            if let Some(ssh) = item.get("sshKey") {
-                let public_key = text(ssh.get("publicKey"));
-                let private_key = text(ssh.get("privateKey"));
+            if let Some(ssh) = item.ssh_key {
+                let public_key = trim_cow(ssh.public_key);
+                let private_key = trim_cow(ssh.private_key);
                 if !public_key.is_empty() && !private_key.is_empty() {
                     let mut ssh_item = ImportedItem::new(if name.is_empty() {
-                        "SSH-ключ".to_string()
+                        Cow::Borrowed("SSH-ключ")
                     } else {
-                        name
+                        name.clone()
                     });
-                    ssh_item.kind = "ssh".to_string();
+                    ssh_item.kind = Cow::Borrowed("ssh");
                     ssh_item.ssh_key = Some(ImportedSshKey {
                         name: ssh_item.name.clone(),
                         public_key,
                         private_key,
                         passphrase: None,
-                        comment,
+                        comment: trim_cow(comment),
                     });
                     imported.push(ssh_item);
                     continue;
                 }
             }
-            warnings.push("Bitwarden: SSH-ключ без ключевого материала".to_string());
+            warnings.push(Cow::Borrowed(
+                "Bitwarden: SSH-ключ без ключевого материала",
+            ));
             continue;
         }
 
         let mut entry = ImportedItem::new(if name.is_empty() {
-            "Без названия".to_string()
+            Cow::Borrowed("Без названия")
         } else {
             name.clone()
         });
-        entry.comment = comment.trim().to_string();
-        if item_type == 2 {
-            entry.kind = "note".to_string();
-        } else if item_type == 3 || item_type == 4 {
-            entry.kind = if item_type == 3 { "card" } else { "identity" }.to_string();
-            if let Some(object) = item.get(if item_type == 3 { "card" } else { "identity" }) {
-                if let Some(map) = object.as_object() {
-                    for (key, value) in map {
-                        let value = value_text(value);
-                        if !value.is_empty() {
-                            entry.comment.push_str(&format!("\n{key}: {value}"));
+        entry.comment = comment;
+        match item_type {
+            2 => entry.kind = Cow::Borrowed("note"),
+            3 => {
+                entry.kind = Cow::Borrowed("card");
+                append_object(&mut entry, item.card);
+            }
+            4 => {
+                entry.kind = Cow::Borrowed("identity");
+                append_object(&mut entry, item.identity);
+            }
+            _ => {
+                if let Some(login) = item.login {
+                    entry.login = login.username;
+                    entry.password = login.password;
+                    entry.urls = Vec::with_capacity(login.uris.len());
+                    for uri in login.uris {
+                        let uri = trim_cow(uri.uri);
+                        if !uri.is_empty() {
+                            entry.urls.push(uri);
+                        }
+                    }
+                    let totp_raw = login.totp.trim();
+                    if !totp_raw.is_empty() {
+                        match totp::inspect(totp_raw) {
+                            Ok(config) => entry.totp = Some(config),
+                            Err(_) => {
+                                warnings.push(Cow::Owned(format!("{name}: TOTP не распознан")))
+                            }
                         }
                     }
                 }
             }
-        } else if let Some(login) = item.get("login") {
-            entry.login = text(login.get("username"));
-            entry.password = text(login.get("password"));
-            if let Some(uris) = login.get("uris").and_then(Value::as_array) {
-                for uri in uris {
-                    let value = text(uri.get("uri"));
-                    if !value.is_empty() {
-                        entry.urls.push(value);
-                    }
-                }
-            }
-            let totp_raw = text(login.get("totp"));
-            if !totp_raw.is_empty() {
-                match totp::inspect(&totp_raw) {
-                    Ok(config) => entry.totp = Some(config),
-                    Err(_) => warnings.push(format!("{name}: TOTP не распознан")),
-                }
-            }
         }
 
-        if let Some(history) = item.get("passwordHistory").and_then(Value::as_array) {
-            for old in history {
-                let password = text(old.get("password"));
-                if !password.is_empty() {
-                    entry
-                        .comment
-                        .push_str(&format!("\nСтарый пароль: {password}"));
-                }
+        entry
+            .password_history
+            .reserve(item.password_history.len());
+        for old in item.password_history {
+            let password = trim_cow(old.password);
+            if password.is_empty() {
+                continue;
             }
+            let changed_at = trim_cow(old.last_used_date);
+            entry.push_password_history(
+                password,
+                (!changed_at.is_empty()).then_some(changed_at),
+            );
         }
 
-        if let Some(meta) = item.get("attachments").and_then(Value::as_array) {
-            let item_id = text(item.get("id"));
-            for attachment in meta {
-                let file_name = text(attachment.get("fileName"));
+        if !item.attachments.is_empty() {
+            let item_id = item.id.as_ref();
+            entry.attachments.reserve(item.attachments.len());
+            for attachment in item.attachments {
+                let file_name = trim_cow(attachment.file_name);
                 if file_name.is_empty() {
                     continue;
                 }
-                if let Some(file) = attachment_for(attachments, &item_id, &file_name) {
-                    entry.attachments.push(file);
-                } else {
-                    warnings.push(format!(
+                match attachment_for(attachments, item_id, file_name.clone()) {
+                    Some(file) => entry.attachments.push(file),
+                    None => warnings.push(Cow::Owned(format!(
                         "{name}: вложение «{file_name}» отсутствует в архиве"
-                    ));
+                    ))),
                 }
             }
         }
+
         imported.push(entry);
     }
 
@@ -330,10 +547,39 @@ pub fn parse(
         return Err(VaultError::ImportCorrupt);
     }
     Ok(ImportBundle {
-        format: "bitwarden".to_string(),
+        format: Cow::Borrowed("bitwarden"),
         items: imported,
         warnings,
     })
+}
+
+fn append_object(entry: &mut ImportedItem<'_>, object: Option<serde_json::Map<String, Value>>) {
+    let Some(object) = object else { return };
+    let mut buffer = String::with_capacity(entry.comment.len() + object.len() * 48);
+    buffer.push_str(&entry.comment);
+    for (key, value) in object {
+        let text = match value {
+            Value::String(value) => value,
+            Value::Number(value) => value.to_string(),
+            Value::Bool(value) => value.to_string(),
+            Value::Object(map) => map
+                .get("concealed")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            _ => continue,
+        };
+        if text.is_empty() {
+            continue;
+        }
+        if !buffer.is_empty() {
+            buffer.push('\n');
+        }
+        buffer.push_str(&key);
+        buffer.push_str(": ");
+        buffer.push_str(&text);
+    }
+    entry.comment = Cow::Owned(buffer);
 }
 
 #[cfg(test)]
@@ -365,6 +611,14 @@ mod tests {
     }
 
     #[test]
+    fn borrows_strings_from_the_export() {
+        let json = br#"{"items":[{"id":"i1","type":1,"name":"GitHub","login":{"username":"alex"}}]}"#;
+        let bundle = parse(json, None, &HashMap::new()).unwrap();
+        assert!(matches!(bundle.items[0].name, Cow::Borrowed(_)));
+        assert!(matches!(bundle.items[0].login, Cow::Borrowed(_)));
+    }
+
+    #[test]
     fn parses_plain_bitwarden_json() {
         let json = br#"{
           "folders": [{"id":"f1","name":"Social"}],
@@ -372,7 +626,13 @@ mod tests {
             "id":"i1","type":1,"name":"GitHub","folderId":"f1",
             "notes":"note","fields":[{"name":"PIN","value":"1234"}],
             "login":{"username":"alex","password":"s3cret","totp":"JBSWY3DPEHPK3PXP",
-              "uris":[{"uri":"https://github.com"},{"uri":"https://gist.github.com"}]}
+              "uris":[{"uri":"https://github.com"},{"uri":"https://gist.github.com"}]},
+            "passwordHistory":[
+              {"lastUsedDate":"2024-02-01T10:00:00.000Z","password":"old-1"},
+              {"lastUsedDate":"2023-02-01T10:00:00.000Z","password":"old-2"},
+              {"lastUsedDate":"2022-02-01T10:00:00.000Z","password":"old-1"},
+              {"lastUsedDate":"2021-02-01T10:00:00.000Z","password":"s3cret"}
+            ]
           }]
         }"#;
         let bundle = parse(json, None, &HashMap::new()).unwrap();
@@ -382,5 +642,65 @@ mod tests {
         assert!(item.totp.is_some());
         assert!(item.comment.contains("Папка: Social"));
         assert!(item.comment.contains("PIN: 1234"));
+        assert!(!item.comment.contains("Старый пароль"));
+        assert!(!item.comment.contains("old-1"));
+        assert_eq!(item.password_history.len(), 2);
+        assert_eq!(item.password_history[0].value, "old-1");
+        assert_eq!(
+            item.password_history[0].changed_at.as_deref(),
+            Some("2024-02-01T10:00:00.000Z")
+        );
+        assert_eq!(item.password_history[1].value, "old-2");
+    }
+
+    #[test]
+    fn keeps_notes_free_of_previous_passwords() {
+        let json = br#"{"items":[{"id":"i1","type":1,"name":"Mail","notes":"my note",
+          "login":{"username":"alex","password":"current"},
+          "passwordHistory":[{"password":"previous"}]}]}"#;
+        let bundle = parse(json, None, &HashMap::new()).unwrap();
+        let item = &bundle.items[0];
+        assert_eq!(item.comment, "my note");
+        assert_eq!(item.password_history.len(), 1);
+        assert_eq!(item.password_history[0].value, "previous");
+        assert_eq!(item.password_history[0].changed_at, None);
+    }
+
+    #[test]
+    fn parses_card_and_identity_fields_into_the_comment() {
+        let json = br#"{"items":[
+          {"id":"c1","type":3,"name":"Visa","card":{"brand":"Visa","number":{"concealed":"4242","length":16}}},
+          {"id":"d1","type":4,"name":"Passport","identity":{"firstName":"Alex","country":"RU"}}
+        ]}"#;
+        let bundle = parse(json, None, &HashMap::new()).unwrap();
+        assert_eq!(bundle.items[0].kind, "card");
+        assert!(bundle.items[0].comment.contains("brand: Visa"));
+        assert!(bundle.items[0].comment.contains("number: 4242"));
+        assert_eq!(bundle.items[1].kind, "identity");
+        assert!(bundle.items[1].comment.contains("firstName: Alex"));
+    }
+
+    #[test]
+    fn parses_numeric_and_concealed_custom_fields() {
+        let json = br#"{"items":[{"id":"i1","type":1,"name":"N","login":{},"fields":[
+            {"name":"PIN","value":1234},
+            {"name":"Secret","value":{"concealed":"s3cret"}},
+            {"name":"Flag","value":true},
+            {"name":"Empty","value":null}
+        ]}]}"#;
+        let bundle = parse(json, None, &HashMap::new()).unwrap();
+        let comment = bundle.items[0].comment.as_ref();
+        assert!(comment.contains("PIN: 1234"), "{comment}");
+        assert!(comment.contains("Secret: s3cret"), "{comment}");
+        assert!(comment.contains("Flag: true"), "{comment}");
+        assert!(!comment.contains("Empty"), "{comment}");
+    }
+
+    #[test]
+    fn keeps_unnamed_items_and_warns() {
+        let json = br#"{"items":[{"id":"i1","type":1,"login":{}}]}"#;
+        let bundle = parse(json, None, &HashMap::new()).unwrap();
+        assert_eq!(bundle.items[0].name, "Без названия");
+        assert!(!bundle.warnings.is_empty());
     }
 }

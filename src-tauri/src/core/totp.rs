@@ -21,7 +21,7 @@ pub fn inspect(input: &str) -> Result<TotpConfig, VaultError> {
         return Err(VaultError::InvalidTotp);
     }
 
-    let config = if trimmed.to_ascii_lowercase().starts_with("otpauth://") {
+    let config = if is_otpauth_uri(trimmed) {
         parse_uri(trimmed)?
     } else {
         TotpConfig {
@@ -34,8 +34,16 @@ pub fn inspect(input: &str) -> Result<TotpConfig, VaultError> {
         }
     };
 
-    validate_config(&config)?;
+    validate_shape(&config)?;
+    validate_secret(&config.secret)?;
     Ok(config)
+}
+
+fn is_otpauth_uri(value: &str) -> bool {
+    value
+        .as_bytes()
+        .get(..10)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"otpauth://"))
 }
 
 pub fn code(config: &TotpConfig, at: Option<u64>) -> Result<TotpCode, VaultError> {
@@ -135,18 +143,45 @@ fn parse_uri(input: &str) -> Result<TotpConfig, VaultError> {
         issuer: issuer.or(label_issuer),
         account: account.filter(|value| !value.is_empty()),
     };
-    validate_config(&config)?;
+    validate_shape(&config)?;
+    validate_secret(&config.secret)?;
     Ok(config)
 }
 
 fn validate_config(config: &TotpConfig) -> Result<(), VaultError> {
+    validate_shape(config)?;
+    decode_secret(&config.secret)?;
+    Ok(())
+}
+
+fn validate_shape(config: &TotpConfig) -> Result<(), VaultError> {
     if config.digits != 6 && config.digits != 8 {
         return Err(VaultError::InvalidTotp);
     }
     if config.period != 30 && config.period != 60 {
         return Err(VaultError::InvalidTotp);
     }
-    decode_secret(&config.secret)?;
+    Ok(())
+}
+
+/// Validates an already normalized base32 secret without allocating.
+fn validate_secret(secret: &str) -> Result<(), VaultError> {
+    if secret.is_empty() {
+        return Err(VaultError::InvalidTotp);
+    }
+    const STACK: usize = 128;
+    if let Ok(len) = BASE32_NOPAD.decode_len(secret.len()) {
+        if len <= STACK {
+            let mut buffer = [0u8; STACK];
+            BASE32_NOPAD
+                .decode_mut(secret.as_bytes(), &mut buffer[..len])
+                .map_err(|_| VaultError::InvalidTotp)?;
+            return Ok(());
+        }
+    }
+    BASE32_NOPAD
+        .decode(secret.as_bytes())
+        .map_err(|_| VaultError::InvalidTotp)?;
     Ok(())
 }
 
@@ -161,11 +196,14 @@ fn decode_secret(secret: &str) -> Result<Vec<u8>, VaultError> {
 }
 
 fn normalize_secret(secret: &str) -> String {
-    secret
-        .chars()
-        .filter(|character| !character.is_whitespace() && *character != '=')
-        .collect::<String>()
-        .to_ascii_uppercase()
+    let mut out = String::with_capacity(secret.len());
+    out.extend(
+        secret
+            .chars()
+            .filter(|character| !character.is_whitespace() && *character != '=')
+            .map(|character| character.to_ascii_uppercase()),
+    );
+    out
 }
 
 #[cfg(test)]

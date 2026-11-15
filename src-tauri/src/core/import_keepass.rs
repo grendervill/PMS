@@ -1,4 +1,5 @@
 use base64::Engine as _;
+use std::borrow::Cow;
 use std::io::Cursor;
 
 use keepass::{Database, DatabaseKey};
@@ -11,7 +12,7 @@ pub fn parse(
     bytes: &[u8],
     password: Option<&str>,
     keyfile: Option<&[u8]>,
-) -> Result<ImportBundle, VaultError> {
+) -> Result<ImportBundle<'static>, VaultError> {
     let mut key = DatabaseKey::new();
     if let Some(password) = password {
         key = key.with_password(password);
@@ -35,17 +36,17 @@ pub fn parse(
     for entry in database.iter_all_entries() {
         let name = entry.get_title().unwrap_or("").trim().to_string();
         if name.is_empty() {
-            warnings.push("KeePass: запись без имени".to_string());
+            warnings.push(Cow::Borrowed("KeePass: запись без имени"));
         }
         let mut item = ImportedItem::new(if name.is_empty() {
-            "Без названия".to_string()
+            Cow::Borrowed("Без названия")
         } else {
-            name.clone()
+            Cow::Owned(name.clone())
         });
-        item.login = entry.get_username().unwrap_or("").to_string();
-        item.password = entry.get_password().unwrap_or("").to_string();
+        item.login = Cow::Owned(entry.get_username().unwrap_or("").to_string());
+        item.password = Cow::Owned(entry.get_password().unwrap_or("").to_string());
         if let Some(url) = entry.get_url().filter(|value| !value.trim().is_empty()) {
-            item.urls.push(url.trim().to_string());
+            item.urls.push(Cow::Owned(url.trim().to_string()));
         }
         let mut comment = entry.get("Notes").unwrap_or("").to_string();
         let parent = entry.parent();
@@ -55,17 +56,19 @@ pub fn parse(
         if let Some(otp) = entry.get_raw_otp_value() {
             match totp::inspect(otp) {
                 Ok(config) => item.totp = Some(config),
-                Err(_) => warnings.push(format!("{name}: TOTP не распознан")),
+                Err(_) => warnings.push(Cow::Owned(format!("{name}: TOTP не распознан"))),
             }
         }
         for (file_name, attachment) in entry.attachments_named() {
             item.attachments.push(ImportedAttachment {
-                name: file_name.to_string(),
-                mime: "application/octet-stream".to_string(),
-                b64: base64::engine::general_purpose::STANDARD.encode(attachment.data.get()),
+                name: Cow::Owned(file_name.to_string()),
+                mime: Cow::Borrowed("application/octet-stream"),
+                b64: Cow::Owned(
+                    base64::engine::general_purpose::STANDARD.encode(attachment.data.get()),
+                ),
             });
         }
-        item.comment = comment.trim().to_string();
+        item.comment = Cow::Owned(comment.trim().to_string());
         items.push(item);
     }
 
@@ -73,7 +76,7 @@ pub fn parse(
         return Err(VaultError::ImportCorrupt);
     }
     Ok(ImportBundle {
-        format: "keepass-kdbx".to_string(),
+        format: Cow::Borrowed("keepass-kdbx"),
         items,
         warnings,
     })

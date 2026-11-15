@@ -1,4 +1,5 @@
 use base64::Engine as _;
+use std::borrow::Cow;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
@@ -7,11 +8,11 @@ use super::import::{ImportBundle, ImportedAttachment, ImportedItem};
 use super::totp;
 
 struct PendingEntry {
-    item: ImportedItem,
+    item: ImportedItem<'static>,
     group: String,
 }
 
-pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
+pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
     let mut reader = Reader::from_reader(bytes);
     reader.config_mut().trim_text(true);
     let mut buffer = Vec::new();
@@ -41,7 +42,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                     "History" => in_history += 1,
                     "Entry" if in_history == 0 => {
                         current = Some(PendingEntry {
-                            item: ImportedItem::new("Без названия".to_string()),
+                            item: ImportedItem::new(Cow::Borrowed("Без названия")),
                             group: if groups.len() > 1 {
                                 groups.last().cloned().unwrap_or_default()
                             } else {
@@ -90,7 +91,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                     group_name_depth = group_name_depth.saturating_sub(1);
                 } else if name == "String" {
                     if let Some(entry) = current.as_mut() {
-                        let value = field_value.trim().to_string();
+                        let value = Cow::Owned(field_value.trim().to_string());
                         match field_key.as_str() {
                             "Title" => entry.item.name = value,
                             "UserName" => entry.item.login = value,
@@ -101,15 +102,20 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                                 }
                             }
                             "Notes" => entry.item.comment = value,
-                            "otp" | "TOTP Seed" => match totp::inspect(&value) {
-                                Ok(config) => entry.item.totp = Some(config),
-                                Err(_) => warnings
-                                    .push(format!("{}: TOTP не распознан", entry.item.name)),
-                            },
+                            "otp" | "TOTP Seed" => {
+                                match totp::inspect(value.as_ref()) {
+                                    Ok(config) => entry.item.totp = Some(config),
+                                    Err(_) => warnings.push(Cow::Owned(format!(
+                                        "{}: TOTP не распознан",
+                                        entry.item.name
+                                    ))),
+                                }
+                            }
                             _ if !field_key.is_empty() && !value.is_empty() => {
                                 entry
                                     .item
                                     .comment
+                                    .to_mut()
                                     .push_str(&format!("\n{}: {value}", field_key));
                             }
                             _ => {}
@@ -122,14 +128,16 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                                 .decode(binary_value.trim())
                             {
                                 Ok(bytes) => entry.item.attachments.push(ImportedAttachment {
-                                    name: binary_key.clone(),
-                                    mime: "application/octet-stream".to_string(),
-                                    b64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                                    name: Cow::Owned(binary_key.clone()),
+                                    mime: Cow::Borrowed("application/octet-stream"),
+                                    b64: Cow::Owned(
+                                        base64::engine::general_purpose::STANDARD.encode(bytes),
+                                    ),
                                 }),
-                                Err(_) => warnings.push(format!(
+                                Err(_) => warnings.push(Cow::Owned(format!(
                                     "{}: вложение {} повреждено",
                                     entry.item.name, binary_key
-                                )),
+                                ))),
                             }
                         }
                     }
@@ -137,14 +145,15 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
                 } else if name == "Entry" && in_history == 0 {
                     if let Some(mut entry) = current.take() {
                         if entry.item.name.trim().is_empty() {
-                            entry.item.name = "Без названия".to_string();
-                            warnings.push("KeePass XML: запись без имени".to_string());
+                            entry.item.name = Cow::Borrowed("Без названия");
+                            warnings.push(Cow::Borrowed("KeePass XML: запись без имени"));
                         }
                         if !entry.group.is_empty() {
-                            entry.item.comment =
+                            entry.item.comment = Cow::Owned(
                                 format!("Папка: {}\n{}", entry.group, entry.item.comment)
                                     .trim()
-                                    .to_string();
+                                    .to_string(),
+                            );
                         }
                         items.push(entry.item);
                     }
@@ -166,7 +175,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle, VaultError> {
         return Err(VaultError::ImportCorrupt);
     }
     Ok(ImportBundle {
-        format: "keepass-xml".to_string(),
+        format: Cow::Borrowed("keepass-xml"),
         items,
         warnings,
     })

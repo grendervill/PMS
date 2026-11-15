@@ -6,6 +6,7 @@ import { vaultApi, type ImportBundle, type ImportedItem } from "@/features/vault
 import type {
   AttachmentMeta,
   Entry,
+  HistoryItem,
   SshKey,
   VaultData,
 } from "@/features/vault/types";
@@ -43,6 +44,29 @@ function sshType(publicKey: string): SshKey["type"] {
   if (publicKey.startsWith("ssh-rsa")) return "rsa";
   if (publicKey.startsWith("ecdsa-")) return "ecdsa";
   return "ed25519";
+}
+
+const IMPORTED_HISTORY_LIMIT = 50;
+
+/**
+ * Previous passwords from an export (Bitwarden `passwordHistory`, 1PUX
+ * `passwordHistory`) become a real password history instead of being appended
+ * to the comment. Values repeat often in exports, so they are de-duplicated.
+ */
+function importedPasswordHistory(
+  history: ImportedItem["passwordHistory"] | undefined,
+  fallback: string,
+): HistoryItem[] {
+  const seen = new Set<string>();
+  const items: HistoryItem[] = [];
+  for (const old of history ?? []) {
+    const value = old.value;
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    items.push({ value, changedAt: old.changedAt ?? fallback });
+    if (items.length >= IMPORTED_HISTORY_LIMIT) break;
+  }
+  return items;
 }
 
 async function importAttachments(
@@ -145,7 +169,7 @@ export async function runImport(
     }
 
     const sealed = await importAttachments(item, data, sessionId, vaultPath, result);
-    const entry = createEntry(
+    const created = createEntry(
       {
         name: item.name || "Без названия",
         login: item.login,
@@ -158,6 +182,10 @@ export async function runImport(
         totpRaw: "",
       },
     );
+    const entry: Entry = {
+      ...created,
+      passwordHistory: importedPasswordHistory(item.passwordHistory, created.createdAt),
+    };
     entries.unshift(entry);
     attachments.unshift(...sealed.metas);
     seen.add(importSignature);

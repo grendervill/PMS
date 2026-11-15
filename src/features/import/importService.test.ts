@@ -84,6 +84,7 @@ describe("importService", () => {
           totp: null,
           attachments: [{ name: "doc.txt", mime: "text/plain", b64: "aGVsbG8=" }],
           sshKey: null,
+          passwordHistory: [],
         },
       ],
     };
@@ -125,6 +126,7 @@ describe("importService", () => {
           totp: null,
           attachments: [],
           sshKey: null,
+          passwordHistory: [],
         },
       ],
     };
@@ -135,5 +137,42 @@ describe("importService", () => {
 
     expect(result.result.skipped).toBe(1);
     expect(result.data.entries).toHaveLength(1);
+  });
+
+  it("imports previous passwords into the password history, not the comment", async () => {
+    const bundle = {
+      format: "bitwarden",
+      warnings: [],
+      items: [
+        {
+          kind: "login" as const,
+          name: "Mail",
+          login: "alex",
+          password: "current",
+          urls: ["https://mail.example"],
+          comment: "my note",
+          totp: null,
+          attachments: [],
+          sshKey: null,
+          passwordHistory: [
+            { value: "old-1", changedAt: "2024-02-01T10:00:00.000Z" },
+            { value: "old-1", changedAt: "2024-02-01T10:00:00.000Z" },
+            { value: "old-2", changedAt: null },
+          ],
+        },
+      ],
+    };
+
+    const result = await runImport(bundle, data, "session", "/vault", {
+      skipDuplicates: true,
+    });
+
+    const entry = result.data.entries[0];
+    expect(result.result.entries).toBe(1);
+    expect(entry?.comment).toBe("my note");
+    expect(entry?.passwordHistory).toEqual([
+      { value: "old-1", changedAt: "2024-02-01T10:00:00.000Z" },
+      { value: "old-2", changedAt: entry?.createdAt },
+    ]);
   });
 });

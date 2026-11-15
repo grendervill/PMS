@@ -332,23 +332,27 @@ export async function installMockTauri(page: Page) {
             ok: true,
           };
         case "import_parse":
-          return {
-            format: "csv",
-            warnings: ["Строка 2: пустое имя"],
-            items: [
-              {
-                kind: "login",
-                name: "Imported",
-                login: "alex",
-                password: "s3cret",
-                urls: ["https://imported.example"],
-                comment: "from csv",
-                totp: null,
-                attachments: [{ name: "note.txt", mime: "text/plain", b64: "aGVsbG8=" }],
-                sshKey: null,
-              },
-            ],
-          };
+          // The real command answers with raw JSON bytes.
+          return new TextEncoder().encode(
+            JSON.stringify({
+              format: "csv",
+              warnings: ["Строка 2: пустое имя"],
+              items: [
+                {
+                  kind: "login",
+                  name: "Imported",
+                  login: "alex",
+                  password: "s3cret",
+                  urls: ["https://imported.example"],
+                  comment: "from csv",
+                  totp: null,
+                  attachments: [{ name: "note.txt", mime: "text/plain", b64: "aGVsbG8=" }],
+                  sshKey: null,
+                  passwordHistory: [],
+                },
+              ],
+            }),
+          );
         case "pms_export":
           return null;
         case "app_icon_set":
