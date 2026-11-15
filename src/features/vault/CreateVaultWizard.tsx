@@ -204,7 +204,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
                 className={cn(
                   "grid size-7 shrink-0 place-items-center rounded-full border text-[11px] font-medium transition-colors",
                   index < step
-                    ? "border-[var(--accent)] bg-[var(--accent)] text-[#08110d]"
+                    ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]"
                     : index === step
                       ? "border-[var(--seal)] bg-[var(--seal)]/10 text-[var(--seal)]"
                       : "border-[var(--border)] text-[var(--muted)]",

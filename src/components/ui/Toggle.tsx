@@ -45,7 +45,7 @@ export function Toggle({
           className={cn(
             "block size-3.5 rounded-full transition-transform",
             checked
-              ? "translate-x-[18px] bg-[#08110d]"
+              ? "translate-x-[18px] bg-[var(--on-accent)]"
               : "translate-x-0.5 bg-[var(--text-soft)]",
           )}
         />

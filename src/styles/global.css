@@ -47,6 +47,7 @@ button:disabled {
 
 .pms-display {
   font-family: var(--font-display);
+  font-weight: var(--display-weight, 400);
 }
 
 .pms-mono {

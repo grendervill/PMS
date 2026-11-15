@@ -11,7 +11,7 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "bg-[var(--accent)] text-[#08110d] hover:bg-[var(--accent-strong)] border border-transparent",
+    "bg-[var(--accent)] text-[var(--on-accent)] hover:bg-[var(--accent-strong)] border border-transparent",
   secondary:
     "bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-3)]",
   ghost:

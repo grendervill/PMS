@@ -8,6 +8,7 @@ import {
   Power,
   Palette,
   ShieldCheck,
+  SwatchBook,
   Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -26,6 +27,13 @@ import {
   setSelectedAppIcon,
   type AppIconId,
 } from "@/features/settings/appIcon";
+import {
+  applyTheme,
+  getSelectedTheme,
+  setSelectedTheme,
+  THEMES,
+  type ThemeId,
+} from "@/features/settings/theme";
 import {
   CLIPBOARD_CLEAR_OPTIONS,
   clipboardClearInLabel,
@@ -69,6 +77,7 @@ export function SettingsView() {
   const [importOpen, setImportOpen] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [selectedIcon, setSelectedIcon] = useState<AppIconId>(() => getSelectedAppIcon());
+  const [theme, setTheme] = useState<ThemeId>(() => getSelectedTheme());
   const [iconBusy, setIconBusy] = useState<AppIconId | null>(null);
   const android = isAndroidPlatform();
   const macos = isMacosPlatform();
@@ -589,6 +598,71 @@ export function SettingsView() {
           </section>
         ) : null}
 
+        <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
+            <SwatchBook size={15} className="text-[var(--accent-soft)]" />
+            <h2 className="pms-display text-lg">Оформление</h2>
+          </div>
+          <div className="px-4 py-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3" role="radiogroup" aria-label="Оформление">
+              {THEMES.map((option) => {
+                const active = theme === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    aria-label={option.label}
+                    onClick={() => {
+                      setTheme(option.id);
+                      setSelectedTheme(option.id);
+                      applyTheme(option.id);
+                    }}
+                    className={cn(
+                      "group flex min-w-0 flex-col gap-2 rounded-[var(--radius-md)] border px-2.5 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                      active
+                        ? "border-[var(--accent)]/60 bg-[var(--accent)]/8"
+                        : "border-[var(--border)] bg-[var(--surface-2)]/40 hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)]",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className="flex h-9 items-end gap-1 overflow-hidden rounded-[calc(var(--radius-sm)-1px)] border border-[var(--border)] px-1.5 py-1.5"
+                      style={{ background: option.swatch[0] }}
+                    >
+                      <span
+                        className="h-4 flex-1 rounded-[2px]"
+                        style={{ background: option.swatch[1] }}
+                      />
+                      <span
+                        className="h-4 w-3 rounded-[2px]"
+                        style={{ background: option.swatch[2] }}
+                      />
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ background: option.swatch[2] }}
+                      />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1 truncate text-[11.5px] font-medium text-[var(--text-soft)]">
+                        {option.label}
+                        {active ? <Check size={11} strokeWidth={3} className="shrink-0" /> : null}
+                      </span>
+                      <span className="mt-0.5 block text-[9.5px] leading-snug text-[var(--muted)]">
+                        {option.description}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-[10.5px] leading-relaxed text-[var(--muted)]">
+              Оформление применяется сразу и хранится отдельно для каждого устройства.
+            </p>
+          </div>
+        </section>
+
         {macos ? (
         <section className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]/70">
           <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
@@ -621,7 +695,7 @@ export function SettingsView() {
                         className="size-14 rounded-[14px] object-cover shadow-[0_4px_14px_rgba(0,0,0,0.25)]"
                       />
                       {active ? (
-                        <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--accent)] text-[#08110d]">
+                        <span className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--accent)] text-[var(--on-accent)]">
                           <Check size={11} strokeWidth={3} />
                         </span>
                       ) : null}

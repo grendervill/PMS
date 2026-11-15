@@ -140,7 +140,7 @@ export function CardImagePicker({
             >
               <span className="pms-card-swatch block" data-preset={option.id} />
               {active ? (
-                <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-[var(--accent)] text-[#08110d]">
+                <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-[var(--accent)] text-[var(--on-accent)]">
                   <Check size={10} strokeWidth={3} />
                 </span>
               ) : null}
