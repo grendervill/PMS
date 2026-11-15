@@ -114,8 +114,8 @@ export function EntryDetail({
   return (
     <div className="pms-scrollbar flex h-full min-h-0 flex-col overflow-y-auto">
       <div className="border-b border-[var(--border)] px-5 py-5 sm:px-7">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3.5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-[1_1_20rem] items-start gap-3.5">
             <button
               type="button"
               onClick={onBack}
@@ -127,7 +127,7 @@ export function EntryDetail({
             <div className="grid size-12 shrink-0 place-items-center rounded-[13px] border border-[var(--border-strong)] bg-[var(--surface-2)] text-lg font-medium text-[var(--accent-soft)]">
               {monogram(entry.name)}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="pms-display break-words text-[23px] leading-tight tracking-tight sm:text-[27px]">
                 {entry.name}
               </h2>
@@ -144,7 +144,7 @@ export function EntryDetail({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <FavoriteButton kind="entry" id={entry.id} />
             <IconButton label="Поделиться по QR" size="sm" onClick={() => setShareOpen(true)}>
               <QrCode size={15} />

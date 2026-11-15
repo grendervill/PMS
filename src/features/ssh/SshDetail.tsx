@@ -138,8 +138,8 @@ export function SshDetail({
   return (
     <div className="pms-scrollbar flex h-full min-h-0 flex-col overflow-y-auto">
       <div className="border-b border-[var(--border)] px-5 py-5 sm:px-7">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3.5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-[1_1_20rem] items-start gap-3.5">
             <button
               type="button"
               onClick={onBack}
@@ -151,8 +151,8 @@ export function SshDetail({
             <div className="grid size-12 shrink-0 place-items-center rounded-[13px] border border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--accent-soft)]">
               <KeySquare size={21} />
             </div>
-            <div className="min-w-0">
-              <h2 className="pms-display break-words text-[27px] leading-tight tracking-tight">
+            <div className="min-w-0 flex-1">
+              <h2 className="pms-display break-words text-[23px] leading-tight tracking-tight sm:text-[27px]">
                 {sshKey.name}
               </h2>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -162,7 +162,7 @@ export function SshDetail({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <FavoriteButton kind="ssh" id={sshKey.id} />
             {!android ? (
               <IconButton label="Установить на устройство" onClick={() => setInstallOpen(true)}>
