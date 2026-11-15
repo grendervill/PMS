@@ -262,10 +262,9 @@
   --shadow-float: 0 24px 70px rgb(0 0 0 / 0.6);
 }
 
-/* «Bitwarden» — точная копия оформления веб-приложения Bitwarden:
-   белые карточки на #F7F9FA, синий #175DDC, Inter, радиусы 12/16 px.
-   Значения сняты с https://vault.bitwarden.com (computed styles). */
-[data-theme="bitwarden"] {
+/* «Кобальт» — светлый корпоративный стиль: белые карточки на светлом фоне,
+   синий акцент, Inter, радиусы 12/16 px, тонкие границы. */
+[data-theme="cobalt"] {
   color-scheme: light;
 
   --bg: #f7f9fa;
@@ -281,7 +280,7 @@
 
   --accent: #175ddc;
   --accent-strong: #1a41ac;
-  /* Bitwarden uses the same blue for links in the light theme. */
+  /* В светлой схеме ссылки того же синего, что и кнопки. */
   --accent-soft: #175ddc;
   --on-accent: #ffffff;
   --warning: #8e4000;
@@ -298,4 +297,40 @@
   --radius-lg: 20px;
 
   --shadow-float: 0 10px 30px rgb(168 179 200 / 0.35);
+}
+
+/* «Полночь» — тёмная пара к «Кобальту»: сине-графитовые поверхности,
+   светло-синий акцент с тёмным текстом на кнопках. */
+[data-theme="midnight"] {
+  color-scheme: dark;
+
+  --bg: #121a27;
+  --surface: #202733;
+  --surface-2: #2f343d;
+  --surface-3: #303946;
+  --border: #303946;
+  --border-strong: #525b6a;
+
+  --text: #f3f6f9;
+  --text-soft: #d5dde8;
+  --muted: #8898b5;
+
+  --accent: #65abff;
+  --accent-strong: #aac3ef;
+  --accent-soft: #6baefa;
+  --on-accent: #0f172b;
+  --warning: #ffbf00;
+  --danger: #ff4e63;
+  --seal: #1d2e63;
+
+  --font-ui: "Inter PMS", Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: "Inter PMS", Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --display-weight: 600;
+  --font-mono: Menlo, "SFMono-Regular", Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+
+  --shadow-float: 0 18px 46px rgb(0 0 0 / 0.55);
 }

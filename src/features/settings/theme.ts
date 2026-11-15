@@ -11,7 +11,8 @@ export type ThemeId =
   | "terminal"
   | "linen"
   | "amber"
-  | "bitwarden";
+  | "cobalt"
+  | "midnight";
 
 export type ThemeOption = {
   id: ThemeId;
@@ -73,11 +74,18 @@ export const THEMES: ThemeOption[] = [
     scheme: "dark",
   },
   {
-    id: "bitwarden",
-    label: "Bitwarden",
-    description: "Как в веб-приложении Bitwarden: белые карточки, синий #175DDC, Inter.",
+    id: "cobalt",
+    label: "Кобальт",
+    description: "Светлый корпоративный стиль: белые карточки, синий акцент, Inter.",
     swatch: ["#f7f9fa", "#ffffff", "#175ddc"],
     scheme: "light",
+  },
+  {
+    id: "midnight",
+    label: "Полночь",
+    description: "Тёмная пара к «Кобальту»: сине-графитовые поверхности, светло-синий акцент.",
+    swatch: ["#121a27", "#202733", "#65abff"],
+    scheme: "dark",
   },
 ];
 
