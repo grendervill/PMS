@@ -236,6 +236,55 @@ pub fn verify_challenge(
         .is_ok()
 }
 
+const REGISTER_LABEL: &[u8] = b"PMS-REGISTER-v1";
+/// `label || account (16) || device (16) || BLAKE3(vault)`.
+pub const REGISTER_MESSAGE_LEN: usize = REGISTER_LABEL.len() + 64;
+
+pub fn register_message(
+    account: &AccountId,
+    device: &DeviceId,
+    vault_digest: &[u8; 32],
+) -> [u8; REGISTER_MESSAGE_LEN] {
+    let mut message = [0u8; REGISTER_MESSAGE_LEN];
+    let (label, rest) = message.split_at_mut(REGISTER_LABEL.len());
+    label.copy_from_slice(REGISTER_LABEL);
+    rest[..16].copy_from_slice(account.as_bytes());
+    rest[16..32].copy_from_slice(device.as_bytes());
+    rest[32..].copy_from_slice(vault_digest);
+    message
+}
+
+pub fn sign_register(
+    identity: &Identity,
+    account: &AccountId,
+    device: &DeviceId,
+    vault_digest: &[u8; 32],
+) -> [u8; 64] {
+    use ed25519_dalek::Signer;
+    SigningKey::from_bytes(&identity.secret)
+        .sign(&register_message(account, device, vault_digest))
+        .to_bytes()
+}
+
+pub fn verify_register(
+    public: &[u8; 32],
+    account: &AccountId,
+    device: &DeviceId,
+    vault_digest: &[u8; 32],
+    signature: &[u8; 64],
+) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let Ok(verifying_key) = VerifyingKey::from_bytes(public) else {
+        return false;
+    };
+    verifying_key
+        .verify(
+            &register_message(account, device, vault_digest),
+            &Signature::from_bytes(signature),
+        )
+        .is_ok()
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum IdentityError {
     #[error("мастер-ключ пуст")]
@@ -320,6 +369,27 @@ mod tests {
         assert_eq!(account.to_string().len(), 32);
         assert_eq!(AccountId::from_hex(&account.to_string()), Some(account));
         assert_eq!(AccountId::from_hex("zz"), None);
+    }
+
+    #[test]
+    fn register_signature_binds_account_device_and_vault_digest() {
+        let identity = derive_identity(b"secret", &IdentityKdf::FAST_FOR_TESTS);
+        let account = AccountId::from_public_key(&identity.public);
+        let device = DeviceId::new([1u8; 16]);
+        let digest = *blake3::hash(b"vault-bytes").as_bytes();
+
+        let signature = sign_register(&identity, &account, &device, &digest);
+        assert!(verify_register(&identity.public, &account, &device, &digest, &signature));
+
+        let other = *blake3::hash(b"other-bytes").as_bytes();
+        assert!(!verify_register(&identity.public, &account, &device, &other, &signature));
+        assert!(!verify_register(
+            &identity.public,
+            &account,
+            &DeviceId::new([2u8; 16]),
+            &digest,
+            &signature
+        ));
     }
 
     #[test]

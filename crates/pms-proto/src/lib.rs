@@ -6,6 +6,12 @@
 
 pub mod dto;
 pub mod error;
+
+pub use dto::{
+    BlobInfo, ChallengeRequest, ChallengeResponse, Deleted, Usage, VaultMeta, VerifyRequest,
+    VerifyResponse,
+};
+pub use error::{ErrorCode, WireError};
 pub mod identity;
 
 /// Версия протокола. Несовпадение с сервером — `426 unsupported_protocol`.

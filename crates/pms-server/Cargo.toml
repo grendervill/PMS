@@ -33,6 +33,7 @@ rand = "0.8"
 hex = "0.4"
 zeroize = { version = "1.9", features = ["derive"] }
 subtle = "2"
+tower = { version = "0.5", features = ["limit"] }
 chrono = { version = "0.4", features = ["serde"] }
 mimalloc = { version = "0.1", default-features = false }
 
