@@ -6,7 +6,9 @@
 
 pub mod client;
 pub mod identity;
+pub mod temp;
 pub mod tls;
+pub mod vault;
 
 use pms_proto::dto::VaultMeta;
 use pms_proto::ErrorCode;

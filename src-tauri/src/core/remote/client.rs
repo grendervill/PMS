@@ -4,7 +4,7 @@ use pms_proto::dto::{
     ChallengeRequest, ChallengeResponse, VaultMeta, VerifyRequest, VerifyResponse,
 };
 use pms_proto::identity::{sign_challenge, sign_register, AccountId, DeviceId, Identity};
-use pms_proto::{ErrorCode, WireError, PROTOCOL_VERSION};
+use pms_proto::{WireError, PROTOCOL_VERSION};
 
 use super::tls;
 use super::{RemoteError, RemoteProfile};
@@ -73,7 +73,7 @@ impl RemoteClient {
         Ok(Self { http, base })
     }
 
-    fn endpoint(&self, path: &str) -> Result<url::Url, RemoteError> {
+    pub(crate) fn endpoint(&self, path: &str) -> Result<url::Url, RemoteError> {
         self.base
             .join(path)
             .map_err(|error| RemoteError::BadUrl(error.to_string()))
@@ -135,11 +135,7 @@ impl RemoteClient {
         response.json().await.map_err(unreachable)
     }
 
-    pub async fn login(
-        &self,
-        identity: &Identity,
-        device: DeviceId,
-    ) -> Result<Login, RemoteError> {
+    pub async fn login(&self, identity: &Identity, device: DeviceId) -> Result<Login, RemoteError> {
         let account = AccountId::from_public_key(&identity.public);
 
         let response = self
@@ -246,12 +242,14 @@ pub(crate) async fn error_from_response(response: reqwest::Response) -> RemoteEr
     let code = status.as_u16();
     let body = response.text().await.unwrap_or_default();
 
-    if let Ok(wire) = serde_json::from_str::<WireError>(&body) {
-        if wire.code == ErrorCode::Conflict {
-            if let Ok(meta) = serde_json::from_str::<VaultMeta>(&body) {
-                return RemoteError::Conflict(Box::new(meta));
-            }
+    // На 409 сервер отдаёт сами метаданные сейфа: клиенту нужна версия, чтобы
+    // решить конфликт без второго запроса.
+    if status == reqwest::StatusCode::CONFLICT {
+        if let Ok(meta) = serde_json::from_str::<VaultMeta>(&body) {
+            return RemoteError::Conflict(Box::new(meta));
         }
+    }
+    if let Ok(wire) = serde_json::from_str::<WireError>(&body) {
         return RemoteError::from_wire(wire.code, code, wire.message);
     }
 

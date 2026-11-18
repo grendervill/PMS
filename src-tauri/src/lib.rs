@@ -27,6 +27,7 @@ pub mod testing {
         TotpAlgorithm, VaultData, VaultHeader, VaultSettings,
     };
     pub use crate::core::pms_archive::{export as archive_export, import as archive_import};
+    pub use crate::core::remote::{self, tls as remote_tls, RemoteError, RemoteProfile, TlsPolicy};
     pub use crate::core::share;
     pub use crate::core::totp;
     pub use crate::core::vault::{
@@ -35,7 +36,6 @@ pub mod testing {
     pub use crate::core::vault_file::{
         parse_vault_file, serialize_vault_file, serialize_vault_parts,
     };
-    pub use crate::core::remote::{self, tls as remote_tls, RemoteError, RemoteProfile, TlsPolicy};
 }
 
 use commands::AppState;

@@ -81,8 +81,8 @@ pub fn build_client(profile: &RemoteProfile) -> Result<reqwest::Client, RemoteEr
 /// Нужен ровно один раз на профиль: интерфейс показывает отпечаток человеку и
 /// сохраняет его как pin (доверие по первому подключению).
 pub async fn fetch_spki_sha256(base_url: &str) -> Result<String, RemoteError> {
-    let url = url::Url::parse(base_url.trim())
-        .map_err(|error| RemoteError::BadUrl(error.to_string()))?;
+    let url =
+        url::Url::parse(base_url.trim()).map_err(|error| RemoteError::BadUrl(error.to_string()))?;
     if url.scheme() != "https" {
         return Err(RemoteError::Tls(
             "по http сертификата нет — отпечаток не нужен".to_string(),
@@ -292,7 +292,10 @@ mod tests {
     fn pin_accepts_lowercase_hex_only() {
         let good = "ab".repeat(32);
         assert!(parse_pin(&good).is_ok());
-        assert!(parse_pin(&good.to_uppercase()).is_err(), "верхний регистр не принимаем");
+        assert!(
+            parse_pin(&good.to_uppercase()).is_err(),
+            "верхний регистр не принимаем"
+        );
         assert!(parse_pin("ab").is_err());
         assert!(parse_pin(&"zz".repeat(32)).is_err());
     }

@@ -63,7 +63,10 @@ async fn second_device_logs_in_and_sees_the_same_vault() {
         .await
         .unwrap();
 
-    let phone = client.login(&identity, DeviceId::new([2u8; 16])).await.unwrap();
+    let phone = client
+        .login(&identity, DeviceId::new([2u8; 16]))
+        .await
+        .unwrap();
     let meta = client.vault_meta(phone.token.expose()).await.unwrap();
     assert_eq!(meta.map(|meta| meta.version), Some(1));
 }

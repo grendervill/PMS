@@ -10,10 +10,10 @@ pub mod import_keepass;
 pub mod import_keepass_xml;
 pub mod import_onepux;
 pub mod models;
-pub mod remote;
 #[cfg(test)]
 pub mod perf_audit;
 pub mod pms_archive;
+pub mod remote;
 pub mod session;
 pub mod share;
 pub mod ssh;

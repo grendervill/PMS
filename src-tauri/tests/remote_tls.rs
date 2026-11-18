@@ -61,7 +61,10 @@ async fn system_roots_reject_a_self_signed_server() {
         .get(format!("{}/v1/healthz", server.base_url))
         .send()
         .await;
-    assert!(result.is_err(), "самоподписанный сертификат не должен проходить");
+    assert!(
+        result.is_err(),
+        "самоподписанный сертификат не должен проходить"
+    );
 }
 
 #[tokio::test]

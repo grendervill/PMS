@@ -64,6 +64,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 x509-parser = "0.18"
 pms-proto = { path = "../crates/pms-proto" }
 blake3 = "1"
+tokio = { version = "1", features = ["fs", "io-util", "time"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
 subtle = "2"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
