@@ -103,6 +103,7 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
 pub fn configure_mock<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     configure(builder).invoke_handler(tauri::generate_handler![
         commands::vault::vault_inspect,
+        commands::vault::vault_inspect_raw,
         commands::vault::vault_remember_folder,
         commands::vault::keyfile_kind,
         commands::vault::vault_lock,
@@ -144,10 +145,12 @@ pub fn run() {
     configure(tauri::Builder::default())
         .invoke_handler(tauri::generate_handler![
             commands::vault::vault_inspect,
+            commands::vault::vault_inspect_raw,
             commands::vault::vault_remember_folder,
             commands::vault::keyfile_kind,
             commands::vault::vault_create,
             commands::vault::vault_unlock,
+            commands::vault::vault_unlock_raw,
             commands::vault::vault_save,
             commands::vault::vault_save_to,
             commands::vault::vault_rewrap,

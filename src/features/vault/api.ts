@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fromBase64, toBase64 } from "@/lib/base64";
-import { toBytes } from "@/lib/ipc";
+import { invokeRawBytes, toBytes } from "@/lib/ipc";
+import { isAndroidPlatform } from "@/lib/platform";
 import type {
   KdfProfile,
   UnlockSecret,
@@ -50,6 +51,26 @@ function normalizeError(error: unknown): VaultApiError {
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   try {
     return await invoke<T>(command, args);
+  } catch (error) {
+    throw normalizeError(error);
+  }
+}
+
+/**
+ * Desktop only: the bytes are the whole IPC body, the rest goes in headers.
+ *
+ * Android has no raw bodies, so this must stay behind `!isAndroidPlatform()`.
+ * If a platform still answers `raw_unavailable`, the error is thrown to the
+ * caller instead of being retried with base64 — the base64 command is the
+ * deliberate fallback for Android, not a safety net for a broken assumption.
+ */
+async function callRaw<T>(
+  command: string,
+  bytes: Uint8Array,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  try {
+    return await invokeRawBytes<T>(command, bytes, headers);
   } catch (error) {
     throw normalizeError(error);
   }
@@ -226,6 +247,11 @@ export const vaultApi = {
   },
 
   async inspect(file: Uint8Array): Promise<VaultPublicInfo> {
+    // The file is already in memory (read from disk, or just created/rewrapped),
+    // so desktop can hand the bytes straight to Rust.
+    if (!isAndroidPlatform()) {
+      return callRaw<VaultPublicInfo>("vault_inspect_raw", file);
+    }
     return call<VaultPublicInfo>("vault_inspect", { fileB64: toBase64(file) });
   },
 
@@ -243,6 +269,11 @@ export const vaultApi = {
   },
 
   async unlock(file: Uint8Array, secret: UnlockSecret): Promise<UnlockedVault> {
+    if (!isAndroidPlatform()) {
+      return callRaw<UnlockedVault>("vault_unlock_raw", file, {
+        "x-pms-secret": JSON.stringify(secret),
+      });
+    }
     return call<UnlockedVault>("vault_unlock", {
       fileB64: toBase64(file),
       secret,

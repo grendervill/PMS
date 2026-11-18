@@ -581,6 +581,60 @@ fn every_command_is_registered_and_the_mock_list_is_the_handle_free_subset() {
 }
 
 // ---------------------------------------------------------------------------
+// 1b. Raw-bytes commands
+// ---------------------------------------------------------------------------
+
+/// Both raw commands must be in `generate_handler!`; only the one without an
+/// `AppHandle` can also live in the mock list (the runtime split is described in
+/// `lib.rs`).
+#[test]
+fn raw_vault_commands_are_registered() {
+    let (mock, full) = handler_lists(include_str!("../src/lib.rs"));
+
+    assert!(
+        full.contains(&"vault_unlock_raw".to_string()),
+        "vault_unlock_raw must be registered in run(): {full:?}"
+    );
+    assert!(
+        full.contains(&"vault_inspect_raw".to_string()),
+        "vault_inspect_raw must be registered in run(): {full:?}"
+    );
+    assert!(mock.contains(&"vault_inspect_raw".to_string()));
+    assert!(
+        !mock.contains(&"vault_unlock_raw".to_string()),
+        "vault_unlock_raw takes an AppHandle, so the mock list must not have it"
+    );
+}
+
+/// The mock runtime can only send JSON bodies (raw bodies exist on wry and not
+/// on Android either), so the command has to answer with `raw_unavailable`
+/// instead of panicking on the unexpected `InvokeBody::Json`.
+#[test]
+fn raw_vault_commands_refuse_a_json_body() {
+    let app = app();
+    let webview = window(&app);
+
+    let error =
+        ipc(&webview, "vault_inspect_raw", json!({ "fileB64": "AAAA" })).expect_err("raw only");
+    assert_eq!(
+        code_of(&error),
+        Some("raw_unavailable"),
+        "{}",
+        message_of(&error)
+    );
+
+    // The base64 command is still there next to it, and still validates input.
+    let base64 =
+        ipc(&webview, "vault_inspect", json!({ "fileB64": "AAAA" })).expect_err("not a vault file");
+    assert_eq!(
+        code_of(&base64),
+        Some("truncated"),
+        "{}",
+        message_of(&base64)
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 2. Argument names
 // ---------------------------------------------------------------------------
 

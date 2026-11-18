@@ -163,8 +163,11 @@ pub fn vault_remember_folder(folder: String, state: State<'_, AppState>) -> ApiR
 
 #[tauri::command]
 pub fn vault_inspect(file_b64: String) -> ApiResult<VaultPublicInfo> {
-    let bytes = decode_file(&file_b64)?;
-    let file = parse_vault_file(&bytes)?;
+    inspect_bytes(&decode_file(&file_b64)?)
+}
+
+fn inspect_bytes(bytes: &[u8]) -> ApiResult<VaultPublicInfo> {
+    let file = parse_vault_file(bytes)?;
 
     Ok(VaultPublicInfo {
         vault_id: file.header.vault_id,
@@ -172,8 +175,52 @@ pub fn vault_inspect(file_b64: String) -> ApiResult<VaultPublicInfo> {
         created_at: file.header.created_at,
         cipher: file.header.cipher,
         slot_kinds: file.header.kdf_slots.iter().map(|slot| slot.kind).collect(),
-        file_hash: file_hash(&bytes),
+        file_hash: file_hash(bytes),
     })
+}
+
+/// Header that carries the unlock secret for the raw-bytes commands: their body
+/// is the vault file itself, so the secret cannot travel as an argument.
+///
+/// It is a JSON `UnlockSecretDto`, because a header value is a string and the
+/// secret has three shapes. Never log it: it holds the passphrase.
+const SECRET_HEADER: &str = "x-pms-secret";
+
+fn bad_secret() -> ApiError {
+    ApiError::new("bad_request", "Некорректный секрет разблокировки")
+}
+
+/// Reads and parses `x-pms-secret`. Missing, non-ASCII and malformed values are
+/// all `bad_request` — the renderer never retries with base64 on this code.
+fn secret_from_headers(headers: &tauri::http::HeaderMap) -> ApiResult<UnlockSecretDto> {
+    let value = headers
+        .get(SECRET_HEADER)
+        .ok_or_else(|| ApiError::new("bad_request", "Не передан секрет разблокировки"))?;
+    let text = value.to_str().map_err(|_| bad_secret())?;
+    serde_json::from_str(text).map_err(|_| bad_secret())
+}
+
+/// The raw body of a command invocation.
+///
+/// Android cannot send raw bodies (`InvokeBody::Raw` never arrives there), so
+/// the renderer keeps the base64 commands on that platform; this error is what
+/// it would see if it ever called a raw command anyway.
+fn raw_body(request: &tauri::ipc::Request<'_>) -> ApiResult<Vec<u8>> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            if bytes.len() > MAX_VAULT_FILE_BYTES {
+                return Err(ApiError::new(
+                    "file_too_large",
+                    "Файл хранилища слишком большой",
+                ));
+            }
+            Ok(bytes.clone())
+        }
+        _ => Err(ApiError::new(
+            "raw_unavailable",
+            "Сырые байты не поддерживаются на этой платформе",
+        )),
+    }
 }
 
 #[tauri::command]
@@ -216,6 +263,28 @@ pub async fn vault_unlock(
     secret: UnlockSecretDto,
 ) -> ApiResult<UnlockVaultResponse> {
     let bytes = decode_file(&file_b64)?;
+    unlock_bytes(app, bytes, secret).await
+}
+
+/// Desktop unlock: the file arrives as raw bytes (`invoke(cmd, bytes, { headers
+/// })`) and the secret in the `x-pms-secret` header, so the whole base64 round
+/// trip in the renderer disappears. Android keeps [`vault_unlock`].
+#[tauri::command]
+pub async fn vault_unlock_raw(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> ApiResult<UnlockVaultResponse> {
+    let bytes = raw_body(&request)?;
+    let secret = secret_from_headers(request.headers())?;
+    unlock_bytes(app, bytes, secret).await
+}
+
+/// The shared unlock path of the base64 and the raw command.
+async fn unlock_bytes(
+    app: AppHandle,
+    bytes: Vec<u8>,
+    secret: UnlockSecretDto,
+) -> ApiResult<UnlockVaultResponse> {
     let secret = UnlockSecretInput::try_from(secret)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -242,6 +311,11 @@ pub async fn vault_unlock(
     })
     .await
     .map_err(|error| ApiError::new("vault_unlock", error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn vault_inspect_raw(request: tauri::ipc::Request<'_>) -> ApiResult<VaultPublicInfo> {
+    inspect_bytes(&raw_body(&request)?)
 }
 
 /// Saves the vault and returns the sealed file as raw bytes (`ArrayBuffer` in
@@ -367,6 +441,7 @@ pub fn vault_lock(session_id: Uuid, state: State<'_, AppState>) -> ApiResult<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::http::{HeaderMap, HeaderValue};
 
     #[test]
     fn passphrase_dto_converts() {
@@ -425,5 +500,37 @@ mod tests {
             UnlockSecretInput::try_from(dto).unwrap_err().code,
             "bad_base64"
         );
+    }
+
+    fn headers_with_secret(value: &[u8]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(SECRET_HEADER, HeaderValue::from_bytes(value).unwrap());
+        headers
+    }
+
+    #[test]
+    fn secret_from_headers_parses_the_json_dto() {
+        let headers = headers_with_secret(br#"{"kind":"passphrase","value":"correct horse"}"#);
+        match secret_from_headers(&headers).unwrap() {
+            UnlockSecretDto::Passphrase { value } => assert_eq!(value, "correct horse"),
+            other => panic!("unexpected secret {other:?}"),
+        }
+    }
+
+    #[test]
+    fn secret_from_headers_rejects_missing_and_malformed_values() {
+        let missing = secret_from_headers(&HeaderMap::new()).unwrap_err();
+        assert_eq!(missing.code, "bad_request");
+
+        let garbage = secret_from_headers(&headers_with_secret(b"not json")).unwrap_err();
+        assert_eq!(garbage.code, "bad_request");
+
+        let wrong_shape =
+            secret_from_headers(&headers_with_secret(br#"{"kind":"nope"}"#)).unwrap_err();
+        assert_eq!(wrong_shape.code, "bad_request");
+
+        // A non-ASCII byte cannot be turned into a `&str`.
+        let binary = secret_from_headers(&headers_with_secret(&[0xff, 0xfe])).unwrap_err();
+        assert_eq!(binary.code, "bad_request");
     }
 }

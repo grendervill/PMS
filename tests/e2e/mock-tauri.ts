@@ -142,7 +142,19 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
       return state.vault;
     };
 
-    const invoke = async (command: string, args: Record<string, unknown> = {}) => {
+    const invoke = async (
+      command: string,
+      args: Record<string, unknown> = {},
+      options: { headers?: Record<string, string> } = {},
+    ) => {
+      /** The raw commands carry the unlock secret in `x-pms-secret`. */
+      const headerSecret = () => {
+        const raw = options.headers?.["x-pms-secret"];
+        if (typeof raw !== "string") {
+          throw { code: "bad_request", message: "Не передан секрет разблокировки" };
+        }
+        return JSON.parse(raw) as { kind: string; value?: string; bytesB64?: string };
+      };
       const paths = args.paths as string[];
       const text = args.text as string | undefined;
       const value = args.value as string | undefined;
@@ -241,7 +253,8 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
           const w = window as unknown as { __E2E_KEYFILE_KIND__?: string };
           return w.__E2E_KEYFILE_KIND__ ?? "file";
         }
-        case "vault_inspect": {
+        case "vault_inspect":
+        case "vault_inspect_raw": {
           const vault = requireVault();
           return {
             vaultId: vault.data.id,
@@ -252,7 +265,14 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
             fileHash: "hash",
           };
         }
-        case "vault_unlock": {
+        case "vault_unlock":
+        case "vault_unlock_raw": {
+          // `vault_unlock_raw` sends the file as the body and the secret in a
+          // header; the mock does not need the bytes.
+          const secret =
+            command === "vault_unlock_raw"
+              ? (headerSecret() as { kind: string; value?: string; bytesB64?: string })
+              : (args.secret as { kind: string; value?: string; bytesB64?: string });
           const vault = requireVault();
           const keyfile = (secret as { bytesB64?: string }).bytesB64 ?? null;
           const passOk =
