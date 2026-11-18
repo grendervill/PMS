@@ -4,6 +4,7 @@
 //! запросы — короткие обращения к индексу, а потоковые операции с байтами идут
 //! мимо него и не держат блокировку.
 
+pub mod blobs;
 pub mod paths;
 pub mod sqlite;
 pub mod vault;
@@ -271,6 +272,10 @@ pub enum StoreError {
     Truncated { expected: u64, got: u64 },
     #[error("BLAKE3 не совпал с заявленным")]
     DigestMismatch,
+    #[error("недопустимый идентификатор блоба")]
+    BadBlobId,
+    #[error("недопустимый BLAKE3-дайджест")]
+    BadDigest,
 }
 
 #[cfg(test)]
