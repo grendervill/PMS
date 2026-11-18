@@ -7,6 +7,7 @@
 pub mod blobs;
 pub mod paths;
 pub mod sqlite;
+pub mod state;
 pub mod vault;
 
 use std::collections::{HashMap, HashSet};
