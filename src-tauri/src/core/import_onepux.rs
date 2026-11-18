@@ -74,7 +74,10 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
 
 /// Parses a bare `export.data` (the 1PUX container is a zip, but the same JSON
 /// can be imported on its own).
-pub fn parse_json(data: &[u8], files: &HashMap<String, Vec<u8>>) -> Result<ImportBundle<'static>, VaultError> {
+pub fn parse_json(
+    data: &[u8],
+    files: &HashMap<String, Vec<u8>>,
+) -> Result<ImportBundle<'static>, VaultError> {
     let root: Value = serde_json::from_slice(data).map_err(|_| VaultError::ImportCorrupt)?;
     let accounts = root
         .get("accounts")
@@ -191,8 +194,9 @@ pub fn parse_json(data: &[u8], files: &HashMap<String, Vec<u8>>) -> Result<Impor
                         if let Some(attachment) = attachment(files, &document_id, &file_name) {
                             entry.attachments.push(attachment);
                         } else {
-                            warnings
-                                .push(Cow::Owned(format!("{name}: файл «{file_name}» отсутствует")));
+                            warnings.push(Cow::Owned(format!(
+                                "{name}: файл «{file_name}» отсутствует"
+                            )));
                         }
                     }
                     entry.kind = Cow::Borrowed("note");

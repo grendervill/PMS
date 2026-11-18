@@ -14,9 +14,11 @@ pub async fn import_parse(
     password: Option<String>,
     keyfile_b64: Option<String>,
 ) -> ApiResult<Response> {
-    tauri::async_runtime::spawn_blocking(move || import_parse_blocking(file_b64, password, keyfile_b64))
-        .await
-        .map_err(|error| ApiError::new("import_parse", error.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        import_parse_blocking(file_b64, password, keyfile_b64)
+    })
+    .await
+    .map_err(|error| ApiError::new("import_parse", error.to_string()))?
 }
 
 const MAX_IMPORT_BYTES: usize = 500 * 1024 * 1024;

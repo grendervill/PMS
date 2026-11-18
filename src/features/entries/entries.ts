@@ -1,4 +1,4 @@
-import type { Entry, HistoryItem, TotpConfig } from "@/features/vault/types";
+import type { Entry, HistoryItem, PasswordPolicy, TotpConfig } from "@/features/vault/types";
 
 export type EntryDraft = {
   name: string;
@@ -10,6 +10,8 @@ export type EntryDraft = {
   sshKeyIds: string[];
   totp: TotpConfig | null;
   totpRaw: string;
+  /** The site's password rules; absent when none are known. */
+  policy?: PasswordPolicy;
 };
 
 export type UpdateEntryResult = {
@@ -53,6 +55,7 @@ export function normalizeEntryDraft(value?: LegacyEntryDraft | null): EntryDraft
     sshKeyIds: value?.sshKeyIds ?? [],
     totp: value?.totp ?? null,
     totpRaw: value?.totpRaw ?? value?.totp?.secret ?? "",
+    policy: value?.policy ?? undefined,
   };
 }
 
@@ -67,13 +70,11 @@ export function entryToDraft(entry: Entry): EntryDraft {
     sshKeyIds: [...entry.sshKeyIds],
     totp: entry.totp ?? null,
     totpRaw: entry.totp?.secret ?? "",
+    policy: entry.policy ?? undefined,
   };
 }
 
-export function createEntry(
-  draft: EntryDraft,
-  now = new Date().toISOString(),
-): Entry {
+export function createEntry(draft: EntryDraft, now = new Date().toISOString()): Entry {
   const urls = normalizeUrlList(draft.urls);
   return {
     id: crypto.randomUUID(),
@@ -86,6 +87,7 @@ export function createEntry(
     urls,
     comment: draft.comment,
     totp: draft.totp,
+    policy: draft.policy,
     attachmentIds: [...draft.attachmentIds],
     sshKeyIds: [...draft.sshKeyIds],
     loginHistory: [],
@@ -129,6 +131,7 @@ export function updateEntry(
       urls,
       comment: draft.comment,
       totp: draft.totp,
+      policy: draft.policy,
       attachmentIds: [...draft.attachmentIds],
       sshKeyIds: [...draft.sshKeyIds],
       loginHistory,
@@ -175,8 +178,7 @@ export function findDuplicatePasswords(
 ): Entry[] {
   if (!password) return [];
   return entries.filter(
-    (entry) =>
-      entry.id !== excludeId && entry.password.length > 0 && entry.password === password,
+    (entry) => entry.id !== excludeId && entry.password.length > 0 && entry.password === password,
   );
 }
 
@@ -212,11 +214,7 @@ export function sortEntries(entries: Entry[], mode: SortMode): Entry[] {
   });
 }
 
-function pushHistory(
-  history: HistoryItem[],
-  value: string,
-  now: string,
-): HistoryItem[] {
+function pushHistory(history: HistoryItem[], value: string, now: string): HistoryItem[] {
   const next = history.filter((item) => item.value !== value);
   return [{ value, changedAt: now }, ...next].slice(0, HISTORY_LIMIT);
 }

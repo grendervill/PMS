@@ -1,10 +1,45 @@
+import { ShieldCheck } from "lucide-react";
 import { useRef, type PointerEvent } from "react";
 import type { Entry } from "@/features/vault/types";
 import { entryUrls, hostFromUrl } from "@/features/entries/entries";
+import { passwordNeedsRotation } from "@/features/entries/passwordAge";
 import { EntryFavicon } from "@/features/entries/EntryFavicon";
 import type { CardLayout } from "@/features/entries/cardLayout";
 import { cn } from "@/lib/cn";
 import "./EntryCard.css";
+
+/**
+ * Two quiet marks: the site has password rules, and the password has not been
+ * changed in six months. Both explain themselves through the accessible name.
+ */
+function EntryMarks({ entry, className }: { entry: Entry; className?: string }) {
+  const hasPolicy = Boolean(entry.policy);
+  const stale = passwordNeedsRotation(entry);
+  if (!hasPolicy && !stale) return null;
+
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1", className)}>
+      {hasPolicy ? (
+        <span
+          role="img"
+          aria-label="Заданы правила пароля"
+          title="Заданы правила пароля сайта"
+          className="inline-flex text-[var(--muted)]"
+        >
+          <ShieldCheck size={11} />
+        </span>
+      ) : null}
+      {stale ? (
+        <span
+          role="img"
+          aria-label="Пароль старше 180 дней"
+          title="Пароль не менялся больше 180 дней"
+          className="inline-block size-1.5 rounded-full bg-[var(--warning)]"
+        />
+      ) : null}
+    </span>
+  );
+}
 
 export function EntryCard({
   entry,
@@ -62,6 +97,7 @@ export function EntryCard({
               {primaryUrl}
             </span>
           ) : null}
+          <EntryMarks entry={entry} className="relative z-[1] mt-1" />
         </span>
 
         {entry.login || entry.password ? (
@@ -106,6 +142,7 @@ export function EntryCard({
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--text-soft)]">
           {entry.name}
         </span>
+        <EntryMarks entry={entry} />
       </button>
     );
   }
@@ -132,6 +169,7 @@ export function EntryCard({
           {entry.comment}
         </span>
       </span>
+      <EntryMarks entry={entry} className="self-center" />
     </button>
   );
 }

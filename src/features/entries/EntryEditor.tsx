@@ -1,4 +1,13 @@
-import { AlertTriangle, Loader2, Lock, QrCode, Save, ShieldCheck, Wand2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  Loader2,
+  Lock,
+  QrCode,
+  Save,
+  ShieldCheck,
+  Wand2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -24,10 +33,32 @@ import {
   normalizeEntryDraft,
   type EntryDraft,
 } from "@/features/entries/entries";
+import {
+  emptyPasswordPolicy,
+  normalizePasswordPolicy,
+  passwordPolicyError,
+  passwordPolicySummary,
+} from "@/features/entries/passwordPolicy";
 import { useEditorDraftStore } from "@/features/entries/draftRegistry";
 import { useVaultStore } from "@/features/vault/store";
-import type { Entry, TotpConfig } from "@/features/vault/types";
+import type { Entry, PasswordPolicy, TotpConfig } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
+
+const POLICY_REQUIREMENTS: {
+  key: "requireLowercase" | "requireUppercase" | "requireDigits" | "requireSymbols";
+  label: string;
+}[] = [
+  { key: "requireLowercase", label: "Строчные буквы" },
+  { key: "requireUppercase", label: "Заглавные буквы" },
+  { key: "requireDigits", label: "Цифры" },
+  { key: "requireSymbols", label: "Спецсимволы" },
+];
+
+const MAX_FORBIDDEN_CHARS = 64;
+
+function isPolicyEmpty(policy: PasswordPolicy): boolean {
+  return normalizePasswordPolicy(policy) === undefined;
+}
 
 export function EntryEditor({
   entry,
@@ -72,6 +103,8 @@ export function EntryEditor({
   const [generatorMode, setGeneratorMode] = useState<"password" | "login" | null>(null);
   const [totpError, setTotpError] = useState<string | null>(null);
   const [totpScannerOpen, setTotpScannerOpen] = useState(false);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [policyOpen, setPolicyOpen] = useState(() => Boolean(initialDraftValue.policy));
 
   const duplicates = useMemo(
     () => findDuplicatePasswords(data?.entries ?? [], draft.password, entry?.id),
@@ -98,6 +131,17 @@ export function EntryEditor({
   const update = <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
     if (key === "name") setNameError(null);
+    setBlockedError(null);
+  };
+
+  const policy = draft.policy;
+  const policySummary = policy ? passwordPolicySummary(policy) : "";
+
+  /** Every policy field is optional: an empty one just means "not set". */
+  const updatePolicy = <K extends keyof PasswordPolicy>(key: K, value: PasswordPolicy[K]) => {
+    const base = draft.policy ?? emptyPasswordPolicy();
+    setDraft((current) => ({ ...current, policy: { ...base, [key]: value } }));
+    setPolicyError(null);
     setBlockedError(null);
   };
 
@@ -167,6 +211,20 @@ export function EntryEditor({
     setSaving(true);
     setBlockedError(null);
     try {
+      if (draft.policy) {
+        const problem = passwordPolicyError({
+          ...emptyPasswordPolicy(),
+          ...draft.policy,
+          minLength: Number(draft.policy.minLength) || 0,
+          maxLength: Number(draft.policy.maxLength) || 0,
+        });
+        if (problem) {
+          setPolicyError(problem);
+          setPolicyOpen(true);
+          return;
+        }
+      }
+
       let payload = draft;
       if (!draft.totpRaw.trim()) {
         payload = { ...draft, totp: null };
@@ -175,6 +233,8 @@ export function EntryEditor({
         if (!config) return;
         payload = { ...draft, totp: config };
       }
+      // A policy with nothing filled in is not stored at all.
+      payload = { ...payload, policy: normalizePasswordPolicy(payload.policy) };
 
       if (entry) {
         const result = await updateEntry(entry.id, payload);
@@ -220,12 +280,7 @@ export function EntryEditor({
       footer={
         <>
           {onRequestLock ? (
-            <Button
-              variant="ghost"
-              onClick={onRequestLock}
-              disabled={saving}
-              className="mr-auto"
-            >
+            <Button variant="ghost" onClick={onRequestLock} disabled={saving} className="mr-auto">
               <Lock size={14} />
               Заблокировать
             </Button>
@@ -251,10 +306,7 @@ export function EntryEditor({
           />
         </Field>
 
-        <UrlListInput
-          urls={draft.urls}
-          onChange={(urls) => update("urls", urls)}
-        />
+        <UrlListInput urls={draft.urls} onChange={(urls) => update("urls", urls)} />
 
         <Field
           label="TOTP"
@@ -406,6 +458,126 @@ export function EntryEditor({
           </p>
         ) : null}
 
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)]">
+          <button
+            type="button"
+            onClick={() => setPolicyOpen((open) => !open)}
+            aria-expanded={policyOpen}
+            aria-controls="entry-policy-fields"
+            className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[var(--radius-md)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-2)]/60"
+          >
+            <ShieldCheck size={14} className="shrink-0 text-[var(--muted)]" />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-[12px] text-[var(--text-soft)]">
+                Правила пароля на сайте
+              </span>
+              <span className="truncate text-[10.5px] text-[var(--muted)]">
+                {policySummary || "не заданы"}
+              </span>
+            </span>
+            <ChevronDown
+              size={14}
+              className={cn(
+                "shrink-0 text-[var(--muted)] transition-transform",
+                policyOpen && "rotate-180",
+              )}
+            />
+          </button>
+
+          {policyOpen ? (
+            <div
+              id="entry-policy-fields"
+              className="grid gap-3 border-t border-[var(--border)] px-3 py-3"
+            >
+              <p className="text-[10.5px] leading-relaxed text-[var(--muted)]">
+                Пригодится генератору: длина и обязательные наборы подставятся сами. Пустые поля
+                означают «без ограничений».
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Минимальная длина" htmlFor="entry-policy-min">
+                  <Input
+                    id="entry-policy-min"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={128}
+                    value={policy?.minLength ? String(policy.minLength) : ""}
+                    onChange={(event) => updatePolicy("minLength", Number(event.target.value) || 0)}
+                    placeholder="Не задано"
+                    className="h-9 text-[12.5px]"
+                  />
+                </Field>
+                <Field label="Максимальная длина" htmlFor="entry-policy-max">
+                  <Input
+                    id="entry-policy-max"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={128}
+                    value={policy?.maxLength ? String(policy.maxLength) : ""}
+                    onChange={(event) => updatePolicy("maxLength", Number(event.target.value) || 0)}
+                    placeholder="Не задано"
+                    className="h-9 text-[12.5px]"
+                  />
+                </Field>
+              </div>
+
+              <fieldset className="grid gap-1.5">
+                <legend className="mb-1 text-[11px] text-[var(--muted)]">Что требует сайт</legend>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {POLICY_REQUIREMENTS.map((requirement) => (
+                    <label
+                      key={requirement.key}
+                      className="flex cursor-pointer items-center gap-2 text-[11.5px] text-[var(--text-soft)]"
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-3.5 shrink-0 accent-[var(--accent)]"
+                        checked={Boolean(policy?.[requirement.key])}
+                        onChange={(event) => updatePolicy(requirement.key, event.target.checked)}
+                      />
+                      {requirement.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <Field
+                label="Запрещённые символы"
+                htmlFor="entry-policy-forbidden"
+                hint="Символы, которые сайт не принимает: исключаются из генерации."
+                error={policyError ?? undefined}
+              >
+                <Input
+                  id="entry-policy-forbidden"
+                  value={policy?.forbiddenChars ?? ""}
+                  onChange={(event) => updatePolicy("forbiddenChars", event.target.value)}
+                  maxLength={MAX_FORBIDDEN_CHARS}
+                  placeholder='Например, &lt;&gt;"'
+                  className="h-9 font-mono text-[12.5px]"
+                  autoComplete="off"
+                />
+              </Field>
+
+              {policy && !isPolicyEmpty(policy) ? (
+                <div className="flex items-center justify-end border-t border-[var(--border)] pt-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setDraft((current) => ({ ...current, policy: undefined }));
+                      setPolicyError(null);
+                    }}
+                  >
+                    Сбросить правила
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <Field label="Комментарий" htmlFor="entry-comment">
           <Textarea
             id="entry-comment"
@@ -459,6 +631,7 @@ export function EntryEditor({
         <GeneratorDialog
           key={generatorMode}
           mode={generatorMode}
+          policy={generatorMode === "password" ? normalizePasswordPolicy(draft.policy) : null}
           open
           onOpenChange={(open) => {
             if (!open) setGeneratorMode(null);

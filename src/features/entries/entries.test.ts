@@ -192,9 +192,7 @@ describe("entries", () => {
       "GitHub",
       "GitLab",
     ]);
-    expect(searchEntries([first, second], "РАБОЧ").map((item) => item.name)).toEqual([
-      "GitLab",
-    ]);
+    expect(searchEntries([first, second], "РАБОЧ").map((item) => item.name)).toEqual(["GitLab"]);
     expect(searchEntries([first, second], "gist.github").map((item) => item.name)).toEqual([
       "GitHub",
     ]);
@@ -237,5 +235,40 @@ describe("entries", () => {
     const second = entry({ id: "b" });
 
     expect(removeEntry([first, second], "a")).toEqual([second]);
+  });
+});
+
+describe("entry password policy", () => {
+  const policy = {
+    minLength: 12,
+    maxLength: 20,
+    requireLowercase: true,
+    requireUppercase: false,
+    requireDigits: true,
+    requireSymbols: false,
+    forbiddenChars: "<>",
+  };
+
+  it("rides along on create, draft and update", () => {
+    const created = createEntry(draft({ policy }), now);
+    expect(created.policy).toEqual(policy);
+
+    expect(entryToDraft(created).policy).toEqual(policy);
+    expect(normalizeEntryDraft(entryToDraft(created)).policy).toEqual(policy);
+
+    const updated = updateEntry(created, draft({ policy: undefined }), now);
+    expect(updated.entry.policy).toBeUndefined();
+  });
+
+  it("is absent for an entry created without rules", () => {
+    const created = createEntry(draft(), now);
+    expect(created.policy).toBeUndefined();
+    expect(entryToDraft(created).policy).toBeUndefined();
+  });
+
+  it("survives normalizing a draft that carries no rules at all", () => {
+    const withoutPolicy = entryToDraft(entry({ policy }));
+    delete withoutPolicy.policy;
+    expect(normalizeEntryDraft(withoutPolicy).policy).toBeUndefined();
   });
 });

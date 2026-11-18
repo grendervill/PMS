@@ -4,8 +4,8 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use atomicwrites::{AllowOverwrite, AtomicFile};
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use serde::Serialize;
 use tauri::State;
 
@@ -47,9 +47,7 @@ fn storage_error(message: impl std::fmt::Display) -> ApiError {
 }
 
 fn decode_b64(value: &str) -> ApiResult<Vec<u8>> {
-    STANDARD
-        .decode(value)
-        .map_err(|_| ApiError::bad_base64())
+    STANDARD.decode(value).map_err(|_| ApiError::bad_base64())
 }
 
 fn checked_mode(mode: Option<u32>) -> ApiResult<Option<u32>> {
@@ -67,8 +65,7 @@ fn set_mode(path: &Path, mode: Option<u32>) -> ApiResult<()> {
     #[cfg(unix)]
     if let Some(mode) = mode {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))
-            .map_err(storage_error)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(storage_error)?;
     }
     #[cfg(not(unix))]
     let _ = (path, mode);
@@ -154,11 +151,7 @@ pub fn storage_exists(path: String, state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn storage_mkdir(
-    path: String,
-    mode: Option<u32>,
-    state: State<'_, AppState>,
-) -> ApiResult<()> {
+pub fn storage_mkdir(path: String, mode: Option<u32>, state: State<'_, AppState>) -> ApiResult<()> {
     let path = state.fs_scope.resolve(&path, Access::Write)?;
     let mode = checked_mode(mode)?;
     mkdir_at(&path, mode)
@@ -180,10 +173,7 @@ pub fn storage_stat(path: String, state: State<'_, AppState>) -> ApiResult<FileS
 }
 
 #[tauri::command]
-pub fn storage_list_dir(
-    path: String,
-    state: State<'_, AppState>,
-) -> ApiResult<Vec<DirEntryInfo>> {
+pub fn storage_list_dir(path: String, state: State<'_, AppState>) -> ApiResult<Vec<DirEntryInfo>> {
     let path = state.fs_scope.resolve(&path, Access::Read)?;
     list_dir_at(&path)
 }

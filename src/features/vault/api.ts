@@ -18,6 +18,8 @@ import type {
   LoginOptions,
   PassphraseOptions,
   PasswordOptions,
+  PinOptions,
+  PronounceableOptions,
   WordlistInfo,
 } from "@/features/generator/types";
 
@@ -290,6 +292,22 @@ export const vaultApi = {
 
   async generatePassphrase(options: PassphraseOptions): Promise<string> {
     return call<string>("generate_passphrase", { options });
+  },
+
+  async generatePin(options: PinOptions): Promise<string> {
+    return call<string>("generate_pin", { options });
+  },
+
+  async generatePronounceable(options: PronounceableOptions): Promise<string> {
+    return call<string>("generate_pronounceable", { options });
+  },
+
+  /**
+   * k-anonymity breach check: only the first 5 hex characters of the SHA-1
+   * digest leave the device. Returns the number of known breaches (0 = clean).
+   */
+  async breachCount(password: string): Promise<number> {
+    return call<number>("password_breach_count", { password });
   },
 
   async generatorWordlist(): Promise<WordlistInfo> {

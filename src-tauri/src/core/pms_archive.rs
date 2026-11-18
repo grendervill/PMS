@@ -178,8 +178,7 @@ fn read_vault_identity(folder: &Path) -> Result<(String, String), VaultError> {
     if &fixed[..5] != MAGIC {
         return Ok(empty);
     }
-    let header_len =
-        u32::from_le_bytes([fixed[5], fixed[6], fixed[7], fixed[8]]) as usize;
+    let header_len = u32::from_le_bytes([fixed[5], fixed[6], fixed[7], fixed[8]]) as usize;
     if header_len == 0 || header_len > MAX_HEADER_LEN {
         return Ok(empty);
     }

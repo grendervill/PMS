@@ -116,9 +116,7 @@ describe("EntryDetail", () => {
     expect(toggleFavorite).toHaveBeenCalledWith("entry", entry.id);
 
     await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Добавить TOTP в избранное" }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Добавить TOTP в избранное" }));
     });
     expect(toggleFavorite).toHaveBeenCalledWith("totp", entry.id);
   });
@@ -161,4 +159,54 @@ it("opens a linked SSH key from its name and menu", () => {
   fireEvent.click(screen.getByRole("button", { name: "Действия с ключом GitHub key" }));
   fireEvent.click(screen.getByRole("button", { name: "Открыть ключ в SSH" }));
   expect(onOpenSshKey).toHaveBeenCalledTimes(2);
+});
+
+describe("password rotation reminder", () => {
+  const DAY = 86_400_000;
+  const stale: Entry = {
+    ...entry,
+    password: "s3cret",
+    updatedAt: new Date(Date.now() - 214 * DAY).toISOString(),
+  };
+
+  it("asks for a new password once it is older than 180 days", () => {
+    renderDetail(stale);
+
+    expect(
+      screen.getByText("Пароль не менялся 214 дней — сгенерировать новый?"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Сгенерировать/ })).toBeInTheDocument();
+  });
+
+  it("says nothing about rotation for a fresh password", () => {
+    renderDetail({ ...entry, updatedAt: new Date().toISOString() });
+
+    expect(screen.queryByText(/Пароль не менялся/)).not.toBeInTheDocument();
+  });
+
+  it("opens the generator with the rules of the site already applied", () => {
+    const withPolicy: Entry = {
+      ...stale,
+      policy: {
+        minLength: 12,
+        maxLength: 20,
+        requireLowercase: true,
+        requireUppercase: false,
+        requireDigits: true,
+        requireSymbols: false,
+        forbiddenChars: "<>",
+      },
+    };
+    renderDetail(withPolicy);
+
+    expect(screen.getByText("Правила сайта")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Сгенерировать/ }));
+
+    expect(screen.getByRole("dialog", { name: /Генератор пароля/ })).toBeInTheDocument();
+    expect(screen.getByTestId("generator-policy-note")).toHaveTextContent(
+      "Учтены правила сайта: длина 12–20",
+    );
+    expect(screen.getByLabelText("Исключить символы")).toHaveValue("<>");
+  });
 });

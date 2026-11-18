@@ -284,8 +284,7 @@ mod tests {
         let dir = base.path().join(".ssh");
         fs::create_dir(&dir).unwrap();
         let (private_key, public_key) = generated();
-        let installed = install_into(&dir, "id_ed25519", &private_key, &public_key, false)
-        .unwrap();
+        let installed = install_into(&dir, "id_ed25519", &private_key, &public_key, false).unwrap();
 
         assert_eq!(installed.private_mode, 0o600);
         assert_eq!(installed.public_mode, 0o644);
@@ -300,8 +299,7 @@ mod tests {
             0o600
         );
 
-        let status = check_at(&dir, "id_ed25519")
-        .unwrap();
+        let status = check_at(&dir, "id_ed25519").unwrap();
         assert!(status.ok);
     }
 
@@ -312,8 +310,8 @@ mod tests {
         for name in ["../escape", "a/b", "", ".."] {
             assert_eq!(
                 install_into(dir.path(), name, &private_key, &public_key, false)
-                .unwrap_err()
-                .code,
+                    .unwrap_err()
+                    .code,
                 "invalid_ssh_name"
             );
         }

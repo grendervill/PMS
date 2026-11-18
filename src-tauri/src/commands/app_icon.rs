@@ -40,16 +40,16 @@ pub fn app_icon_set(icon: AppIcon, app: AppHandle) -> ApiResult<()> {
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use objc2::{AnyThread, MainThreadMarker};
     use objc2::rc::Retained;
+    use objc2::{AnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
 
     pub fn set(bytes: &'static [u8]) -> Result<(), String> {
         let marker = MainThreadMarker::new().ok_or("app icon requires the main thread")?;
         let data = NSData::with_bytes(bytes);
-        let image: Retained<NSImage> = NSImage::initWithData(NSImage::alloc(), &data)
-            .ok_or("could not decode app icon")?;
+        let image: Retained<NSImage> =
+            NSImage::initWithData(NSImage::alloc(), &data).ok_or("could not decode app icon")?;
         let application = NSApplication::sharedApplication(marker);
         unsafe { application.setApplicationIconImage(Some(&image)) };
         Ok(())

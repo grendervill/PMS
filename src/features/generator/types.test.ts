@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   clampMinimums,
+  clampPinLength,
+  clampPronounceableLength,
   DEFAULT_PASSPHRASE_OPTIONS,
+  DEFAULT_PIN_OPTIONS,
+  DEFAULT_PRONOUNCEABLE_OPTIONS,
   defaultLoginOptions,
   defaultPasswordOptions,
   hasSelectedCharset,
@@ -12,6 +16,10 @@ import {
   PASSWORD_LENGTH_PRESETS,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  PIN_MAX_LENGTH,
+  PIN_MIN_LENGTH,
+  PRONOUNCEABLE_MAX_LENGTH,
+  PRONOUNCEABLE_MIN_LENGTH,
 } from "./types";
 
 describe("generator options", () => {
@@ -42,6 +50,21 @@ describe("generator options", () => {
       numberPosition: "end",
       wordlist: "eff",
     });
+
+    expect(DEFAULT_PIN_OPTIONS).toEqual({ length: 6, excludeRepeats: true });
+    expect(DEFAULT_PRONOUNCEABLE_OPTIONS).toEqual({ length: 16, capitalize: false });
+  });
+
+  it("clamps the PIN and readable lengths to the accepted ranges", () => {
+    expect(clampPinLength(0)).toBe(PIN_MIN_LENGTH);
+    expect(clampPinLength(3)).toBe(PIN_MIN_LENGTH);
+    expect(clampPinLength(6)).toBe(6);
+    expect(clampPinLength(13)).toBe(PIN_MAX_LENGTH);
+    expect(clampPinLength(Number.NaN)).toBe(PIN_MIN_LENGTH);
+
+    expect(clampPronounceableLength(7)).toBe(PRONOUNCEABLE_MIN_LENGTH);
+    expect(clampPronounceableLength(16)).toBe(16);
+    expect(clampPronounceableLength(65)).toBe(PRONOUNCEABLE_MAX_LENGTH);
   });
 
   it("keeps the minimums inside what the backend accepts", () => {

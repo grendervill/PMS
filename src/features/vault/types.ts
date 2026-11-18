@@ -8,6 +8,20 @@ export type HistoryItem = {
   changedAt: string;
 };
 
+/** What a site accepts for its password. Mirrors `PasswordPolicy` in `core/models.rs`. */
+export type PasswordPolicy = {
+  /** 0 = not set. */
+  minLength: number;
+  /** 0 = not set. */
+  maxLength: number;
+  requireLowercase: boolean;
+  requireUppercase: boolean;
+  requireDigits: boolean;
+  requireSymbols: boolean;
+  /** Characters the site rejects. */
+  forbiddenChars: string;
+};
+
 export type TotpConfig = {
   secret: string;
   algorithm: "SHA1" | "SHA256" | "SHA512";
@@ -32,6 +46,8 @@ export type Entry = {
   sshKeyIds: string[];
   loginHistory: HistoryItem[];
   passwordHistory: HistoryItem[];
+  /** Absent when the site has no known rules. */
+  policy?: PasswordPolicy | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -54,13 +70,7 @@ export type SshKey = {
 
 export type SshKeyType = SshKey["type"];
 
-export type CardImagePreset =
-  | "emerald"
-  | "graphite"
-  | "midnight"
-  | "oxblood"
-  | "sand"
-  | "copper";
+export type CardImagePreset = "emerald" | "graphite" | "midnight" | "oxblood" | "sand" | "copper";
 
 export type BankCard = {
   id: string;
@@ -79,10 +89,7 @@ export type BankCard = {
   updatedAt: string;
 };
 
-export type BankCardDraft = Omit<
-  BankCard,
-  "id" | "schemaVersion" | "createdAt" | "updatedAt"
->;
+export type BankCardDraft = Omit<BankCard, "id" | "schemaVersion" | "createdAt" | "updatedAt">;
 
 export type DocumentKind = "passport" | "snils" | "driver-license";
 export type PassportKind = "main" | "foreign";
@@ -108,10 +115,7 @@ export type VaultDocument = {
   updatedAt: string;
 };
 
-export type DocumentDraft = Omit<
-  VaultDocument,
-  "id" | "schemaVersion" | "createdAt" | "updatedAt"
->;
+export type DocumentDraft = Omit<VaultDocument, "id" | "schemaVersion" | "createdAt" | "updatedAt">;
 
 export type AttachmentMeta = {
   id: string;

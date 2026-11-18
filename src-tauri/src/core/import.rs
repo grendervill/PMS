@@ -70,7 +70,11 @@ impl<'a> ImportBundle<'a> {
     pub fn into_owned(self) -> ImportBundle<'static> {
         ImportBundle {
             format: Cow::Owned(self.format.into_owned()),
-            items: self.items.into_iter().map(ImportedItem::into_owned).collect(),
+            items: self
+                .items
+                .into_iter()
+                .map(ImportedItem::into_owned)
+                .collect(),
             warnings: self
                 .warnings
                 .into_iter()
@@ -424,9 +428,7 @@ pub fn parse<'a>(
             }
             // The JSON lives in the archive, so it is a temporary buffer:
             // detach the result from it.
-            return Ok(
-                super::import_bitwarden::parse(&data, password, &attachments)?.into_owned(),
-            );
+            return Ok(super::import_bitwarden::parse(&data, password, &attachments)?.into_owned());
         }
         return Err(VaultError::ImportUnsupported);
     }

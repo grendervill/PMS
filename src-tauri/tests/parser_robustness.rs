@@ -15,7 +15,7 @@
 //! `cargo fuzz` (nightly) with a corpus built from `tests/fixtures`; see
 //! `docs/reports/2026-11-19-security-audit-2.md`.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use pms_lib::testing::{import, parse_vault_file, share, totp};
@@ -117,7 +117,10 @@ fn vault_file_parser_survives_mutations() {
         None,
         None,
     );
-    assert!(data.is_err(), "an empty Bitwarden export is corrupt, not a vault");
+    assert!(
+        data.is_err(),
+        "an empty Bitwarden export is corrupt, not a vault"
+    );
 
     let (file, _session, _data) = pms_lib::testing::create_vault(
         &pms_lib::testing::CreateVaultConfig {
@@ -231,7 +234,8 @@ fn qr_and_totp_parsers_survive_mutations() {
         });
     }
 
-    let uri = "otpauth://totp/Example:alex?secret=JBSWY3DPEHPK3PXP&issuer=Example&digits=6&period=30";
+    let uri =
+        "otpauth://totp/Example:alex?secret=JBSWY3DPEHPK3PXP&issuer=Example&digits=6&period=30";
     must_not_panic("totp(uri)", uri.as_bytes(), || totp::inspect(uri));
     for (index, input) in mutations(uri.as_bytes(), 300, 0xbbbb_cccc)
         .into_iter()

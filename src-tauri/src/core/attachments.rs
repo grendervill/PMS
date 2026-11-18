@@ -1,5 +1,5 @@
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use chacha20poly1305::aead::{Aead, AeadInPlace, KeyInit, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use uuid::Uuid;
@@ -48,7 +48,10 @@ pub fn seal_attachment_in_place(
     attachment_id: Uuid,
     blob: &mut Vec<u8>,
 ) -> Result<(), VaultError> {
-    let original_size = blob.len().checked_sub(HEADER_LEN).ok_or(VaultError::Truncated)? as u64;
+    let original_size = blob
+        .len()
+        .checked_sub(HEADER_LEN)
+        .ok_or(VaultError::Truncated)? as u64;
     if original_size > MAX_ATTACHMENT_BYTES as u64 {
         return Err(VaultError::FileTooLarge);
     }

@@ -11,14 +11,14 @@ use tauri::Manager;
 #[doc(hidden)]
 pub mod testing {
     pub use crate::core::attachments::{
-        ATTACHMENT_HEADER_LEN, MAX_ATTACHMENT_BYTES, open_attachment, seal_attachment,
-        seal_attachment_in_place,
+        open_attachment, seal_attachment, seal_attachment_in_place, ATTACHMENT_HEADER_LEN,
+        MAX_ATTACHMENT_BYTES,
     };
     pub use crate::core::crypto::{
-        KdfProfile, UnlockSecretInput, open_payload, seal_document_after, seal_payload,
+        open_payload, seal_document_after, seal_payload, KdfProfile, UnlockSecretInput,
     };
     pub use crate::core::generator::{
-        LoginOptions, PassphraseOptions, PasswordOptions, generate_passphrase, generate_password,
+        generate_passphrase, generate_password, LoginOptions, PassphraseOptions, PasswordOptions,
     };
     pub use crate::core::import;
     pub use crate::core::models::{
@@ -29,9 +29,11 @@ pub mod testing {
     pub use crate::core::share;
     pub use crate::core::totp;
     pub use crate::core::vault::{
-        CreateVaultConfig, VaultSession, create_vault, save_vault, seal_document, unlock_vault,
+        create_vault, save_vault, seal_document, unlock_vault, CreateVaultConfig, VaultSession,
     };
-    pub use crate::core::vault_file::{parse_vault_file, serialize_vault_file, serialize_vault_parts};
+    pub use crate::core::vault_file::{
+        parse_vault_file, serialize_vault_file, serialize_vault_parts,
+    };
 }
 
 use commands::AppState;
@@ -76,9 +78,7 @@ pub fn run() {
             if let Ok(dir) = handle.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&dir);
                 commands::set_data_dir(dir.clone());
-                state
-                    .attempts
-                    .attach(Some(dir.join("unlock-state.json")));
+                state.attempts.attach(Some(dir.join("unlock-state.json")));
             }
             Ok(())
         })
@@ -96,6 +96,8 @@ pub fn run() {
             commands::generator::generate_password,
             commands::generator::generate_login,
             commands::generator::generate_passphrase,
+            commands::generator::generate_pin,
+            commands::generator::generate_pronounceable,
             commands::generator::generator_entropy,
             commands::generator::generator_wordlist,
             commands::generator::generator_import_wordlist,
@@ -138,6 +140,7 @@ pub fn run() {
             commands::storage::storage_remove_file,
             commands::storage::storage_remove_dir,
             commands::favicon::favicon_fetch,
+            commands::breach::password_breach_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");

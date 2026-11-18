@@ -1,8 +1,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -13,8 +13,8 @@ use crate::commands::fs_scope::Access;
 use crate::commands::storage::write_private_atomic;
 use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::attachments::{
-    ATTACHMENT_HEADER_LEN, MAX_ATTACHMENT_BYTES, attachment_kind, open_attachment,
-    seal_attachment_in_place,
+    attachment_kind, open_attachment, seal_attachment_in_place, ATTACHMENT_HEADER_LEN,
+    MAX_ATTACHMENT_BYTES,
 };
 use crate::core::models::AttachmentMeta;
 

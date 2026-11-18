@@ -31,6 +31,22 @@ export type PassphraseOptions = {
   wordlist: WordlistSource;
 };
 
+/** Which value the "Пароль" mode produces. */
+export type PasswordKind = "random" | "readable" | "pin";
+
+/** Numeric PIN. Mirrors `PinOptions` in `core/generator.rs`. */
+export type PinOptions = {
+  length: number;
+  /** Reject 1111, 1234, 9876 and other trivially guessable sequences. */
+  excludeRepeats: boolean;
+};
+
+/** Syllable-based value. Mirrors `PronounceableOptions` in `core/generator.rs`. */
+export type PronounceableOptions = {
+  length: number;
+  capitalize: boolean;
+};
+
 /** Mirrors `WordlistInfo` in `commands/generator.rs`. */
 export type WordlistInfo = {
   customWords: number | null;
@@ -42,7 +58,9 @@ export type WordlistInfo = {
 export type EntropyInput =
   | { mode: "password"; options: PasswordOptions }
   | { mode: "login"; options: LoginOptions }
-  | { mode: "passphrase"; options: PassphraseOptions };
+  | { mode: "passphrase"; options: PassphraseOptions }
+  | { mode: "pin"; options: PinOptions }
+  | { mode: "pronounceable"; options: PronounceableOptions };
 
 export const defaultPasswordOptions: PasswordOptions = {
   length: 16,
@@ -83,6 +101,23 @@ export const NUMBER_POSITIONS: { value: NumberPosition; label: string }[] = [
   { value: "end", label: "В конце" },
   { value: "start", label: "В начале" },
 ];
+
+export const PASSWORD_KINDS: { value: PasswordKind; label: string }[] = [
+  { value: "random", label: "Случайный" },
+  { value: "readable", label: "Читаемый" },
+  { value: "pin", label: "ПИН-код" },
+];
+
+export const DEFAULT_PIN_OPTIONS: PinOptions = { length: 6, excludeRepeats: true };
+export const PIN_MIN_LENGTH = 4;
+export const PIN_MAX_LENGTH = 12;
+
+export const DEFAULT_PRONOUNCEABLE_OPTIONS: PronounceableOptions = {
+  length: 16,
+  capitalize: false,
+};
+export const PRONOUNCEABLE_MIN_LENGTH = 8;
+export const PRONOUNCEABLE_MAX_LENGTH = 64;
 
 /** Matches `MAX_EXCLUDE_CHARS` in `core/generator.rs`. */
 export const MAX_EXCLUDE_CHARS = 64;
@@ -145,6 +180,14 @@ export function clampMinimums(options: PasswordOptions): PasswordOptions {
 
 export function clampWords(words: number): number {
   return clampInt(words, PASSPHRASE_MIN_WORDS, PASSPHRASE_MAX_WORDS);
+}
+
+export function clampPinLength(length: number): number {
+  return clampInt(length, PIN_MIN_LENGTH, PIN_MAX_LENGTH);
+}
+
+export function clampPronounceableLength(length: number): number {
+  return clampInt(length, PRONOUNCEABLE_MIN_LENGTH, PRONOUNCEABLE_MAX_LENGTH);
 }
 
 function clampInt(value: number, min: number, max: number): number {

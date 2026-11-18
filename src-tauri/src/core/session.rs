@@ -78,10 +78,7 @@ impl SessionManager {
         session_id: Uuid,
         f: impl FnOnce(&VaultSession) -> Result<T, VaultError>,
     ) -> Result<T, VaultError> {
-        let inner = self
-            .inner
-            .lock()
-            .map_err(|_| VaultError::SessionNotFound)?;
+        let inner = self.inner.lock().map_err(|_| VaultError::SessionNotFound)?;
         let session = inner
             .as_ref()
             .filter(|session| session.id == session_id)
@@ -94,10 +91,7 @@ impl SessionManager {
         session_id: Uuid,
         f: impl FnOnce(&mut VaultSession) -> Result<T, VaultError>,
     ) -> Result<T, VaultError> {
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| VaultError::SessionNotFound)?;
+        let mut inner = self.inner.lock().map_err(|_| VaultError::SessionNotFound)?;
         let session = inner
             .as_mut()
             .filter(|session| session.id == session_id)
@@ -106,10 +100,7 @@ impl SessionManager {
     }
 
     pub fn lock(&self, session_id: Uuid) -> Result<(), VaultError> {
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| VaultError::SessionNotFound)?;
+        let mut inner = self.inner.lock().map_err(|_| VaultError::SessionNotFound)?;
         match inner.as_ref() {
             Some(session) if session.id == session_id => {
                 *inner = None;
@@ -131,7 +122,7 @@ mod tests {
     use super::*;
     use crate::core::crypto::{KdfProfile, UnlockSecretInput};
     use crate::core::models::CipherSuite;
-    use crate::core::vault::{CreateVaultConfig, create_vault, save_vault};
+    use crate::core::vault::{create_vault, save_vault, CreateVaultConfig};
 
     fn passphrase() -> UnlockSecretInput {
         UnlockSecretInput::Passphrase {
@@ -157,7 +148,9 @@ mod tests {
         manager.put(session);
         assert!(manager.is_unlocked());
         assert_eq!(
-            manager.with(session_id, |session| Ok(session.vault_id())).unwrap(),
+            manager
+                .with(session_id, |session| Ok(session.vault_id()))
+                .unwrap(),
             vault_id
         );
         assert!(matches!(

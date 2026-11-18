@@ -75,10 +75,7 @@ pub fn serialize_vault_file(file: &VaultFile) -> Result<Vec<u8>, VaultError> {
 /// Serializes a vault file from a header and an already sealed payload with a
 /// single allocation and a single copy of the payload (the previous version
 /// copied it twice: `payload.to_vec()` and then into the output buffer).
-pub fn serialize_vault_parts(
-    header: &VaultHeader,
-    payload: &[u8],
-) -> Result<Vec<u8>, VaultError> {
+pub fn serialize_vault_parts(header: &VaultHeader, payload: &[u8]) -> Result<Vec<u8>, VaultError> {
     validate_header(header)?;
     if payload.is_empty() || payload.len() > MAX_PAYLOAD_LEN {
         return Err(VaultError::BadPayload);

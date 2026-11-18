@@ -24,6 +24,20 @@ const PASSPHRASE_DEFAULT_SEPARATOR: &str = "-";
 /// is almost certainly a payload mistake, not a real rule.
 const MAX_EXCLUDE_CHARS: usize = 64;
 
+pub const PIN_MIN_LENGTH: u8 = 4;
+pub const PIN_MAX_LENGTH: u8 = 12;
+/// How many times a "too simple" PIN is re-sampled before giving up. At four
+/// digits the trivial patterns are a fraction of a percent, so this bound is
+/// never reached in practice; it only keeps the loop provably finite.
+const PIN_MAX_ATTEMPTS: u32 = 32;
+
+/// Consonants and vowels without look-alike characters (no `l`, `i`, `o`, `0`);
+/// 19 x 6 = 114 possible syllables.
+pub const PRONOUNCEABLE_CONSONANTS: &str = "bcdfghjkmnpqrstvwxz";
+pub const PRONOUNCEABLE_VOWELS: &str = "aeiouy";
+pub const PRONOUNCEABLE_MIN_LENGTH: u8 = 8;
+pub const PRONOUNCEABLE_MAX_LENGTH: u8 = 64;
+
 static WORDLIST: OnceLock<Vec<&'static str>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +161,41 @@ impl Default for PassphraseOptions {
     }
 }
 
+/// Numeric PIN: digits only, deliberately checked against the obvious
+/// sequences (1111, 1234) that a person guesses before trying anything else.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PinOptions {
+    pub length: u8,
+    pub exclude_repeats: bool,
+}
+
+impl Default for PinOptions {
+    fn default() -> Self {
+        Self {
+            length: 6,
+            exclude_repeats: true,
+        }
+    }
+}
+
+/// Syllable-based value: easier to read out loud and to type from a screen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PronounceableOptions {
+    pub length: u8,
+    pub capitalize: bool,
+}
+
+impl Default for PronounceableOptions {
+    fn default() -> Self {
+        Self {
+            length: 16,
+            capitalize: false,
+        }
+    }
+}
+
 /// Entropy request from the UI; every variant is validated exactly like the
 /// corresponding generator so the shown number cannot describe a rejected setup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +204,8 @@ pub enum EntropyInput {
     Password { options: PasswordOptions },
     Login { options: LoginOptions },
     Passphrase { options: PassphraseOptions },
+    Pin { options: PinOptions },
+    Pronounceable { options: PronounceableOptions },
 }
 
 pub fn generate_password(options: &PasswordOptions) -> Result<String, VaultError> {
@@ -257,9 +308,10 @@ pub fn generate_passphrase(options: &PassphraseOptions) -> Result<String, VaultE
 
     let custom = match options.wordlist {
         WordlistSource::Eff => None,
-        WordlistSource::Custom => Some(load_custom_wordlist().ok_or_else(|| {
-            VaultError::Storage("словник не импортирован".to_string())
-        })?),
+        WordlistSource::Custom => Some(
+            load_custom_wordlist()
+                .ok_or_else(|| VaultError::Storage("словник не импортирован".to_string()))?,
+        ),
     };
     let words: &[String] = match &custom {
         Some(list) => list,
@@ -279,7 +331,10 @@ pub fn generate_passphrase(options: &PassphraseOptions) -> Result<String, VaultE
     for _ in 0..options.words {
         let index = rng.gen_range(0..pool_len);
         let word = match &custom {
-            Some(list) => list.get(index).map(String::as_str).ok_or(VaultError::BadParams)?,
+            Some(list) => list
+                .get(index)
+                .map(String::as_str)
+                .ok_or(VaultError::BadParams)?,
             None => *builtin.get(index).ok_or(VaultError::BadParams)?,
         };
         parts.push(if options.capitalize {
@@ -302,6 +357,71 @@ pub fn generate_passphrase(options: &PassphraseOptions) -> Result<String, VaultE
     Ok(phrase)
 }
 
+pub fn generate_pin(options: &PinOptions) -> Result<String, VaultError> {
+    validate_pin(options)?;
+
+    let mut rng = rand::rngs::OsRng;
+    for _ in 0..PIN_MAX_ATTEMPTS {
+        let pin: String = (0..options.length)
+            .map(|_| char::from(b'0' + rng.gen_range(0u8..10)))
+            .collect();
+        if !options.exclude_repeats || !is_trivial_pin(&pin) {
+            return Ok(pin);
+        }
+    }
+
+    // Every attempt landed on a trivial pattern; refusing is honest, silently
+    // returning a weak PIN is not.
+    Err(VaultError::BadParams)
+}
+
+/// Non-increasing PIN sequences (`1111`, `1234`, `9876`) are the ones tried
+/// first by anyone holding the device, so they are the ones rejected.
+fn is_trivial_pin(pin: &str) -> bool {
+    let digits: Vec<u8> = pin.bytes().collect();
+    let Some(first) = digits.first() else {
+        return true;
+    };
+    let all_same = digits.iter().all(|digit| digit == first);
+    let ascending = digits
+        .windows(2)
+        .all(|pair| pair[1] == pair[0].saturating_add(1));
+    let descending = digits
+        .windows(2)
+        .all(|pair| pair[1].saturating_add(1) == pair[0]);
+
+    all_same || ascending || descending
+}
+
+pub fn generate_pronounceable(options: &PronounceableOptions) -> Result<String, VaultError> {
+    validate_pronounceable(options)?;
+
+    let length = usize::from(options.length);
+    let consonants: Vec<char> = PRONOUNCEABLE_CONSONANTS.chars().collect();
+    let vowels: Vec<char> = PRONOUNCEABLE_VOWELS.chars().collect();
+
+    let mut rng = rand::rngs::OsRng;
+    let mut result: Vec<char> = Vec::with_capacity(length);
+
+    // Consonant + vowel pairs. An odd length simply stops after the consonant
+    // (or the vowel, depending on where the pair lands), so the result is
+    // always exactly `length` characters.
+    while result.len() < length {
+        result.push(consonants[rng.gen_range(0..consonants.len())]);
+        if result.len() < length {
+            result.push(vowels[rng.gen_range(0..vowels.len())]);
+        }
+    }
+
+    if options.capitalize {
+        if let Some(first) = result.first_mut() {
+            *first = first.to_ascii_uppercase();
+        }
+    }
+
+    Ok(result.into_iter().collect())
+}
+
 pub fn entropy_bits(input: &EntropyInput) -> Result<f64, VaultError> {
     match input {
         EntropyInput::Password { options } => {
@@ -315,6 +435,14 @@ pub fn entropy_bits(input: &EntropyInput) -> Result<f64, VaultError> {
         EntropyInput::Passphrase { options } => {
             validate_passphrase(options)?;
             Ok(passphrase_entropy_bits(options))
+        }
+        EntropyInput::Pin { options } => {
+            validate_pin(options)?;
+            Ok(pin_entropy_bits(options))
+        }
+        EntropyInput::Pronounceable { options } => {
+            validate_pronounceable(options)?;
+            Ok(pronounceable_entropy_bits(options))
         }
     }
 }
@@ -358,6 +486,22 @@ fn passphrase_entropy_bits(options: &PassphraseOptions) -> f64 {
         bits += 10f64.log2();
     }
     bits
+}
+
+/// Every digit is an independent choice out of ten. `exclude_repeats` only
+/// removes a handful of patterns, so the formula stays the same — the UI shows
+/// the same honest number for both settings.
+fn pin_entropy_bits(options: &PinOptions) -> f64 {
+    f64::from(options.length) * 10f64.log2()
+}
+
+/// `floor(length / 2)` independent consonant-vowel syllables, each worth
+/// `log2(len(consonants) * len(vowels))` bits. A trailing odd character is left
+/// out of the formula on purpose: it sits inside the same syllable space.
+fn pronounceable_entropy_bits(options: &PronounceableOptions) -> f64 {
+    let pool =
+        (PRONOUNCEABLE_CONSONANTS.chars().count() * PRONOUNCEABLE_VOWELS.chars().count()) as f64;
+    f64::from(options.length / 2) * pool.log2()
 }
 
 fn entropy_from_pool(length: usize, pool: usize) -> f64 {
@@ -469,6 +613,22 @@ fn validate_minimums(
         return Err(VaultError::BadParams);
     }
     if symbols_min > 0 && !symbols {
+        return Err(VaultError::BadParams);
+    }
+
+    Ok(())
+}
+
+fn validate_pin(options: &PinOptions) -> Result<(), VaultError> {
+    if !(PIN_MIN_LENGTH..=PIN_MAX_LENGTH).contains(&options.length) {
+        return Err(VaultError::BadParams);
+    }
+
+    Ok(())
+}
+
+fn validate_pronounceable(options: &PronounceableOptions) -> Result<(), VaultError> {
+    if !(PRONOUNCEABLE_MIN_LENGTH..=PRONOUNCEABLE_MAX_LENGTH).contains(&options.length) {
         return Err(VaultError::BadParams);
     }
 
@@ -619,9 +779,9 @@ pub fn parse_custom_wordlist(bytes: &[u8]) -> Result<Vec<String>, VaultError> {
         }
         let length = word.chars().count();
         if !(2..=24).contains(&length)
-            || !word
-                .chars()
-                .all(|character| character.is_alphanumeric() || character == '-' || character == '\'')
+            || !word.chars().all(|character| {
+                character.is_alphanumeric() || character == '-' || character == '\''
+            })
         {
             return Err(VaultError::BadParams);
         }
@@ -650,8 +810,7 @@ pub fn load_custom_wordlist() -> Option<Vec<String>> {
 pub fn store_custom_wordlist(words: &[String]) -> Result<(), VaultError> {
     let path = custom_wordlist_path().ok_or(VaultError::Storage("нет каталога данных".into()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| VaultError::Storage(error.to_string()))?;
+        std::fs::create_dir_all(parent).map_err(|error| VaultError::Storage(error.to_string()))?;
     }
     let mut body = String::with_capacity(words.len() * 8);
     for word in words {
@@ -1133,7 +1292,10 @@ mod tests {
             Err(VaultError::BadParams)
         );
         // A single-character word and an over-long one are refused.
-        assert_eq!(parse_custom_wordlist(b"a\n").err(), Some(VaultError::BadParams));
+        assert_eq!(
+            parse_custom_wordlist(b"a\n").err(),
+            Some(VaultError::BadParams)
+        );
         let long = format!("{}\n", "a".repeat(25));
         assert_eq!(
             parse_custom_wordlist(long.as_bytes()).err(),
@@ -1695,5 +1857,236 @@ mod tests {
             entropy_bits(&EntropyInput::Login { options: login }),
             Err(VaultError::BadParams)
         );
+    }
+
+    #[test]
+    fn pin_is_digits_of_the_requested_length() {
+        for length in [4u8, 6, 9, 12] {
+            let options = PinOptions {
+                length,
+                ..PinOptions::default()
+            };
+            let pin = generate_pin(&options).unwrap();
+            assert_eq!(pin.chars().count(), usize::from(length));
+            assert!(pin.chars().all(|c| c.is_ascii_digit()), "pin {pin}");
+        }
+    }
+
+    #[test]
+    fn pin_rejects_length_out_of_range() {
+        for length in [0u8, 3, 13, 200] {
+            let options = PinOptions {
+                length,
+                ..PinOptions::default()
+            };
+            assert_eq!(
+                generate_pin(&options),
+                Err(VaultError::BadParams),
+                "length={length}"
+            );
+            assert_eq!(
+                entropy_bits(&EntropyInput::Pin {
+                    options: options.clone()
+                }),
+                Err(VaultError::BadParams)
+            );
+        }
+    }
+
+    #[test]
+    fn pin_excludes_repeated_and_sequential_patterns() {
+        let options = PinOptions {
+            length: 4,
+            exclude_repeats: true,
+        };
+
+        for _ in 0..500 {
+            let pin = generate_pin(&options).unwrap();
+            assert_eq!(pin.chars().count(), 4);
+            assert!(!is_trivial_pin(&pin), "trivial pin {pin}");
+        }
+
+        // The classic ones are covered by the predicate itself.
+        for trivial in [
+            "0000", "1111", "9999", "0123", "1234", "4567", "9876", "3210",
+        ] {
+            assert!(is_trivial_pin(trivial), "{trivial} must be trivial");
+        }
+        for normal in ["0001", "1235", "1122", "9090", "9870"] {
+            assert!(!is_trivial_pin(normal), "{normal} must pass");
+        }
+
+        // Without the flag the generator may return anything, including repeats.
+        let unrestricted = PinOptions {
+            length: 4,
+            exclude_repeats: false,
+        };
+        for _ in 0..100 {
+            let pin = generate_pin(&unrestricted).unwrap();
+            assert_eq!(pin.chars().count(), 4);
+        }
+    }
+
+    #[test]
+    fn pin_entropy_matches_the_formula() {
+        for length in [4u8, 6, 12] {
+            for exclude_repeats in [true, false] {
+                let options = PinOptions {
+                    length,
+                    exclude_repeats,
+                };
+                let bits = entropy_bits(&EntropyInput::Pin {
+                    options: options.clone(),
+                })
+                .unwrap();
+                let expected = f64::from(length) * 10f64.log2();
+                assert!(
+                    (bits - expected).abs() < 1e-9,
+                    "bits={bits} expected={expected}"
+                );
+            }
+        }
+        // 6 digits are a bit under 20 bits, which is exactly the warning the UI
+        // shows next to the PIN.
+        let six = entropy_bits(&EntropyInput::Pin {
+            options: PinOptions::default(),
+        })
+        .unwrap();
+        assert!((six - 19.93).abs() < 0.01, "bits={six}");
+    }
+
+    #[test]
+    fn pin_options_deserialize_with_defaults() {
+        let parsed: PinOptions = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed.length, 6);
+        assert!(parsed.exclude_repeats);
+
+        let parsed: PinOptions = serde_json::from_str(r#"{"length":8}"#).unwrap();
+        assert_eq!(parsed.length, 8);
+        assert!(parsed.exclude_repeats);
+
+        let input: EntropyInput = serde_json::from_str(
+            r#"{"mode":"pin","options":{"length":10,"excludeRepeats":false}}"#,
+        )
+        .unwrap();
+        match input {
+            EntropyInput::Pin { options } => {
+                assert_eq!(options.length, 10);
+                assert!(!options.exclude_repeats);
+            }
+            _ => panic!("expected a pin variant"),
+        }
+    }
+
+    #[test]
+    fn pronounceable_has_an_exact_length_and_a_safe_alphabet() {
+        let consonants = PRONOUNCEABLE_CONSONANTS.chars().collect::<Vec<char>>();
+        let vowels = PRONOUNCEABLE_VOWELS.chars().collect::<Vec<char>>();
+
+        for length in [8u8, 9, 16, 17, 64] {
+            let options = PronounceableOptions {
+                length,
+                capitalize: false,
+            };
+            let value = generate_pronounceable(&options).unwrap();
+            assert_eq!(value.chars().count(), usize::from(length));
+            for character in value.chars() {
+                assert!(
+                    consonants.contains(&character) || vowels.contains(&character),
+                    "unexpected {character:?} in {value}"
+                );
+            }
+            // It starts with a consonant and alternates.
+            assert!(consonants.contains(&value.chars().next().unwrap()));
+        }
+    }
+
+    #[test]
+    fn pronounceable_can_be_capitalized() {
+        let options = PronounceableOptions {
+            length: 9,
+            capitalize: true,
+        };
+        for _ in 0..200 {
+            let value = generate_pronounceable(&options).unwrap();
+            assert_eq!(value.chars().count(), 9);
+            let first = value.chars().next().unwrap();
+            assert!(first.is_ascii_uppercase(), "first={first:?} in {value}");
+            assert!(
+                PRONOUNCEABLE_CONSONANTS.contains(first.to_ascii_lowercase()),
+                "unexpected first letter in {value}"
+            );
+            assert!(value.chars().skip(1).all(|c| c.is_ascii_lowercase()));
+        }
+    }
+
+    #[test]
+    fn pronounceable_rejects_length_out_of_range() {
+        for length in [0u8, 7, 65, 255] {
+            let options = PronounceableOptions {
+                length,
+                ..PronounceableOptions::default()
+            };
+            assert_eq!(
+                generate_pronounceable(&options),
+                Err(VaultError::BadParams),
+                "length={length}"
+            );
+            assert_eq!(
+                entropy_bits(&EntropyInput::Pronounceable {
+                    options: options.clone()
+                }),
+                Err(VaultError::BadParams)
+            );
+        }
+    }
+
+    #[test]
+    fn pronounceable_entropy_matches_the_formula() {
+        for length in [8u8, 9, 16, 64] {
+            let options = PronounceableOptions {
+                length,
+                capitalize: true,
+            };
+            let bits = entropy_bits(&EntropyInput::Pronounceable {
+                options: options.clone(),
+            })
+            .unwrap();
+            let expected = f64::from(length / 2)
+                * ((PRONOUNCEABLE_CONSONANTS.len() * PRONOUNCEABLE_VOWELS.len()) as f64).log2();
+            assert!(
+                (bits - expected).abs() < 1e-9,
+                "bits={bits} expected={expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn pronounceable_values_differ() {
+        let options = PronounceableOptions::default();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            seen.insert(generate_pronounceable(&options).unwrap());
+        }
+        assert_eq!(seen.len(), 200);
+    }
+
+    #[test]
+    fn pronounceable_options_deserialize_with_defaults() {
+        let parsed: PronounceableOptions = serde_json::from_str(r#"{"length":24}"#).unwrap();
+        assert_eq!(parsed.length, 24);
+        assert!(!parsed.capitalize);
+
+        let input: EntropyInput = serde_json::from_str(
+            r#"{"mode":"pronounceable","options":{"length":32,"capitalize":true}}"#,
+        )
+        .unwrap();
+        match input {
+            EntropyInput::Pronounceable { options } => {
+                assert_eq!(options.length, 32);
+                assert!(options.capitalize);
+            }
+            _ => panic!("expected a pronounceable variant"),
+        }
     }
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui/Toast";
 import { vaultApi } from "@/features/vault/api";
 import { getStorage } from "@/lib/storage";
+import { passwordStrength } from "@/features/generator/strength";
 import { GENERATOR_HISTORY_KEY } from "./history";
 import { GeneratorPanel } from "./GeneratorPanel";
 
@@ -11,6 +12,9 @@ vi.mock("@/features/vault/api", () => ({
     generatePassword: vi.fn(),
     generateLogin: vi.fn(),
     generatePassphrase: vi.fn(),
+    generatePin: vi.fn(),
+    generatePronounceable: vi.fn(),
+    breachCount: vi.fn(),
     generatorEntropy: vi.fn(),
     generatorWordlist: vi.fn().mockResolvedValue({
       customWords: null,
@@ -40,6 +44,10 @@ const generateLoginMock = vi.mocked(vaultApi.generateLogin);
 const PASSPHRASE = "jitterbug-wiping-stupor-litigate-taper";
 
 const generatePassphraseMock = vi.mocked(vaultApi.generatePassphrase);
+const generatePinMock = vi.mocked(vaultApi.generatePin);
+const generatePronounceableMock = vi.mocked(vaultApi.generatePronounceable);
+const breachCountMock = vi.mocked(vaultApi.breachCount);
+const strengthMock = vi.mocked(passwordStrength);
 const entropyMock = vi.mocked(vaultApi.generatorEntropy);
 
 function seedHistory(values: { value: string; mode: string }[]) {
@@ -63,11 +71,24 @@ describe("GeneratorPanel", () => {
     generateMock.mockReset();
     generateLoginMock.mockReset();
     generatePassphraseMock.mockReset();
+    generatePinMock.mockReset();
+    generatePronounceableMock.mockReset();
+    breachCountMock.mockReset();
+    strengthMock.mockReset();
     entropyMock.mockReset();
     generateMock.mockResolvedValue("Abc123!@#xyz");
     generateLoginMock.mockResolvedValue("Abc123!@#xyz");
     generatePassphraseMock.mockResolvedValue(PASSPHRASE);
-    entropyMock.mockImplementation(async (input) => (input.mode === "passphrase" ? 77.55 : 104.2));
+    generatePinMock.mockResolvedValue("420913");
+    generatePronounceableMock.mockResolvedValue("kosavotumirelapi");
+    breachCountMock.mockResolvedValue(0);
+    strengthMock.mockResolvedValue({ score: 4, label: "Очень надёжный" });
+    entropyMock.mockImplementation(async (input) => {
+      if (input.mode === "passphrase") return 77.55;
+      if (input.mode === "pin") return 19.93;
+      if (input.mode === "pronounceable") return 54.66;
+      return 104.2;
+    });
   });
 
   afterEach(() => {
@@ -511,5 +532,169 @@ describe("GeneratorPanel", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     spy.mockRestore();
+  });
+
+  it("generates a PIN with its own controls and warning", async () => {
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="password" />
+      </ToastProvider>,
+    );
+
+    await screen.findByText("Abc123!@#xyz");
+    fireEvent.click(screen.getByRole("button", { name: "ПИН-код" }));
+
+    await waitFor(() => {
+      expect(generatePinMock).toHaveBeenCalledWith({ length: 6, excludeRepeats: true });
+    });
+    // The same value also lands in the history list, so read the display field.
+    expect(await screen.findByTestId("generated-value")).toHaveTextContent("420913");
+    expect(screen.getByText(/ПИН-код слабее пароля/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(entropyMock).toHaveBeenLastCalledWith({
+        mode: "pin",
+        options: { length: 6, excludeRepeats: true },
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText("Длина ПИН-кода"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать" }));
+    await waitFor(() => {
+      expect(generatePinMock).toHaveBeenLastCalledWith({ length: 10, excludeRepeats: true });
+    });
+
+    fireEvent.click(screen.getByRole("switch", { name: /Исключать 1111/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать" }));
+    await waitFor(() => {
+      expect(generatePinMock).toHaveBeenLastCalledWith({ length: 10, excludeRepeats: false });
+    });
+  });
+
+  it("generates a readable password and can capitalize it", async () => {
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="password" />
+      </ToastProvider>,
+    );
+
+    await screen.findByText("Abc123!@#xyz");
+    fireEvent.click(screen.getByRole("button", { name: "Читаемый" }));
+
+    await waitFor(() => {
+      expect(generatePronounceableMock).toHaveBeenCalledWith({
+        length: 16,
+        capitalize: false,
+      });
+    });
+    // Syllable breaks split the value into several spans.
+    expect(await screen.findByTestId("generated-value")).toHaveTextContent("kosavotumirelapi");
+
+    fireEvent.click(screen.getByRole("switch", { name: /С заглавной буквы/ }));
+    fireEvent.change(screen.getByLabelText("Длина читаемого пароля"), {
+      target: { value: "24" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать" }));
+
+    await waitFor(() => {
+      expect(generatePronounceableMock).toHaveBeenLastCalledWith({
+        length: 24,
+        capitalize: true,
+      });
+    });
+    await waitFor(() => {
+      expect(entropyMock).toHaveBeenLastCalledWith({
+        mode: "pronounceable",
+        options: { length: 24, capitalize: true },
+      });
+    });
+  });
+
+  it("blocks a too-weak result for saving but still allows copying", async () => {
+    strengthMock.mockResolvedValue({ score: 1, label: "Слабый" });
+    const onUse = vi.fn();
+
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="password" onUse={onUse} />
+      </ToastProvider>,
+    );
+
+    expect(await screen.findByText("Слишком слабо — увеличьте длину")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Использовать" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Копировать сгенерированное" })).toBeEnabled();
+
+    strengthMock.mockResolvedValue({ score: 4, label: "Очень надёжный" });
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Использовать" })).toBeEnabled();
+    });
+    expect(screen.queryByText("Слишком слабо — увеличьте длину")).not.toBeInTheDocument();
+  });
+
+  it("never blocks a PIN even when zxcvbn would call it weak", async () => {
+    strengthMock.mockResolvedValue({ score: 0, label: "Очень слабый" });
+    const onUse = vi.fn();
+
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="password" onUse={onUse} />
+      </ToastProvider>,
+    );
+
+    await screen.findByText("Abc123!@#xyz");
+    fireEvent.click(screen.getByRole("button", { name: "ПИН-код" }));
+
+    expect(await screen.findByTestId("generated-value")).toHaveTextContent("420913");
+    expect(screen.getByRole("button", { name: "Использовать" })).toBeEnabled();
+    expect(screen.queryByText("Слишком слабо — увеличьте длину")).not.toBeInTheDocument();
+  });
+
+  it("checks the generated value for known breaches", async () => {
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="password" />
+      </ToastProvider>,
+    );
+
+    await screen.findByText("Abc123!@#xyz");
+    breachCountMock.mockResolvedValue(3);
+    fireEvent.click(screen.getByRole("button", { name: /Проверить утечки/ }));
+
+    await waitFor(() => expect(breachCountMock).toHaveBeenCalledWith("Abc123!@#xyz"));
+    expect(await screen.findByText(/Найден в 3 утечках/)).toBeInTheDocument();
+
+    breachCountMock.mockResolvedValue(0);
+    fireEvent.click(screen.getByRole("button", { name: /Проверить утечки/ }));
+    expect(await screen.findByText("В известных утечках не найден")).toBeInTheDocument();
+  });
+
+  it("tells the user when the breach service is unreachable", async () => {
+    breachCountMock.mockRejectedValue(
+      Object.assign(new Error("network"), { code: "breach_unavailable" }),
+    );
+
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="password" />
+      </ToastProvider>,
+    );
+
+    await screen.findByText("Abc123!@#xyz");
+    fireEvent.click(screen.getByRole("button", { name: /Проверить утечки/ }));
+
+    expect(await screen.findByText("Не удалось проверить утечки")).toBeInTheDocument();
+    expect(screen.queryByText(/Найден в/)).not.toBeInTheDocument();
+  });
+
+  it("does not offer a breach check for logins", async () => {
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="login" />
+      </ToastProvider>,
+    );
+
+    await screen.findByText("Abc123!@#xyz");
+    expect(screen.queryByRole("button", { name: /Проверить утечки/ })).not.toBeInTheDocument();
   });
 });

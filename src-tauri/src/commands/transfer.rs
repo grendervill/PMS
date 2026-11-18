@@ -88,7 +88,8 @@ fn body_mac(code: &str, body_sha256: &[u8]) -> String {
 fn sha256_file(path: &Path) -> ApiResult<String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
-    let mut file = File::open(path).map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
+    let mut file =
+        File::open(path).map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1024 * 1024];
     loop {
@@ -472,8 +473,7 @@ pub fn transfer_receive_start(
             if !code_matches(&thread_code, &header_value(&request, "X-PMS-Code")) {
                 attempts += 1;
                 std::thread::sleep(Duration::from_millis(250));
-                let _ = request
-                    .respond(Response::from_string("code").with_status_code(403));
+                let _ = request.respond(Response::from_string("code").with_status_code(403));
                 if attempts >= MAX_CODE_ATTEMPTS {
                     let _ = app.emit("transfer://locked", attempts);
                     stop_thread.store(true, Ordering::Relaxed);
@@ -519,8 +519,7 @@ pub fn transfer_receive_start(
             if expected_mac.is_empty() || body_mac(&thread_code, &digest_bytes) != expected_mac {
                 attempts += 1;
                 let _ = fs::remove_file(&temp);
-                let _ = request
-                    .respond(Response::from_string("mac").with_status_code(403));
+                let _ = request.respond(Response::from_string("mac").with_status_code(403));
                 if attempts >= MAX_CODE_ATTEMPTS {
                     let _ = app.emit("transfer://locked", attempts);
                     stop_thread.store(true, Ordering::Relaxed);
@@ -651,7 +650,13 @@ pub async fn transfer_send(
     let temp_dir = transfer_temp_dir(&app)?;
     let vault_path = state.fs_scope.resolve(&vault_path, Access::Read)?;
     tauri::async_runtime::spawn_blocking(move || {
-        send_archive(host, port, code, vault_path.to_string_lossy().into_owned(), temp_dir)
+        send_archive(
+            host,
+            port,
+            code,
+            vault_path.to_string_lossy().into_owned(),
+            temp_dir,
+        )
     })
     .await
     .map_err(|error| ApiError::new("transfer_send", error.to_string()))?
@@ -860,7 +865,11 @@ mod tests {
         let mac = body_mac(code, &digest);
         assert_eq!(mac.len(), 64);
         assert_eq!(body_mac(code, &digest), mac, "HMAC is deterministic");
-        assert_ne!(body_mac("ABCD2346", &digest), mac, "code is part of the key");
+        assert_ne!(
+            body_mac("ABCD2346", &digest),
+            mac,
+            "code is part of the key"
+        );
         assert_ne!(body_mac(code, &[8u8; 32]), mac, "body digest is covered");
     }
 

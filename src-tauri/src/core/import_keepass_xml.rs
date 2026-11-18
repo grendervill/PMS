@@ -1,7 +1,7 @@
 use base64::Engine as _;
-use std::borrow::Cow;
-use quick_xml::Reader;
 use quick_xml::events::Event;
+use quick_xml::Reader;
+use std::borrow::Cow;
 
 use super::error::VaultError;
 use super::import::{ImportBundle, ImportedAttachment, ImportedItem};
@@ -152,9 +152,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                 }
             }
             Ok(Event::Text(text)) => {
-                let value = text
-                    .decode()
-                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let value = text.decode().map_err(|_| VaultError::ImportCorrupt)?;
                 let target = text_target(group_name_depth, &stack, is_binary);
                 let mut buffers = Buffers {
                     groups: &mut groups,
@@ -166,9 +164,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                 buffers.append(target, &value);
             }
             Ok(Event::CData(cdata)) => {
-                let value = cdata
-                    .decode()
-                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let value = cdata.decode().map_err(|_| VaultError::ImportCorrupt)?;
                 let target = text_target(group_name_depth, &stack, is_binary);
                 let mut buffers = Buffers {
                     groups: &mut groups,
@@ -180,9 +176,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                 buffers.append(target, &value);
             }
             Ok(Event::GeneralRef(reference)) => {
-                let name = reference
-                    .decode()
-                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let name = reference.decode().map_err(|_| VaultError::ImportCorrupt)?;
                 let value = resolve_entity(&name);
                 let target = text_target(group_name_depth, &stack, is_binary);
                 let mut buffers = Buffers {
@@ -211,15 +205,13 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                                 }
                             }
                             "Notes" => entry.item.comment = value,
-                            "otp" | "TOTP Seed" => {
-                                match totp::inspect(value.as_ref()) {
-                                    Ok(config) => entry.item.totp = Some(config),
-                                    Err(_) => warnings.push(Cow::Owned(format!(
-                                        "{}: TOTP не распознан",
-                                        entry.item.name
-                                    ))),
-                                }
-                            }
+                            "otp" | "TOTP Seed" => match totp::inspect(value.as_ref()) {
+                                Ok(config) => entry.item.totp = Some(config),
+                                Err(_) => warnings.push(Cow::Owned(format!(
+                                    "{}: TOTP не распознан",
+                                    entry.item.name
+                                ))),
+                            },
                             _ if !field_key.trim().is_empty() && !value.is_empty() => {
                                 entry
                                     .item

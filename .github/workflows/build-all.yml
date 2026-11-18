@@ -43,6 +43,9 @@ jobs:
       - name: Frontend advisories
         run: pnpm audit --prod --audit-level=high
 
+      - name: Formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
       - name: Install audit tooling
         run: cargo install cargo-audit cargo-deny --locked
 

@@ -120,7 +120,10 @@ fn decrypt_enc(value: &str, enc_key: &[u8], mac_key: &[u8]) -> Result<Vec<u8>, V
 
 /// Returns the plain export. Unencrypted exports are borrowed straight from the
 /// input, so the parser never copies the file.
-fn decrypt_export<'a>(bytes: &'a [u8], password: Option<&str>) -> Result<Cow<'a, [u8]>, VaultError> {
+fn decrypt_export<'a>(
+    bytes: &'a [u8],
+    password: Option<&str>,
+) -> Result<Cow<'a, [u8]>, VaultError> {
     #[derive(Deserialize)]
     struct Envelope<'a> {
         #[serde(default)]
@@ -153,12 +156,20 @@ fn decrypt_export<'a>(bytes: &'a [u8], password: Option<&str>) -> Result<Cow<'a,
     }
     let password = password.ok_or(VaultError::ImportPasswordRequired)?;
     let salt = envelope.salt.as_deref().ok_or(VaultError::ImportCorrupt)?;
-    let (iterations, memory_kib) =
-        checked_kdf_params(envelope.kdf_type, envelope.kdf_iterations, envelope.kdf_memory)?;
+    let (iterations, memory_kib) = checked_kdf_params(
+        envelope.kdf_type,
+        envelope.kdf_iterations,
+        envelope.kdf_memory,
+    )?;
 
     let mut master = [0u8; 32];
     match envelope.kdf_type {
-        0 => pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), iterations, &mut master),
+        0 => pbkdf2_hmac::<Sha256>(
+            password.as_bytes(),
+            salt.as_bytes(),
+            iterations,
+            &mut master,
+        ),
         1 => {
             let parallelism = envelope.kdf_parallelism.unwrap_or(4).clamp(1, 8) as u32;
             let params = argon2::Params::new(
@@ -410,7 +421,8 @@ fn attachment_for<'a>(
         let lower = path.to_ascii_lowercase();
         lower.ends_with(&normalized) && (item_lower.is_empty() || lower.contains(&item_lower))
     };
-    let by_name = |(path, _): &(&String, &Vec<u8>)| path.to_ascii_lowercase().ends_with(&normalized);
+    let by_name =
+        |(path, _): &(&String, &Vec<u8>)| path.to_ascii_lowercase().ends_with(&normalized);
     let bytes = attachments
         .iter()
         .find(matches)
@@ -509,9 +521,7 @@ fn parse_plain<'a>(
                     continue;
                 }
             }
-            warnings.push(Cow::Borrowed(
-                "Bitwarden: SSH-ключ без ключевого материала",
-            ));
+            warnings.push(Cow::Borrowed("Bitwarden: SSH-ключ без ключевого материала"));
             continue;
         }
 
@@ -555,19 +565,14 @@ fn parse_plain<'a>(
             }
         }
 
-        entry
-            .password_history
-            .reserve(item.password_history.len());
+        entry.password_history.reserve(item.password_history.len());
         for old in item.password_history {
             let password = trim_cow(old.password);
             if password.is_empty() {
                 continue;
             }
             let changed_at = trim_cow(old.last_used_date);
-            entry.push_password_history(
-                password,
-                (!changed_at.is_empty()).then_some(changed_at),
-            );
+            entry.push_password_history(password, (!changed_at.is_empty()).then_some(changed_at));
         }
 
         if !item.attachments.is_empty() {
@@ -688,7 +693,8 @@ mod tests {
 
     #[test]
     fn borrows_strings_from_the_export() {
-        let json = br#"{"items":[{"id":"i1","type":1,"name":"GitHub","login":{"username":"alex"}}]}"#;
+        let json =
+            br#"{"items":[{"id":"i1","type":1,"name":"GitHub","login":{"username":"alex"}}]}"#;
         let bundle = parse(json, None, &HashMap::new()).unwrap();
         assert!(matches!(bundle.items[0].name, Cow::Borrowed(_)));
         assert!(matches!(bundle.items[0].login, Cow::Borrowed(_)));

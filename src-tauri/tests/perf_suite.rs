@@ -36,11 +36,11 @@ use tempfile::tempdir;
 use uuid::Uuid;
 
 use pms_lib::testing::{
-    AttachmentKind, AttachmentMeta, CipherSuite, CreateVaultConfig, Entry, KdfProfile,
-    MAX_ATTACHMENT_BYTES, PassphraseOptions, PasswordOptions, UnlockSecretInput, VaultData,
-    VaultHeader, VaultSettings, archive_export, archive_import, create_vault, generate_passphrase,
-    generate_password, import, open_attachment, open_payload, parse_vault_file, save_vault,
-    seal_attachment, seal_attachment_in_place, seal_document,
+    archive_export, archive_import, create_vault, generate_passphrase, generate_password, import,
+    open_attachment, open_payload, parse_vault_file, save_vault, seal_attachment,
+    seal_attachment_in_place, seal_document, AttachmentKind, AttachmentMeta, CipherSuite,
+    CreateVaultConfig, Entry, KdfProfile, PassphraseOptions, PasswordOptions, UnlockSecretInput,
+    VaultData, VaultHeader, VaultSettings, MAX_ATTACHMENT_BYTES,
 };
 
 /// Poly1305 tag length (XChaCha20-Poly1305) — the only constant of the
@@ -209,7 +209,10 @@ fn row(cells: &[String]) -> String {
 }
 
 fn table_header(cells: &[&str]) -> String {
-    let mut line = row(&cells.iter().map(|cell| cell.to_string()).collect::<Vec<_>>());
+    let mut line = row(&cells
+        .iter()
+        .map(|cell| cell.to_string())
+        .collect::<Vec<_>>());
     line.push('\n');
     line.push('|');
     for _ in cells {
@@ -414,7 +417,9 @@ fn filler(len: usize, seed: u64) -> Vec<u8> {
 /// 2 custom fields, a TOTP secret and 3 password-history entries per item.
 fn bitwarden_json(items: usize) -> Vec<u8> {
     let mut out = String::with_capacity(items * 700 + 256);
-    out.push_str("{\"encrypted\":false,\"folders\":[{\"id\":\"folder-1\",\"name\":\"Работа\"}],\"items\":[");
+    out.push_str(
+        "{\"encrypted\":false,\"folders\":[{\"id\":\"folder-1\",\"name\":\"Работа\"}],\"items\":[",
+    );
     for index in 0..items {
         if index > 0 {
             out.push(',');
@@ -526,10 +531,8 @@ fn savings(header: &VaultHeader) {
 
     for &count in DOC_SIZES.iter() {
         let data = quiet(|| document(header.vault_id, &format!("Хранилище {count}"), count, 3));
-        let plain_len = quiet(|| {
-            serde_json::to_vec(&data).expect("the document must serialize to JSON")
-        })
-        .len();
+        let plain_len =
+            quiet(|| serde_json::to_vec(&data).expect("the document must serialize to JSON")).len();
 
         // Two shapes of the same save:
         //  * cold — no size hint (first save after unlocking);
@@ -689,9 +692,8 @@ fn opening(header: &VaultHeader) {
 
     for &count in DOC_SIZES.iter() {
         let data = quiet(|| document(header.vault_id, &format!("Хранилище {count}"), count, 3));
-        let expected = quiet(|| {
-            serde_json::to_vec(&data).expect("the document must serialize to JSON")
-        });
+        let expected =
+            quiet(|| serde_json::to_vec(&data).expect("the document must serialize to JSON"));
         let file = quiet(|| {
             seal_document(header, &VAULT_KEY, &data, expected.len())
                 .expect("seal_document must seal a valid document")
@@ -730,7 +732,11 @@ fn opening(header: &VaultHeader) {
                 format!("{:.1}", kib(stats.peak_bytes)),
                 format!("{:.2}", per_ratio(stats.peak_bytes, file.len())),
                 format!("{:.2}", measurement.best_ms),
-                if matches { "да".to_string() } else { "НЕТ".to_string() },
+                if matches {
+                    "да".to_string()
+                } else {
+                    "НЕТ".to_string()
+                },
             ])
         );
 
@@ -810,7 +816,10 @@ fn attachments() {
                 seal.stats.alloc_calls.to_string(),
                 seal.stats.realloc_calls.to_string(),
                 format!("{:.1}", kib(seal.stats.alloc_bytes)),
-                format!("{:.1}", kib(seal.stats.alloc_bytes + seal.stats.realloc_bytes)),
+                format!(
+                    "{:.1}",
+                    kib(seal.stats.alloc_bytes + seal.stats.realloc_bytes)
+                ),
                 format!("{:.1}", kib(seal.stats.peak_bytes)),
                 format!("{:.2}", seal.best_ms),
                 format!("{:.0}", mib_per_sec(size, seal.best_ms)),
@@ -835,7 +844,10 @@ fn attachments() {
                 open.stats.alloc_calls.to_string(),
                 open.stats.realloc_calls.to_string(),
                 format!("{:.1}", kib(open.stats.alloc_bytes)),
-                format!("{:.1}", kib(open.stats.alloc_bytes + open.stats.realloc_bytes)),
+                format!(
+                    "{:.1}",
+                    kib(open.stats.alloc_bytes + open.stats.realloc_bytes)
+                ),
                 format!("{:.1}", kib(open.stats.peak_bytes)),
                 format!("{:.2}", open.best_ms),
                 format!("{:.0}", mib_per_sec(size, open.best_ms)),
@@ -851,9 +863,7 @@ fn attachments() {
         }
     }
 
-    println!(
-        "\n### 4.1 `seal_attachment_in_place`: сколько буферов в пике\n"
-    );
+    println!("\n### 4.1 `seal_attachment_in_place`: сколько буферов в пике\n");
     println!(
         "{}",
         table_header(&[
@@ -977,7 +987,9 @@ fn importing() {
         // `import_parse` command adds on top of the parser.
         let bundle = quiet(|| import::parse(&json, None, None).expect("Bitwarden JSON must parse"));
         let serialize = measure(3, || {
-            serde_json::to_vec(&bundle).expect("the import bundle must serialize").len()
+            serde_json::to_vec(&bundle)
+                .expect("the import bundle must serialize")
+                .len()
         });
         print_import_row(items, json.len(), "serde_json::to_vec", &serialize, items);
 
@@ -1075,8 +1087,11 @@ fn archive() {
     let vault_path = source.path().join("pms.vault");
     fs::write(&vault_path, &vault_bytes).expect("write the pseudo vault");
     for (index, bytes) in attachment_bytes.iter().enumerate() {
-        fs::write(attachments_dir.join(format!("att{:02}.pmsa", index + 1)), bytes)
-            .expect("write an attachment");
+        fs::write(
+            attachments_dir.join(format!("att{:02}.pmsa", index + 1)),
+            bytes,
+        )
+        .expect("write an attachment");
     }
     let total_bytes = vault_bytes.len() + attachment_bytes.iter().map(Vec::len).sum::<usize>();
     println!(
@@ -1101,7 +1116,20 @@ fn archive() {
         archive_import(&archive_path, &destination).expect("archive_import must succeed")
     });
 
-    println!("{}", table_header(&["Операция", "Объём, МиБ", "alloc", "realloc", "alloc, КиБ", "peak, КиБ", "peak/объём", "мс", "МиБ/с"]));
+    println!(
+        "{}",
+        table_header(&[
+            "Операция",
+            "Объём, МиБ",
+            "alloc",
+            "realloc",
+            "alloc, КиБ",
+            "peak, КиБ",
+            "peak/объём",
+            "мс",
+            "МиБ/с"
+        ])
+    );
     for (label, stats, best_ms, bytes) in [
         ("export", export.stats, export.best_ms, total_bytes),
         (
@@ -1143,8 +1171,7 @@ fn archive() {
     for (index, bytes) in attachment_bytes.iter().enumerate() {
         let name = format!("att{:02}.pmsa", index + 1);
         assert_eq!(
-            fs::read(restored.join("attachments").join(&name))
-                .expect("read a restored attachment"),
+            fs::read(restored.join("attachments").join(&name)).expect("read a restored attachment"),
             *bytes,
             "the restored attachment {name} must be byte-identical"
         );

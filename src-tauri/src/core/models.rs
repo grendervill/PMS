@@ -158,6 +158,59 @@ pub struct TotpConfig {
     pub account: Option<String>,
 }
 
+/// What a site accepts for its password. Zero or `false` means "unset", so an
+/// empty policy carries no information and is not written to the vault file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+#[serde(rename_all = "camelCase")]
+pub struct PasswordPolicy {
+    /// 0 = not set.
+    #[serde(default)]
+    pub min_length: u16,
+    /// 0 = not set.
+    #[serde(default)]
+    pub max_length: u16,
+    #[serde(default)]
+    pub require_lowercase: bool,
+    #[serde(default)]
+    pub require_uppercase: bool,
+    #[serde(default)]
+    pub require_digits: bool,
+    #[serde(default)]
+    pub require_symbols: bool,
+    /// Characters the site rejects.
+    #[serde(default)]
+    pub forbidden_chars: String,
+}
+
+impl Default for PasswordPolicy {
+    fn default() -> Self {
+        Self {
+            min_length: 0,
+            max_length: 0,
+            require_lowercase: false,
+            require_uppercase: false,
+            require_digits: false,
+            require_symbols: false,
+            forbidden_chars: String::new(),
+        }
+    }
+}
+
+impl PasswordPolicy {
+    /// An all-default policy must not take up space in the vault file.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Keeps an unset or all-default policy out of the serialized vault entirely.
+fn password_policy_is_none_or_empty(policy: &Option<PasswordPolicy>) -> bool {
+    match policy {
+        None => true,
+        Some(policy) => policy.is_empty(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
@@ -191,6 +244,8 @@ pub struct Entry {
     pub login_history: Vec<HistoryItem>,
     #[serde(default)]
     pub password_history: Vec<HistoryItem>,
+    #[serde(default, skip_serializing_if = "password_policy_is_none_or_empty")]
+    pub policy: Option<PasswordPolicy>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -505,5 +560,105 @@ mod tests {
         assert_eq!(restored.settings.card_layout, None);
         assert!(!restored.settings.secure_screen);
         assert!(restored.favorites.is_empty());
+    }
+
+    fn sample_policy() -> PasswordPolicy {
+        PasswordPolicy {
+            min_length: 12,
+            max_length: 20,
+            require_lowercase: false,
+            require_uppercase: true,
+            require_digits: true,
+            require_symbols: false,
+            forbidden_chars: "<>\"".to_string(),
+        }
+    }
+
+    fn sample_entry_with_policy(policy: Option<PasswordPolicy>) -> Entry {
+        let timestamp = "2026-10-24T10:00:00.000Z".to_string();
+        Entry {
+            id: Uuid::parse_str("00000000-0000-4000-8000-000000000009").unwrap(),
+            kind: EntryKind::Login,
+            schema_version: 1,
+            name: "GitHub".to_string(),
+            login: "alex".to_string(),
+            password: "s3cret".to_string(),
+            url: "https://github.com".to_string(),
+            urls: vec!["https://github.com".to_string()],
+            comment: String::new(),
+            totp: None,
+            attachment_ids: Vec::new(),
+            ssh_key_ids: Vec::new(),
+            login_history: Vec::new(),
+            password_history: Vec::new(),
+            policy,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+        }
+    }
+
+    #[test]
+    fn entry_policy_round_trips_as_camel_case() {
+        let entry = sample_entry_with_policy(Some(sample_policy()));
+        let serialized = serde_json::to_value(&entry).unwrap();
+
+        assert_eq!(
+            serialized["policy"],
+            json!({
+                "minLength": 12,
+                "maxLength": 20,
+                "requireLowercase": false,
+                "requireUppercase": true,
+                "requireDigits": true,
+                "requireSymbols": false,
+                "forbiddenChars": "<>\"",
+            })
+        );
+
+        let restored: Entry = serde_json::from_value(serialized).unwrap();
+        assert_eq!(restored, entry);
+    }
+
+    #[test]
+    fn entry_without_policy_keeps_the_old_json_shape() {
+        let entry = sample_entry_with_policy(None);
+        let serialized = serde_json::to_value(&entry).unwrap();
+
+        assert!(serialized.get("policy").is_none());
+
+        // An older vault file has no `policy` key at all.
+        let restored: Entry = serde_json::from_value(json!({
+            "id": "00000000-0000-4000-8000-000000000009",
+            "kind": "login",
+            "schemaVersion": 1,
+            "name": "GitHub",
+            "login": "alex",
+            "password": "s3cret",
+            "createdAt": "2026-10-24T10:00:00.000Z",
+            "updatedAt": "2026-10-24T10:00:00.000Z",
+        }))
+        .unwrap();
+        assert_eq!(restored.policy, None);
+    }
+
+    #[test]
+    fn default_policy_is_never_serialized() {
+        let entry = sample_entry_with_policy(Some(PasswordPolicy::default()));
+        let serialized = serde_json::to_value(&entry).unwrap();
+
+        assert!(serialized.get("policy").is_none());
+        assert!(!sample_policy().is_empty());
+    }
+
+    #[test]
+    fn partial_policy_json_fills_missing_fields_with_defaults() {
+        let policy: PasswordPolicy =
+            serde_json::from_value(json!({ "minLength": 16, "requireDigits": true })).unwrap();
+
+        assert_eq!(policy.min_length, 16);
+        assert_eq!(policy.max_length, 0);
+        assert!(policy.require_digits);
+        assert!(!policy.require_symbols);
+        assert_eq!(policy.forbidden_chars, "");
     }
 }

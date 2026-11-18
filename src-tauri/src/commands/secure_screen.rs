@@ -21,9 +21,9 @@ pub fn apply(app: &AppHandle, enabled: bool) {
 
 #[cfg(target_os = "android")]
 mod imp {
-    use jni::JNIEnv;
     use jni::errors::Error as JniError;
     use jni::objects::{JClass, JObject, JValue};
+    use jni::JNIEnv;
     use jni::JavaVM;
 
     fn failed(env: &mut JNIEnv, context: &str, error: JniError) -> String {
@@ -69,12 +69,7 @@ mod imp {
             .map_err(|error| failed(&mut env, "loadClass result", error))?;
         let class = JClass::from(class);
         let activity = env
-            .call_static_method(
-                &class,
-                "current",
-                "()Ldev/pms/vault/MainActivity;",
-                &[],
-            )
+            .call_static_method(&class, "current", "()Ldev/pms/vault/MainActivity;", &[])
             .map_err(|error| failed(&mut env, "current", error))?
             .l()
             .map_err(|error| failed(&mut env, "current result", error))?;

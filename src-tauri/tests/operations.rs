@@ -19,9 +19,9 @@ use std::process::Command;
 use std::time::Instant;
 
 use pms_lib::testing::{
-    CreateVaultConfig, CipherSuite, KdfProfile, PasswordOptions, UnlockSecretInput, VaultData,
-    archive_export, archive_import, create_vault, generate_password, generate_passphrase,
-    import, save_vault, unlock_vault,
+    archive_export, archive_import, create_vault, generate_passphrase, generate_password, import,
+    save_vault, unlock_vault, CipherSuite, CreateVaultConfig, KdfProfile, PasswordOptions,
+    UnlockSecretInput, VaultData,
 };
 use pms_lib::testing::{PassphraseOptions, VaultSession};
 use tempfile::tempdir;
@@ -85,7 +85,10 @@ fn row(cells: &[String]) -> String {
 }
 
 fn header(cells: &[&str]) -> String {
-    let mut out = row(&cells.iter().map(|cell| cell.to_string()).collect::<Vec<_>>());
+    let mut out = row(&cells
+        .iter()
+        .map(|cell| cell.to_string())
+        .collect::<Vec<_>>());
     out.push('\n');
     out.push('|');
     for _ in cells {
@@ -188,7 +191,10 @@ fn operations() {
 
     // ---------------------------------------------------------------- unlock
     println!("\n## 1. Создание и разблокировка (настоящий Argon2id)");
-    println!("{}", header(&["профиль", "создание, мс", "разблокировка, мс", "всего, мс"]));
+    println!(
+        "{}",
+        header(&["профиль", "создание, мс", "разблокировка, мс", "всего, мс"])
+    );
 
     let mut standard_unlock = 0.0;
     for name in ["standard", "strong", "paranoid"] {
@@ -230,7 +236,16 @@ fn operations() {
 
     // ------------------------------------------------------------- save + fsync
     println!("\n## 2. Сохранение хранилища: сериализация + AEAD + запись на диск с fsync");
-    println!("{}", header(&["записей", "файл, КиБ", "seal, мс", "seal+запись, мс", "файл открывается"]));
+    println!(
+        "{}",
+        header(&[
+            "записей",
+            "файл, КиБ",
+            "seal, мс",
+            "seal+запись, мс",
+            "файл открывается"
+        ])
+    );
 
     let (_, mut session, _) = create_vault(&config("Замеры"), &passphrase()).expect("create");
     for entries in [50usize, 500, 5000] {
@@ -315,7 +330,10 @@ fn operations() {
 
     // ------------------------------------------------------------------ import
     println!("\n## 4. Импорт");
-    println!("{}", header(&["источник", "записей", "вход, МиБ", "мс", "записей/с"]));
+    println!(
+        "{}",
+        header(&["источник", "записей", "вход, МиБ", "мс", "записей/с"])
+    );
     for items in [200usize, 2_000, 20_000] {
         let json = bitwarden_json(items);
         let ms = best_of(2, || {
@@ -333,8 +351,11 @@ fn operations() {
             ])
         );
     }
-    let kdbx = fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/keepass_argon2id.kdbx"))
-        .expect("fixture");
+    let kdbx = fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/keepass_argon2id.kdbx"
+    ))
+    .expect("fixture");
     let kdbx_ms = best_of(2, || {
         let bundle = import::parse(&kdbx, Some("demopass"), None).expect("kdbx must parse");
         assert_eq!(bundle.items.len(), 2);
@@ -398,7 +419,14 @@ fn operations() {
 
     println!(
         "{}",
-        header(&["операция", "объём, МиБ", "время, мс", "МиБ/с", "прирост RSS, МиБ", "peak/объём"])
+        header(&[
+            "операция",
+            "объём, МиБ",
+            "время, мс",
+            "МиБ/с",
+            "прирост RSS, МиБ",
+            "peak/объём"
+        ])
     );
     for (label, ms, peak_delta) in [
         ("export", export_ms, export_peak - baseline),
@@ -508,7 +536,12 @@ fn operations() {
             row(&[
                 label.to_string(),
                 format!("{ms:.2}"),
-                if result.is_err() { "отклонено" } else { "ПРОПУЩЕНО" }.to_string(),
+                if result.is_err() {
+                    "отклонено"
+                } else {
+                    "ПРОПУЩЕНО"
+                }
+                .to_string(),
             ])
         );
         assert!(result.is_err(), "{label} must be rejected");
@@ -525,4 +558,3 @@ fn operations() {
         rss_mib()
     );
 }
-

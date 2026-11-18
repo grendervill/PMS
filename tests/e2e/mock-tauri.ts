@@ -8,10 +8,24 @@ import type { Page } from "@playwright/test";
 export type MockTauriOptions = {
   /** Seeds the fresh vault with generated entries (perf measurements). */
   seedEntries?: number;
+  /**
+   * Extra entries for a fresh vault, merged over the generated shape. Used for
+   * states the UI cannot produce on its own, like a password from a year ago.
+   */
+  seedExtraEntries?: Record<string, unknown>[];
 };
 
+/** The values the init script receives; must be structured-cloneable. */
+type MockTauriInit = { seedEntries: number; seedExtraEntries: Record<string, unknown>[] };
+
 export async function installMockTauri(page: Page, options: MockTauriOptions = {}) {
-  await page.addInitScript((seedEntries: number) => {
+  const init: MockTauriInit = {
+    seedEntries: options.seedEntries ?? 0,
+    seedExtraEntries: options.seedExtraEntries ?? [],
+  };
+  await page.addInitScript((payload: MockTauriInit) => {
+    const seedEntries = payload.seedEntries;
+    const seedExtraEntries = payload.seedExtraEntries;
     const state: {
       vault: null | {
         data: Record<string, unknown>;
@@ -97,7 +111,13 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
         faviconFetch: true,
         maxAttachmentMb: 50,
       },
-      entries: Array.from({ length: seedEntries }, (_, index) => makeEntry(index, createdAt)),
+      entries: [
+        ...Array.from({ length: seedEntries }, (_, index) => makeEntry(index, createdAt)),
+        ...seedExtraEntries.map((extra, index) => ({
+          ...makeEntry(seedEntries + index, createdAt),
+          ...clone(extra),
+        })),
+      ],
       sshKeys: [],
       attachments: [],
       drafts: [],
@@ -297,10 +317,33 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
           state.passphraseIndex += 1;
           return value;
         }
+        case "generate_pin": {
+          const values = ["420913", "730518"];
+          const value = values[state.passwordIndex % values.length];
+          state.passwordIndex += 1;
+          return value;
+        }
+        case "generate_pronounceable": {
+          const values = ["kosavotumirelapi", "zebunahoritavose"];
+          const value = values[state.passwordIndex % values.length];
+          state.passwordIndex += 1;
+          const capitalize = Boolean(
+            (args.options as { capitalize?: boolean } | undefined)?.capitalize,
+          );
+          return capitalize ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+        }
+        case "password_breach_count": {
+          const password = String(args.password ?? "");
+          // One seeded value is known to be breached so the danger state is
+          // reachable without a network call.
+          return password === "B8!nT3%wZ6^cL4&y" ? 12345 : 0;
+        }
         case "generator_entropy": {
           const mode = (args.input as { mode?: string } | undefined)?.mode;
           if (mode === "passphrase") return 77.55;
           if (mode === "login") return 40.0;
+          if (mode === "pin") return 19.93;
+          if (mode === "pronounceable") return 54.66;
           return 104.2;
         }
         case "vault_rewrap": {
@@ -534,5 +577,5 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener },
       __E2E_EMIT__: emitEvent,
     });
-  }, options.seedEntries ?? 0);
+  }, init);
 }

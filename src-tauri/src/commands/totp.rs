@@ -1,6 +1,6 @@
 use crate::commands::ApiResult;
 use crate::core::models::TotpConfig;
-use crate::core::totp::{TotpCode, code, inspect};
+use crate::core::totp::{code, inspect, TotpCode};
 
 #[tauri::command]
 pub fn totp_inspect(input: String) -> ApiResult<TotpConfig> {

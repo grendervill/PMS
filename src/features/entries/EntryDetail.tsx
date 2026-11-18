@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Calendar,
+  Clock,
   ExternalLink,
   Eye,
   EyeOff,
@@ -10,6 +11,7 @@ import {
   Pencil,
   QrCode,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
@@ -24,7 +26,16 @@ import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { ShareCardDialog } from "@/features/qr/ShareCardDialog";
 import { TotpCode } from "@/features/totp/TotpCode";
 import { TotpQrDialog } from "@/features/totp/TotpQrDialog";
-import { hostFromUrl, monogram, safeHttpUrl, entryUrls } from "@/features/entries/entries";
+import {
+  entryToDraft,
+  hostFromUrl,
+  monogram,
+  safeHttpUrl,
+  entryUrls,
+} from "@/features/entries/entries";
+import { formatDays, passwordAgeDays, passwordNeedsRotation } from "@/features/entries/passwordAge";
+import { passwordPolicySummary } from "@/features/entries/passwordPolicy";
+import { GeneratorDialog } from "@/features/generator/GeneratorDialog";
 import {
   clipboardClearDelayMs,
   clipboardClearToast,
@@ -62,9 +73,11 @@ export function EntryDetail({
   const [revealed, setRevealed] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [totpQrOpen, setTotpQrOpen] = useState(false);
+  const [generatorOpen, setGeneratorOpen] = useState(false);
   const confirm = useConfirm();
   const toast = useToast();
   const data = useVaultStore((state) => state.data);
+  const updateEntry = useVaultStore((state) => state.updateEntry);
   const urls = entryUrls(entry);
   const primaryUrl = urls[0] ?? "";
   const host = primaryUrl ? hostFromUrl(primaryUrl) : "";
@@ -83,6 +96,34 @@ export function EntryDetail({
         }),
       )
       .catch(() => toast.show({ title: failureTitle, tone: "error" }));
+  };
+
+  const passwordAge = passwordAgeDays(entry);
+  const rotationDue = passwordNeedsRotation(entry);
+
+  /** A new password goes straight into the entry, history entry and all. */
+  const applyGeneratedPassword = async (value: string) => {
+    setGeneratorOpen(false);
+    const result = await updateEntry(entry.id, {
+      ...entryToDraft(entry),
+      password: value,
+    });
+    if (result.ok) {
+      setRevealed(false);
+      toast.show({
+        title: "Пароль обновлён",
+        description: "Старый пароль остался в истории записи.",
+        tone: "success",
+      });
+      return;
+    }
+    toast.show({
+      title: "Не удалось обновить пароль",
+      description: result.blockedReason
+        ? "Этот пароль уже использовался в этой записи."
+        : errorText(useVaultStore.getState().error),
+      tone: "error",
+    });
   };
 
   useEffect(() => {
@@ -155,7 +196,12 @@ export function EntryDetail({
             <IconButton label="История" size="sm" onClick={onHistory}>
               <History size={15} />
             </IconButton>
-            <IconButton label="Удалить" size="sm" onClick={onDelete} className="hover:text-[var(--danger)]">
+            <IconButton
+              label="Удалить"
+              size="sm"
+              onClick={onDelete}
+              className="hover:text-[var(--danger)]"
+            >
               <Trash2 size={15} />
             </IconButton>
           </div>
@@ -200,6 +246,37 @@ export function EntryDetail({
               )}
             </div>
           </div>
+
+          {entry.policy ? (
+            <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
+              <span className="text-[11.5px] text-[var(--muted)]">Правила сайта</span>
+              <span className="min-w-0 break-words text-[12.5px] leading-relaxed text-[var(--text-soft)]">
+                {passwordPolicySummary(entry.policy)}
+              </span>
+            </div>
+          ) : null}
+
+          {rotationDue && passwordAge !== null ? (
+            <div className="py-4">
+              <div className="grid gap-2.5 rounded-[var(--radius-sm)] border border-[var(--warning)]/28 bg-[var(--warning)]/8 px-3 py-2.5 sm:flex sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-2">
+                <span className="flex min-w-0 items-start gap-2 sm:flex-1">
+                  <Clock size={14} className="mt-0.5 shrink-0 text-[var(--warning)]" />
+                  <p className="min-w-0 text-[11.5px] leading-relaxed text-[var(--text-soft)]">
+                    {`Пароль не менялся ${passwordAge} ${formatDays(passwordAge)} — сгенерировать новый?`}
+                  </p>
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setGeneratorOpen(true)}
+                  className="shrink-0 justify-self-start sm:justify-self-auto"
+                >
+                  <Wand2 size={13} />
+                  Сгенерировать
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {urls.length > 0 ? (
             <div className="grid gap-1.5 py-4 sm:grid-cols-[120px_1fr] sm:gap-4">
@@ -335,9 +412,18 @@ export function EntryDetail({
         <AttachmentsSection attachmentIds={entry.attachmentIds} />
       </div>
 
-      {shareOpen ? (
-        <ShareCardDialog entry={entry} onClose={() => setShareOpen(false)} />
+      {generatorOpen ? (
+        <GeneratorDialog
+          mode="password"
+          policy={entry.policy ?? null}
+          open
+          onOpenChange={(open) => {
+            if (!open) setGeneratorOpen(false);
+          }}
+          onUse={(value) => void applyGeneratedPassword(value)}
+        />
       ) : null}
+      {shareOpen ? <ShareCardDialog entry={entry} onClose={() => setShareOpen(false)} /> : null}
       {totpQrOpen && entry.totp ? (
         <TotpQrDialog config={entry.totp} onClose={() => setTotpQrOpen(false)} />
       ) : null}

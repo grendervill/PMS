@@ -57,10 +57,7 @@ pub async fn dialog_pick_folder(
 ) -> ApiResult<Option<String>> {
     let text = label(title, "Выберите папку");
     let picked = run(move |callback| {
-        app.dialog()
-            .file()
-            .set_title(&text)
-            .pick_folder(callback);
+        app.dialog().file().set_title(&text).pick_folder(callback);
     })?;
 
     grant_and_describe(&state, picked, Access::ReadWrite)

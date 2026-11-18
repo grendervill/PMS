@@ -1,8 +1,8 @@
 use aes_gcm::aead::{Aead, AeadInPlace, KeyInit, Payload};
 use aes_gcm::Aes256Gcm;
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
@@ -514,9 +514,7 @@ fn rsa_from_ssh_keypair(
     .map_err(|_| VaultError::UnsupportedKeyfile)
 }
 
-fn canonicalize_ssh_key(
-    key: &ssh_key::PrivateKey,
-) -> Result<(String, Vec<u8>), VaultError> {
+fn canonicalize_ssh_key(key: &ssh_key::PrivateKey) -> Result<(String, Vec<u8>), VaultError> {
     use rsa::pkcs1::EncodeRsaPrivateKey;
     use ssh_key::private::KeypairData;
 
@@ -789,8 +787,13 @@ mod tests {
 
     #[test]
     fn payload_roundtrip_aes_gcm() {
-        let envelope =
-            seal_payload(&[7u8; 32], CipherSuite::Aes256Gcm, b"header", b"secret data").unwrap();
+        let envelope = seal_payload(
+            &[7u8; 32],
+            CipherSuite::Aes256Gcm,
+            b"header",
+            b"secret data",
+        )
+        .unwrap();
         let opened =
             open_payload(&[7u8; 32], CipherSuite::Aes256Gcm, b"header", &envelope).unwrap();
 
@@ -843,10 +846,20 @@ mod tests {
 
     #[test]
     fn payload_salt_changes_key_and_ciphertext() {
-        let first =
-            seal_payload(&[7u8; 32], CipherSuite::XChaCha20Poly1305, b"header", b"same").unwrap();
-        let second =
-            seal_payload(&[7u8; 32], CipherSuite::XChaCha20Poly1305, b"header", b"same").unwrap();
+        let first = seal_payload(
+            &[7u8; 32],
+            CipherSuite::XChaCha20Poly1305,
+            b"header",
+            b"same",
+        )
+        .unwrap();
+        let second = seal_payload(
+            &[7u8; 32],
+            CipherSuite::XChaCha20Poly1305,
+            b"header",
+            b"same",
+        )
+        .unwrap();
 
         assert_ne!(first, second);
         assert_ne!(first[1..33], second[1..33]);
@@ -919,11 +932,8 @@ mod tests {
         use ssh_key::LineEnding;
 
         let mut rng = rand::rngs::OsRng;
-        let key = ssh_key::PrivateKey::random(
-            &mut rng,
-            ssh_key::Algorithm::Rsa { hash: None },
-        )
-        .unwrap();
+        let key =
+            ssh_key::PrivateKey::random(&mut rng, ssh_key::Algorithm::Rsa { hash: None }).unwrap();
         let openssh = key.to_openssh(LineEnding::LF).unwrap().to_string();
 
         let rsa = rsa_from_ssh_keypair(key.key_data().rsa().unwrap()).unwrap();
@@ -1036,9 +1046,6 @@ mod tests {
         let mut params = fast_params();
         params.m_kib = 4_000_000;
 
-        assert_eq!(
-            derive_kek(b"secret", &params),
-            Err(VaultError::BadParams)
-        );
+        assert_eq!(derive_kek(b"secret", &params), Err(VaultError::BadParams));
     }
 }

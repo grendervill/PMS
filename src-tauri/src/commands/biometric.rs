@@ -163,9 +163,11 @@ mod imp {
     use objc2_local_authentication::{LAContext, LAPolicy};
     use security_framework::base::Error as SecurityError;
     use security_framework::passwords::{
-        PasswordOptions, delete_generic_password, generic_password, set_generic_password_options,
+        delete_generic_password, generic_password, set_generic_password_options, PasswordOptions,
     };
-    use security_framework_sys::base::{errSecAuthFailed as ERR_SEC_AUTH_FAILED, errSecItemNotFound as ERR_SEC_ITEM_NOT_FOUND};
+    use security_framework_sys::base::{
+        errSecAuthFailed as ERR_SEC_AUTH_FAILED, errSecItemNotFound as ERR_SEC_ITEM_NOT_FOUND,
+    };
     use uuid::Uuid;
     use zeroize::Zeroizing;
 
@@ -193,10 +195,9 @@ mod imp {
                 "biometric_key_missing",
                 "Сохранённый ключ биометрии не найден",
             ),
-            ERR_SEC_AUTH_FAILED => ApiError::new(
-                "biometric_failed",
-                "Не удалось прочитать сохранённый ключ",
-            ),
+            ERR_SEC_AUTH_FAILED => {
+                ApiError::new("biometric_failed", "Не удалось прочитать сохранённый ключ")
+            }
             _ => ApiError::new("biometric_failed", "Не удалось прочитать сохранённый ключ"),
         }
     }
@@ -378,10 +379,12 @@ mod imp {
         type OSStatus = i32;
         use security_framework_sys::item::{
             kSecAttrAccessControl, kSecAttrAccount, kSecAttrService, kSecClass,
-            kSecClassGenericPassword, kSecMatchLimit, kSecReturnData, kSecUseDataProtectionKeychain,
-            kSecValueData,
+            kSecClassGenericPassword, kSecMatchLimit, kSecReturnData,
+            kSecUseDataProtectionKeychain, kSecValueData,
         };
-        use security_framework_sys::keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemDelete};
+        use security_framework_sys::keychain_item::{
+            SecItemAdd, SecItemCopyMatching, SecItemDelete,
+        };
 
         extern "C" {
             static kSecMatchLimitOne: core_foundation_sys::string::CFStringRef;
@@ -466,13 +469,9 @@ mod imp {
                 &cf(unsafe { kSecValueData }),
                 &CFData::from_buffer(key).as_CFType(),
             );
-            attributes.add(
-                &cf(unsafe { kSecAttrAccessControl }),
-                &control.as_CFType(),
-            );
+            attributes.add(&cf(unsafe { kSecAttrAccessControl }), &control.as_CFType());
 
-            let status =
-                unsafe { SecItemAdd(attributes.as_concrete_TypeRef(), ptr::null_mut()) };
+            let status = unsafe { SecItemAdd(attributes.as_concrete_TypeRef(), ptr::null_mut()) };
             if status == 0 {
                 Ok(())
             } else {
@@ -526,10 +525,7 @@ mod imp {
 
         #[test]
         fn maps_cancel_and_lockout_errors() {
-            assert_eq!(
-                map_la_error(ERR_USER_CANCELED).code,
-                "biometric_cancelled"
-            );
+            assert_eq!(map_la_error(ERR_USER_CANCELED).code, "biometric_cancelled");
             assert_eq!(map_la_error(ERR_BIOMETRY_LOCKOUT).code, "biometric_lockout");
             assert_eq!(map_la_error(-999).code, "biometric_failed");
         }
@@ -562,7 +558,7 @@ mod imp {
         fn protected_round_trip_after_biometric_prompt() {
             use crate::core::crypto::UnlockSecretInput;
             use crate::core::models::CipherSuite;
-            use crate::core::vault::{CreateVaultConfig, create_vault, unlock_vault_with_key};
+            use crate::core::vault::{create_vault, unlock_vault_with_key, CreateVaultConfig};
 
             let (file, session, data) = create_vault(
                 &CreateVaultConfig {
@@ -578,7 +574,10 @@ mod imp {
             let vault_id = session.vault_id();
             let protected = store(vault_id, session.vault_key()).unwrap();
             println!("keychain item is access controlled: {protected}");
-            assert!(protected, "the access-controlled keychain must be used here");
+            assert!(
+                protected,
+                "the access-controlled keychain must be used here"
+            );
             assert!(is_protected(vault_id));
 
             let key = read(vault_id).unwrap();
@@ -643,7 +642,10 @@ mod android {
                 "Биометрия временно заблокирована. Введите пароль-фразу",
             )
         } else {
-            ApiError::new("biometric_failed", "Отпечаток не распознан. Попробуйте ещё раз.")
+            ApiError::new(
+                "biometric_failed",
+                "Отпечаток не распознан. Попробуйте ещё раз.",
+            )
         }
     }
 
@@ -702,9 +704,9 @@ mod android {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(decrypted.data)
             .map_err(|_| ApiError::new("biometric_failed", "Повреждён ключ биометрии"))?;
-        bytes.try_into().map_err(|_| {
-            ApiError::new("biometric_failed", "Повреждён ключ биометрии")
-        })
+        bytes
+            .try_into()
+            .map_err(|_| ApiError::new("biometric_failed", "Повреждён ключ биометрии"))
     }
 }
 

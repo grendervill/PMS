@@ -3,16 +3,15 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use super::crypto::{
-    KdfProfile, UnlockSecretInput, canonical_secret, derive_kek, generate_salt, header_core_aad,
-    kdf_params, open_payload, seal_document_after, slot_aad, unwrap_vault_key,
-    wrap_vault_key,
+    canonical_secret, derive_kek, generate_salt, header_core_aad, kdf_params, open_payload,
+    seal_document_after, slot_aad, unwrap_vault_key, wrap_vault_key, KdfProfile, UnlockSecretInput,
 };
 use super::error::VaultError;
 use super::models::{
     CipherSuite, KdfSlot, KdfSlotKind, VaultData, VaultHeader, VAULT_FORMAT_VERSION,
 };
 use super::vault_file;
-use super::vault_file::{VaultFile, parse_vault_file, serialize_vault_parts};
+use super::vault_file::{parse_vault_file, serialize_vault_parts, VaultFile};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,16 +163,17 @@ fn unlock_parsed(
     Ok((session, data))
 }
 
-pub fn save_vault(
-    session: &mut VaultSession,
-    data: &VaultData,
-) -> Result<Vec<u8>, VaultError> {
+pub fn save_vault(session: &mut VaultSession, data: &VaultData) -> Result<Vec<u8>, VaultError> {
     if data.id != session.header.vault_id {
         return Err(VaultError::VaultIdMismatch);
     }
 
-    let (file, plaintext_len) =
-        seal_document(&session.header, &session.vault_key, data, session.plaintext_len)?;
+    let (file, plaintext_len) = seal_document(
+        &session.header,
+        &session.vault_key,
+        data,
+        session.plaintext_len,
+    )?;
     session.set_plaintext_len(plaintext_len);
     Ok(file)
 }
@@ -424,6 +424,7 @@ mod tests {
                 value: "old-password".to_string(),
                 changed_at: now.clone(),
             }],
+            policy: None,
             created_at: now.clone(),
             updated_at: now,
         }
@@ -431,7 +432,8 @@ mod tests {
 
     #[test]
     fn create_then_unlock_returns_same_data() {
-        let (file, session, data) = create_vault(&config("Личное"), &passphrase("correct horse")).unwrap();
+        let (file, session, data) =
+            create_vault(&config("Личное"), &passphrase("correct horse")).unwrap();
 
         assert_eq!(data.name, "Личное");
         assert_eq!(data.id, session.header.vault_id);
@@ -566,8 +568,7 @@ mod tests {
 
     #[test]
     fn wrong_raw_key_is_rejected() {
-        let (file, _, _) =
-            create_vault(&config("Bio"), &passphrase("correct horse")).unwrap();
+        let (file, _, _) = create_vault(&config("Bio"), &passphrase("correct horse")).unwrap();
         assert!(matches!(
             unlock_vault_with_key(&file, &[0u8; 32]),
             Err(VaultError::BadPayload)
@@ -666,7 +667,8 @@ mod tests {
         let rewrapped =
             rewrap_vault(&mut session, &payload_of(&saved), &keyfile_secret, true).unwrap();
 
-        let file = remove_slot(&mut session, &payload_of(&rewrapped), KdfSlotKind::Keyfile).unwrap();
+        let file =
+            remove_slot(&mut session, &payload_of(&rewrapped), KdfSlotKind::Keyfile).unwrap();
         assert_eq!(session.header.kdf_slots.len(), 1);
         assert!(matches!(
             unlock_vault(&file, &keyfile_secret),

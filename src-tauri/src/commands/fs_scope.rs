@@ -157,11 +157,7 @@ fn is_home(path: &Path) -> bool {
 }
 
 /// Re-validates a grant loaded from disk.
-fn validate_loaded_grant(
-    grant: Grant,
-    store: Option<&Path>,
-    always: &[PathBuf],
-) -> Option<Grant> {
+fn validate_loaded_grant(grant: Grant, store: Option<&Path>, always: &[PathBuf]) -> Option<Grant> {
     if !grant.persisted {
         return None;
     }
@@ -436,7 +432,9 @@ mod tests {
         // `resolve` answers with the canonical path (on macOS `/var` is a symlink
         // to `/private/var`), so compare through `canonicalize`.
         assert_eq!(
-            scope.resolve(&inside.to_string_lossy(), Access::Read).unwrap(),
+            scope
+                .resolve(&inside.to_string_lossy(), Access::Read)
+                .unwrap(),
             inside.canonicalize().unwrap()
         );
         let new_file = dir.path().join("attachments").join("a.pmsa");
@@ -499,7 +497,9 @@ mod tests {
 
         let scope = scope_with(dir.path());
         #[cfg(unix)]
-        assert!(scope.resolve(&link.to_string_lossy(), Access::Read).is_err());
+        assert!(scope
+            .resolve(&link.to_string_lossy(), Access::Read)
+            .is_err());
     }
 
     #[test]
@@ -510,7 +510,9 @@ mod tests {
         let file = dir.path().join("keyfile");
 
         assert!(scope.resolve(&file.to_string_lossy(), Access::Read).is_ok());
-        assert!(scope.resolve(&file.to_string_lossy(), Access::Write).is_err());
+        assert!(scope
+            .resolve(&file.to_string_lossy(), Access::Write)
+            .is_err());
     }
 
     #[test]
@@ -559,7 +561,10 @@ mod tests {
             let scope = FsScope::default();
             scope.attach(Some(store.clone()), vec![cache.path().to_path_buf()]);
             scope.grant(dir.path(), Access::ReadWrite).unwrap();
-            assert!(!scope.grants().iter().any(|grant| grant.2), "not persisted yet");
+            assert!(
+                !scope.grants().iter().any(|grant| grant.2),
+                "not persisted yet"
+            );
             scope.remember(dir.path());
             assert!(scope.grants().iter().any(|grant| grant.2), "remembered");
         }
@@ -567,9 +572,13 @@ mod tests {
         let scope = FsScope::default();
         scope.attach(Some(store), vec![cache.path().to_path_buf()]);
         let file = dir.path().join(VAULT_FILE);
-        assert!(scope.resolve(&file.to_string_lossy(), Access::Write).is_ok());
+        assert!(scope
+            .resolve(&file.to_string_lossy(), Access::Write)
+            .is_ok());
         let staged = cache.path().join("staging").join("pms.vault");
-        assert!(scope.resolve(&staged.to_string_lossy(), Access::Write).is_ok());
+        assert!(scope
+            .resolve(&staged.to_string_lossy(), Access::Write)
+            .is_ok());
     }
 
     #[test]
@@ -614,7 +623,9 @@ mod tests {
 
         assert!(scope.resolve("/etc/passwd", Access::Read).is_err());
         let staged = cache.join("staging");
-        assert!(scope.resolve(&staged.to_string_lossy(), Access::Write).is_ok());
+        assert!(scope
+            .resolve(&staged.to_string_lossy(), Access::Write)
+            .is_ok());
     }
 
     #[test]
@@ -628,13 +639,18 @@ mod tests {
             .grant_target(&target, Access::Write)
             .expect("a save target must be grantable");
         assert_eq!(
-            scope.resolve(&granted.to_string_lossy(), Access::Write).unwrap(),
+            scope
+                .resolve(&granted.to_string_lossy(), Access::Write)
+                .unwrap(),
             granted
         );
 
         // The target itself is the only thing that becomes writable.
         assert!(scope
-            .resolve(&dir.path().join("other.bin").to_string_lossy(), Access::Write)
+            .resolve(
+                &dir.path().join("other.bin").to_string_lossy(),
+                Access::Write
+            )
             .is_err());
         // Traversal in the name is refused.
         assert!(scope

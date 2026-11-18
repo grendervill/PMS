@@ -46,7 +46,9 @@ static REALLOC_BUCKETS: [AtomicUsize; 6] = [
 static COUNTING: AtomicUsize = AtomicUsize::new(1);
 
 const BUCKET_LIMITS: [usize; 5] = [32, 64, 256, 1024, 8192];
-const BUCKET_LABELS: [&str; 6] = ["<=32 B", "<=64 B", "<=256 B", "<=1 KiB", "<=8 KiB", ">8 KiB"];
+const BUCKET_LABELS: [&str; 6] = [
+    "<=32 B", "<=64 B", "<=256 B", "<=1 KiB", "<=8 KiB", ">8 KiB",
+];
 
 #[inline]
 fn counting() -> bool {
@@ -215,7 +217,9 @@ fn bitwarden_json(items: usize) -> Vec<u8> {
 fn bitwarden_json_range(from: usize, to: usize) -> Vec<u8> {
     let count = to.saturating_sub(from);
     let mut out = String::with_capacity(count * 1024 + 128);
-    out.push_str("{\"encrypted\":false,\"folders\":[{\"id\":\"f1\",\"name\":\"Social\"}],\"items\":[");
+    out.push_str(
+        "{\"encrypted\":false,\"folders\":[{\"id\":\"f1\",\"name\":\"Social\"}],\"items\":[",
+    );
     for index in from..to {
         if index > from {
             out.push(',');
@@ -336,7 +340,10 @@ fn row(cells: &[String]) -> String {
 }
 
 fn header_row(cells: &[&str]) -> String {
-    let mut line = row(&cells.iter().map(|cell| cell.to_string()).collect::<Vec<_>>());
+    let mut line = row(&cells
+        .iter()
+        .map(|cell| cell.to_string())
+        .collect::<Vec<_>>());
     line.push('\n');
     line.push('|');
     for _ in cells {
@@ -353,13 +360,38 @@ fn perf_audit() {
         .unwrap_or(1);
 
     println!("\n### Environment");
-    println!("profile: {}", if cfg!(debug_assertions) { "debug (timings are not representative)" } else { "release" });
-    println!("arch: {} | threads: {threads} | backend: {}", std::env::consts::ARCH, cpu_features());
+    println!(
+        "profile: {}",
+        if cfg!(debug_assertions) {
+            "debug (timings are not representative)"
+        } else {
+            "release"
+        }
+    );
+    println!(
+        "arch: {} | threads: {threads} | backend: {}",
+        std::env::consts::ARCH,
+        cpu_features()
+    );
     println!("allocator: counting wrapper over System (counts include the harness itself)");
 
     // ---------- import parsing ----------
     println!("\n### Bitwarden JSON import");
-    println!("{}", header_row(&["items", "json KiB", "alloc", "realloc", "dealloc", "allocated KiB", "reallocated KiB", "peak KiB", "ms", "items/s"]));
+    println!(
+        "{}",
+        header_row(&[
+            "items",
+            "json KiB",
+            "alloc",
+            "realloc",
+            "dealloc",
+            "allocated KiB",
+            "reallocated KiB",
+            "peak KiB",
+            "ms",
+            "items/s"
+        ])
+    );
 
     let mut datasets = Vec::new();
     for items in [200usize, 1_000, 5_000, 20_000] {
@@ -372,24 +404,37 @@ fn perf_audit() {
         let runtime = measure(3, || import_to_bytes(json));
         assert_eq!(runtime.value, *items);
         let s = runtime.stats;
-        println!("{}", row(&[
-            items.to_string(),
-            format!("{:.1}", json.len() as f64 / 1024.0),
-            s.alloc_calls.to_string(),
-            s.realloc_calls.to_string(),
-            s.dealloc_calls.to_string(),
-            format!("{:.0}", s.alloc_bytes as f64 / 1024.0),
-            format!("{:.0}", s.realloc_bytes as f64 / 1024.0),
-            format!("{:.0}", s.peak_bytes as f64 / 1024.0),
-            format!("{:.2}", runtime.best),
-            format!("{:.0}", *items as f64 / (runtime.best / 1000.0)),
-        ]));
+        println!(
+            "{}",
+            row(&[
+                items.to_string(),
+                format!("{:.1}", json.len() as f64 / 1024.0),
+                s.alloc_calls.to_string(),
+                s.realloc_calls.to_string(),
+                s.dealloc_calls.to_string(),
+                format!("{:.0}", s.alloc_bytes as f64 / 1024.0),
+                format!("{:.0}", s.realloc_bytes as f64 / 1024.0),
+                format!("{:.0}", s.peak_bytes as f64 / 1024.0),
+                format!("{:.2}", runtime.best),
+                format!("{:.0}", *items as f64 / (runtime.best / 1000.0)),
+            ])
+        );
         import_rows.push((*items, runtime.best, s));
     }
 
     // serde_json tree only, to attribute the cost between serde and our mapping
     println!("\n### Where the import cost comes from (5 000 items)");
-    println!("{}", header_row(&["step", "alloc", "realloc", "allocated KiB", "peak KiB", "ms"]));
+    println!(
+        "{}",
+        header_row(&[
+            "step",
+            "alloc",
+            "realloc",
+            "allocated KiB",
+            "peak KiB",
+            "ms"
+        ])
+    );
     let (_, json) = datasets[2].clone();
     let tree = measure(3, || {
         let value: serde_json::Value = serde_json::from_slice(&json).expect("json");
@@ -403,19 +448,33 @@ fn perf_audit() {
         ("parse + JSON out (now)", &command),
     ] {
         let s = runtime.stats;
-        println!("{}", row(&[
-            label.to_string(),
-            s.alloc_calls.to_string(),
-            s.realloc_calls.to_string(),
-            format!("{:.0}", s.alloc_bytes as f64 / 1024.0),
-            format!("{:.0}", s.peak_bytes as f64 / 1024.0),
-            format!("{:.2}", runtime.best),
-        ]));
+        println!(
+            "{}",
+            row(&[
+                label.to_string(),
+                s.alloc_calls.to_string(),
+                s.realloc_calls.to_string(),
+                format!("{:.0}", s.alloc_bytes as f64 / 1024.0),
+                format!("{:.0}", s.peak_bytes as f64 / 1024.0),
+                format!("{:.2}", runtime.best),
+            ])
+        );
     }
 
     // ---------- crypto ----------
     println!("\n### AEAD seal + open (16 MiB payload)");
-    println!("{}", header_row(&["cipher", "alloc", "realloc", "allocated KiB", "peak KiB", "ms", "MiB/s"]));
+    println!(
+        "{}",
+        header_row(&[
+            "cipher",
+            "alloc",
+            "realloc",
+            "allocated KiB",
+            "peak KiB",
+            "ms",
+            "MiB/s"
+        ])
+    );
     let payload = vec![0xABu8; 16 * 1024 * 1024];
     for (label, cipher) in [
         ("XChaCha20-Poly1305", CipherSuite::XChaCha20Poly1305),
@@ -424,20 +483,26 @@ fn perf_audit() {
         let runtime = measure(3, || seal_and_open(cipher, &payload));
         assert_eq!(runtime.value, payload.len());
         let s = runtime.stats;
-        println!("{}", row(&[
-            label.to_string(),
-            s.alloc_calls.to_string(),
-            s.realloc_calls.to_string(),
-            format!("{:.0}", s.alloc_bytes as f64 / 1024.0),
-            format!("{:.0}", s.peak_bytes as f64 / 1024.0),
-            format!("{:.2}", runtime.best),
-            format!("{:.0}", mib_per_sec(payload.len() * 2, runtime.best)),
-        ]));
+        println!(
+            "{}",
+            row(&[
+                label.to_string(),
+                s.alloc_calls.to_string(),
+                s.realloc_calls.to_string(),
+                format!("{:.0}", s.alloc_bytes as f64 / 1024.0),
+                format!("{:.0}", s.peak_bytes as f64 / 1024.0),
+                format!("{:.2}", runtime.best),
+                format!("{:.0}", mib_per_sec(payload.len() * 2, runtime.best)),
+            ])
+        );
     }
 
     // ---------- hashing / base64 ----------
     println!("\n### Scalar-helper throughput (16 MiB)");
-    println!("{}", header_row(&["path", "alloc", "realloc", "peak KiB", "ms", "MiB/s"]));
+    println!(
+        "{}",
+        header_row(&["path", "alloc", "realloc", "peak KiB", "ms", "MiB/s"])
+    );
     let digest = measure(3, || {
         let mut hasher = Sha256::new();
         hasher.update(&payload);
@@ -456,19 +521,25 @@ fn perf_audit() {
         ("base64 encode + decode", &b64, payload.len() * 2),
     ] {
         let s = runtime.stats;
-        println!("{}", row(&[
-            label.to_string(),
-            s.alloc_calls.to_string(),
-            s.realloc_calls.to_string(),
-            format!("{:.0}", s.peak_bytes as f64 / 1024.0),
-            format!("{:.2}", runtime.best),
-            format!("{:.0}", mib_per_sec(bytes, runtime.best)),
-        ]));
+        println!(
+            "{}",
+            row(&[
+                label.to_string(),
+                s.alloc_calls.to_string(),
+                s.realloc_calls.to_string(),
+                format!("{:.0}", s.peak_bytes as f64 / 1024.0),
+                format!("{:.2}", runtime.best),
+                format!("{:.0}", mib_per_sec(bytes, runtime.best)),
+            ])
+        );
     }
 
     // ---------- parallelism ----------
     println!("\n### Parallel headroom (the current code path is single-threaded)");
-    println!("{}", header_row(&["scenario", "threads", "ms", "speedup", "rate"]));
+    println!(
+        "{}",
+        header_row(&["scenario", "threads", "ms", "speedup", "rate"])
+    );
     for items in [1_000usize, 5_000] {
         let chunk_sets = [1usize, 2, 4].map(|count| {
             let per_chunk = items.div_ceil(count).max(1);
@@ -496,13 +567,16 @@ fn perf_audit() {
             if threads == 1 {
                 baseline_ms = runtime.best;
             }
-            println!("{}", row(&[
-                format!("import {items} items"),
-                threads.to_string(),
-                format!("{:.2}", runtime.best),
-                format!("{:.2}x", baseline_ms / runtime.best),
-                format!("{:.1}", items as f64 / runtime.best),
-            ]));
+            println!(
+                "{}",
+                row(&[
+                    format!("import {items} items"),
+                    threads.to_string(),
+                    format!("{:.2}", runtime.best),
+                    format!("{:.2}x", baseline_ms / runtime.best),
+                    format!("{:.1}", items as f64 / runtime.best),
+                ])
+            );
         }
     }
 
@@ -517,7 +591,9 @@ fn perf_audit() {
         std::thread::scope(|scope| {
             let handles = crypto_buffers
                 .iter()
-                .map(|buffer| scope.spawn(move || seal_only(CipherSuite::XChaCha20Poly1305, buffer)))
+                .map(|buffer| {
+                    scope.spawn(move || seal_only(CipherSuite::XChaCha20Poly1305, buffer))
+                })
                 .collect::<Vec<_>>();
             handles
                 .into_iter()
@@ -527,20 +603,26 @@ fn perf_audit() {
     });
     let total = 4 * 8 * 1024 * 1024;
     let seq_rate = mib_per_sec(total, sequential.best);
-    println!("{}", row(&[
-        "seal 4 x 8 MiB".to_string(),
-        "1".to_string(),
-        format!("{:.2}", sequential.best),
-        "1.00x".to_string(),
-        format!("{:.0} MiB/s", seq_rate),
-    ]));
-    println!("{}", row(&[
-        "seal 4 x 8 MiB".to_string(),
-        "4".to_string(),
-        format!("{:.2}", parallel.best),
-        format!("{:.2}x", sequential.best / parallel.best),
-        format!("{:.0} MiB/s", mib_per_sec(total, parallel.best)),
-    ]));
+    println!(
+        "{}",
+        row(&[
+            "seal 4 x 8 MiB".to_string(),
+            "1".to_string(),
+            format!("{:.2}", sequential.best),
+            "1.00x".to_string(),
+            format!("{:.0} MiB/s", seq_rate),
+        ])
+    );
+    println!(
+        "{}",
+        row(&[
+            "seal 4 x 8 MiB".to_string(),
+            "4".to_string(),
+            format!("{:.2}", parallel.best),
+            format!("{:.2}x", sequential.best / parallel.best),
+            format!("{:.0} MiB/s", mib_per_sec(total, parallel.best)),
+        ])
+    );
 
     // ---------- reallocation size classes ----------
     println!("\n### Reallocation size classes (5 000-item import)");
@@ -549,12 +631,26 @@ fn perf_audit() {
     let total: usize = stats.realloc_buckets.iter().sum();
     for (index, label) in BUCKET_LABELS.iter().enumerate() {
         let count = stats.realloc_buckets[index];
-        println!("{}", row(&[
-            label.to_string(),
-            count.to_string(),
-            format!("{:.1}%", if total == 0 { 0.0 } else { count as f64 / total as f64 * 100.0 }),
-            if index <= 2 { "string/Vec growth".to_string() } else { "buffer growth".to_string() },
-        ]));
+        println!(
+            "{}",
+            row(&[
+                label.to_string(),
+                count.to_string(),
+                format!(
+                    "{:.1}%",
+                    if total == 0 {
+                        0.0
+                    } else {
+                        count as f64 / total as f64 * 100.0
+                    }
+                ),
+                if index <= 2 {
+                    "string/Vec growth".to_string()
+                } else {
+                    "buffer growth".to_string()
+                },
+            ])
+        );
     }
 
     // ---------- allocation shape of the import ----------

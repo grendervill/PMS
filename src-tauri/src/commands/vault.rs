@@ -1,5 +1,5 @@
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
@@ -8,18 +8,20 @@ use uuid::Uuid;
 use crate::commands::fs_scope::Access;
 use crate::commands::secure_screen;
 use crate::commands::{ApiError, ApiResult, AppState};
-use crate::core::crypto::{MAX_KEYFILE_BYTES, UnlockSecretInput, keyfile_kind as classify_keyfile};
+use crate::core::crypto::{keyfile_kind as classify_keyfile, UnlockSecretInput, MAX_KEYFILE_BYTES};
 use crate::core::error::VaultError;
 use crate::core::models::{CipherSuite, KdfSlotKind, VaultData};
 use crate::core::vault::{
-    CreateVaultConfig, create_vault, remove_slot, rewrap_vault, seal_document, unlock_vault,
+    create_vault, remove_slot, rewrap_vault, seal_document, unlock_vault, CreateVaultConfig,
 };
 use crate::core::vault_file::parse_vault_file;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum UnlockSecretDto {
-    Passphrase { value: String },
+    Passphrase {
+        value: String,
+    },
     Keyfile {
         #[serde(rename = "bytesB64")]
         bytes_b64: String,
@@ -112,15 +114,22 @@ const MAX_VAULT_FILE_BYTES: usize = 512 * 1024 * 1024;
 /// whole lifetime of the vault.
 fn read_sealed_payload(folder: &std::path::Path) -> ApiResult<(Uuid, Vec<u8>)> {
     let path = folder.join("pms.vault");
-    let bytes = std::fs::read(&path)
-        .map_err(|error| ApiError::new("storage", format!("Не удалось прочитать хранилище: {error}")))?;
+    let bytes = std::fs::read(&path).map_err(|error| {
+        ApiError::new(
+            "storage",
+            format!("Не удалось прочитать хранилище: {error}"),
+        )
+    })?;
     let parsed = parse_vault_file(&bytes)?;
     Ok((parsed.header.vault_id, parsed.payload))
 }
 
 fn decode_file(file_b64: &str) -> ApiResult<Vec<u8>> {
     if file_b64.len() > MAX_VAULT_FILE_BYTES.saturating_mul(4) / 3 + 8 {
-        return Err(ApiError::new("file_too_large", "Файл хранилища слишком большой"));
+        return Err(ApiError::new(
+            "file_too_large",
+            "Файл хранилища слишком большой",
+        ));
     }
     STANDARD
         .decode(file_b64)
@@ -138,7 +147,9 @@ fn file_hash(bytes: &[u8]) -> String {
 #[tauri::command]
 pub fn keyfile_kind(file_b64: String) -> ApiResult<String> {
     let bytes = decode_file(&file_b64)?;
-    classify_keyfile(&bytes).map(str::to_string).map_err(ApiError::from)
+    classify_keyfile(&bytes)
+        .map(str::to_string)
+        .map_err(ApiError::from)
 }
 
 /// Tells the scope that `folder` holds a vault, so it is remembered across

@@ -131,7 +131,10 @@ fn parse_uri(input: &str) -> Result<TotpConfig, VaultError> {
 
     let label = url.path().trim_start_matches('/');
     let (label_issuer, account) = match label.split_once(':') {
-        Some((issuer, account)) => (Some(issuer.replace("%20", " ")), Some(account.replace("%20", " "))),
+        Some((issuer, account)) => (
+            Some(issuer.replace("%20", " ")),
+            Some(account.replace("%20", " ")),
+        ),
         None => (None, Some(label.replace("%20", " "))),
     };
 
@@ -246,7 +249,8 @@ mod tests {
     #[test]
     fn matches_rfc_6238_sha256_and_sha512_vectors() {
         let sha256 = secret_for(b"12345678901234567890123456789012");
-        let sha512 = secret_for(b"1234567890123456789012345678901234567890123456789012345678901234");
+        let sha512 =
+            secret_for(b"1234567890123456789012345678901234567890123456789012345678901234");
 
         assert_eq!(
             code(&config(&sha256, TotpAlgorithm::Sha256, 8), Some(59))

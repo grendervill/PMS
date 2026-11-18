@@ -313,9 +313,18 @@ mod tests {
 
     #[test]
     fn rejects_kdbx3_iteration_bomb() {
-        let header = kdbx_header(0, &[(HEADER_FIELD_ROUNDS_KDBX3, 5_000_000_000u64.to_le_bytes().to_vec())]);
+        let header = kdbx_header(
+            0,
+            &[(
+                HEADER_FIELD_ROUNDS_KDBX3,
+                5_000_000_000u64.to_le_bytes().to_vec(),
+            )],
+        );
         assert_eq!(guard_kdf_params(&header), Err(VaultError::ImportCorrupt));
-        let ok = kdbx_header(0, &[(HEADER_FIELD_ROUNDS_KDBX3, 600_000u64.to_le_bytes().to_vec())]);
+        let ok = kdbx_header(
+            0,
+            &[(HEADER_FIELD_ROUNDS_KDBX3, 600_000u64.to_le_bytes().to_vec())],
+        );
         assert_eq!(guard_kdf_params(&ok), Ok(()));
     }
 

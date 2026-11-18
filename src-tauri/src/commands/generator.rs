@@ -4,15 +4,16 @@ use tauri::{AppHandle, Manager};
 use crate::commands::fs_scope::Access;
 use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::generator::{
-    DICEWARE_WORDS as core_diceware_words, EntropyInput, LoginOptions,
-    MAX_CUSTOM_WORDLIST_BYTES as core_max_wordlist_bytes, MIN_CUSTOM_WORDS as core_min_custom_words,
-    PassphraseOptions, PasswordOptions, clear_custom_wordlist as core_clear_custom_wordlist,
+    clear_custom_wordlist as core_clear_custom_wordlist,
     custom_wordlist_len as core_custom_wordlist_len, entropy_bits as core_entropy_bits,
-    generate_login as core_generate_login,
-    generate_passphrase as core_generate_passphrase,
-    generate_password as core_generate_password,
+    generate_login as core_generate_login, generate_passphrase as core_generate_passphrase,
+    generate_password as core_generate_password, generate_pin as core_generate_pin,
+    generate_pronounceable as core_generate_pronounceable,
     parse_custom_wordlist as core_parse_custom_wordlist,
-    store_custom_wordlist as core_store_custom_wordlist,
+    store_custom_wordlist as core_store_custom_wordlist, EntropyInput, LoginOptions,
+    PassphraseOptions, PasswordOptions, PinOptions, PronounceableOptions,
+    DICEWARE_WORDS as core_diceware_words, MAX_CUSTOM_WORDLIST_BYTES as core_max_wordlist_bytes,
+    MIN_CUSTOM_WORDS as core_min_custom_words,
 };
 
 #[tauri::command]
@@ -28,6 +29,16 @@ pub fn generate_login(options: LoginOptions) -> ApiResult<String> {
 #[tauri::command]
 pub fn generate_passphrase(options: PassphraseOptions) -> ApiResult<String> {
     Ok(core_generate_passphrase(&options)?)
+}
+
+#[tauri::command]
+pub fn generate_pin(options: PinOptions) -> ApiResult<String> {
+    Ok(core_generate_pin(&options)?)
+}
+
+#[tauri::command]
+pub fn generate_pronounceable(options: PronounceableOptions) -> ApiResult<String> {
+    Ok(core_generate_pronounceable(&options)?)
 }
 
 #[tauri::command]
@@ -60,10 +71,7 @@ pub fn generator_wordlist() -> ApiResult<WordlistInfo> {
 
 /// Imports a word list from a file the user picked in the native dialog.
 #[tauri::command]
-pub async fn generator_import_wordlist(
-    app: AppHandle,
-    path: String,
-) -> ApiResult<WordlistInfo> {
+pub async fn generator_import_wordlist(app: AppHandle, path: String) -> ApiResult<WordlistInfo> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = state.fs_scope.resolve(&path, Access::Read)?;

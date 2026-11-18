@@ -57,6 +57,8 @@ mod imp {
         pasteboard.clearContents();
         // `owner` is unused for a pasteboard, but the selector requires a pointer.
         unsafe { pasteboard.declareTypes_owner(&array, None) };
-        pasteboard.setString_forType(&NSString::from_str(value), unsafe { NSPasteboardTypeString });
+        pasteboard.setString_forType(&NSString::from_str(value), unsafe {
+            NSPasteboardTypeString
+        });
     }
 }
