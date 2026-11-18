@@ -125,6 +125,18 @@ impl Store {
         }
     }
 
+    /// Меняет квоту аккаунта. Админка не делается: квота правится CLI.
+    pub fn set_quota(&self, account: AccountId, quota_bytes: u64) -> Result<bool, StoreError> {
+        let updated = self
+            .db()?
+            .execute(
+                "UPDATE accounts SET quota_bytes = ?2 WHERE account_id = ?1",
+                rusqlite::params![account.to_string(), quota_bytes as i64],
+            )
+            .map_err(db_error)?;
+        Ok(updated == 1)
+    }
+
     /// Удаляет аккаунт целиком: каталог с байтами и все строки индекса.
     pub fn delete_account(&self, account: AccountId) -> Result<bool, StoreError> {
         if self.account(account)?.is_none() {

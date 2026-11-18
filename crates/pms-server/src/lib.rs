@@ -8,5 +8,8 @@
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod server;
 pub mod store;
 pub mod tls;
+
+pub use server::{run, ServerError, ServerHandle};
