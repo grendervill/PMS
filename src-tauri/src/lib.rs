@@ -35,6 +35,7 @@ pub mod testing {
     pub use crate::core::vault_file::{
         parse_vault_file, serialize_vault_file, serialize_vault_parts,
     };
+    pub use crate::core::remote::{tls as remote_tls, RemoteError, RemoteProfile, TlsPolicy};
 }
 
 use commands::AppState;
