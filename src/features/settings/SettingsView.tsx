@@ -7,6 +7,7 @@ import {
   Loader2,
   Power,
   Palette,
+  ShieldAlert,
   ShieldCheck,
   SwatchBook,
   Upload,
@@ -90,6 +91,7 @@ export function SettingsView() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [lastBackup, setLastBackup] = useState<Date | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [keychainProtected, setKeychainProtected] = useState(true);
   const [checking, setChecking] = useState(true);
   const [enabled, setEnabled] = useState(() => isBiometricEnabled(data?.id));
   const [autostart, setAutostart] = useState(false);
@@ -99,9 +101,11 @@ export function SettingsView() {
   useEffect(() => {
     let active = true;
     void vaultApi
-      .biometricStatus()
+      .biometricStatus(data?.id)
       .then((status) => {
-        if (active) setAvailable(status.available);
+        if (!active) return;
+        setAvailable(status.available);
+        setKeychainProtected(status.keychainProtected);
       })
       .catch(() => {
         if (active) setAvailable(false);
@@ -112,7 +116,8 @@ export function SettingsView() {
     return () => {
       active = false;
     };
-  }, []);
+    // The status is per vault; `data?.id` is stable while the vault is open.
+  }, [data?.id]);
 
   useEffect(() => {
     if (android) return;
@@ -440,12 +445,24 @@ export function SettingsView() {
               }
             />
             {enabled && available === true ? (
-              <p className="flex items-center gap-1.5 text-[10.5px] text-[var(--accent-soft)]">
-                <ShieldCheck size={12} />
-                {android
-                  ? "Ключ хранится в Android Keystore и не переносится вместе с хранилищем."
-                  : "Ключ хранится в системном Keychain и не переносится вместе с хранилищем."}
-              </p>
+              keychainProtected ? (
+                <p className="flex items-center gap-1.5 text-[10.5px] text-[var(--accent-soft)]">
+                  <ShieldCheck size={12} />
+                  {android
+                    ? "Ключ хранится в Android Keystore и не переносится вместе с хранилищем."
+                    : "Ключ хранится в Keychain и читается только после Touch ID."}
+                </p>
+              ) : (
+                <p className="flex items-start gap-1.5 text-[10.5px] text-[var(--warning)]">
+                  <ShieldAlert size={12} className="mt-0.5 shrink-0" />
+                  <span>
+                    Этот Mac не дал защитить ключ биометрией на уровне системы (нет пароля
+                    устройства или сборка без подписи), поэтому ключ читается без запроса Touch ID.
+                    Включите пароль устройства и переустановите подписанную сборку, чтобы это
+                    исправить.
+                  </span>
+                </p>
+              )
             ) : null}
             {checking ? (
               <span className="flex items-center gap-1.5 text-[10.5px] text-[var(--muted)]">
@@ -550,7 +567,7 @@ export function SettingsView() {
               <input
                 type="checkbox"
                 aria-label="Загружать значки сайтов"
-                checked={data?.settings.faviconFetch ?? true}
+                checked={data?.settings.faviconFetch ?? false}
                 onChange={(event) => void toggleFavicons(event.target.checked)}
                 disabled={busy}
                 className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
@@ -560,7 +577,9 @@ export function SettingsView() {
                   Загружать значки сайтов
                 </span>
                 <span className="mt-0.5 block text-[10px] leading-relaxed text-[var(--muted)]">
-                  Значок запрашивается у Google S2 по домену из URL карточки и хранится в кеше 30 дней. Без URL показывается монограмма.
+                  Выключено по умолчанию. Если включить, домен из URL каждой карточки будет
+                  отправляться в сервис значков Google и храниться в кеше 30 дней. Без URL
+                  показывается монограмма.
                 </span>
               </span>
             </label>

@@ -1,33 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { desktopStorage } from "./desktop";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/path", () => ({
   join: vi.fn(async (...parts: string[]) => parts.join("/")),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 const invokeMock = vi.mocked(invoke);
-const openMock = vi.mocked(open);
+
+function bytesOf(value: string): ArrayBuffer {
+  const bytes = new TextEncoder().encode(value);
+  return bytes.buffer.slice(0, bytes.byteLength) as ArrayBuffer;
+}
 
 describe("desktop storage", () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    openMock.mockReset();
   });
 
-  it("picks a folder and returns null when cancelled", async () => {
-    openMock.mockResolvedValueOnce("/vaults/personal");
+  it("picks a folder through the Rust dialog", async () => {
+    // The dialog lives in Rust because it is also what grants filesystem access.
+    invokeMock.mockResolvedValueOnce("/vaults/personal");
     await expect(desktopStorage.pickFolder()).resolves.toBe("/vaults/personal");
 
-    openMock.mockResolvedValueOnce(null);
+    invokeMock.mockResolvedValueOnce(null);
     await expect(desktopStorage.pickFolder()).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("dialog_pick_folder", expect.anything());
   });
 
-  it("reads the vault from the chosen folder", async () => {
-    invokeMock.mockResolvedValueOnce({ b64: "aGVsbG8=" });
+  it("reads the vault from the chosen folder as raw bytes", async () => {
+    invokeMock.mockResolvedValueOnce(bytesOf("hello"));
 
     const bytes = await desktopStorage.readVault("/vaults/personal");
 
@@ -68,7 +71,7 @@ describe("desktop storage", () => {
   });
 
   it("reads and writes attachment blobs", async () => {
-    invokeMock.mockResolvedValueOnce({ b64: "YmxvYg==" });
+    invokeMock.mockResolvedValueOnce(bytesOf("blob"));
     const blob = await desktopStorage.readBlob("/vaults/personal", "abc");
     expect(Array.from(blob)).toEqual(Array.from(new TextEncoder().encode("blob")));
 
@@ -79,6 +82,30 @@ describe("desktop storage", () => {
       path: "/vaults/personal/attachments/abc.pmsa",
       b64: "AQID",
       mode: 0o600,
+    });
+  });
+
+  it("seals attachments through Rust and opens them as raw bytes", async () => {
+    const meta = { id: "att-1", name: "a.txt", size: 3 };
+    invokeMock.mockResolvedValueOnce({ meta });
+    await expect(
+      desktopStorage.sealAttachment("s1", "/vaults/personal", "a.txt", "text/plain", new Uint8Array([1, 2, 3])),
+    ).resolves.toEqual(meta);
+    expect(invokeMock).toHaveBeenLastCalledWith("attachment_seal_store", {
+      sessionId: "s1",
+      folder: "/vaults/personal",
+      name: "a.txt",
+      mime: "text/plain",
+      b64: "AQID",
+    });
+
+    invokeMock.mockResolvedValueOnce(bytesOf("plain"));
+    const opened = await desktopStorage.openAttachment("s1", "/vaults/personal", "att-1");
+    expect(new TextDecoder().decode(opened)).toBe("plain");
+    expect(invokeMock).toHaveBeenLastCalledWith("attachment_open_file", {
+      sessionId: "s1",
+      attachmentId: "att-1",
+      folder: "/vaults/personal",
     });
   });
 });

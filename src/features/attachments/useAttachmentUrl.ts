@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useVaultStore } from "@/features/vault/store";
-import { vaultApi } from "@/features/vault/api";
 import { getStorage } from "@/lib/storage";
 
 type LoadedUrl = {
@@ -25,8 +24,7 @@ export function useAttachmentUrl(attachmentId: string | null): string | null {
 
     void (async () => {
       try {
-        const blob = await getStorage().readBlob(vaultPath, attachmentId);
-        const bytes = await vaultApi.openAttachment(sessionId, attachmentId, blob);
+        const bytes = await getStorage().openAttachment(sessionId, vaultPath, attachmentId);
         if (!active) return;
         objectUrl = URL.createObjectURL(
           new Blob([bytes as unknown as BlobPart], { type: meta.mime }),

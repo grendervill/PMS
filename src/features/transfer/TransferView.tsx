@@ -36,6 +36,34 @@ import {
 import { isAndroidPlatform } from "@/lib/platform";
 import { cn } from "@/lib/cn";
 
+/** Same alphabet as the Rust side: no I, L, O, U, 0 or 1. */
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
+const CODE_LEN = 8;
+
+function normalizeCode(value: string): string | null {
+  let out = "";
+  for (const character of value.toUpperCase()) {
+    if (character === "-" || character.trim() === "") continue;
+    if (!CODE_ALPHABET.includes(character)) return null;
+    out += character;
+  }
+  return out.length === CODE_LEN ? out : null;
+}
+
+/** Keeps what the user typed so far, in groups of four: `ABCD-2345`. */
+function formatCodeInput(value: string): string {
+  const cleaned = Array.from(value.toUpperCase())
+    .filter((character) => CODE_ALPHABET.includes(character))
+    .slice(0, CODE_LEN)
+    .join("");
+  return cleaned.length > 4 ? `${cleaned.slice(0, 4)}-${cleaned.slice(4)}` : cleaned;
+}
+
+function displayCode(value: string): string {
+  const cleaned = normalizeCode(value) ?? value;
+  return cleaned.length === CODE_LEN ? `${cleaned.slice(0, 4)}-${cleaned.slice(4)}` : cleaned;
+}
+
 type Tab = "send" | "receive";
 type ReceiveMode = "new" | "replace";
 
@@ -115,21 +143,40 @@ export function TransferView() {
   );
 
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: UnlistenFn[] = [];
     let active = true;
-    void listen<ReceivedArchive>("transfer://received", (event) => {
-      if (!active) return;
-      setReceived(event.payload);
-      void installReceived(event.payload);
-    })
-      .then((stop) => {
-        if (active) unlisten = stop;
-        else stop();
+    const register = <T,>(event: string, handler: (payload: T) => void) => {
+      void listen<T>(event, (message) => {
+        if (active) handler(message.payload);
       })
-      .catch(() => undefined);
+        .then((stop) => {
+          if (active) unlisten.push(stop);
+          else stop();
+        })
+        .catch(() => undefined);
+    };
+
+    register<ReceivedArchive>("transfer://received", (payload) => {
+      setReceived(payload);
+      void installReceived(payload);
+    });
+    // The receiving side stops on its own: the code expires and three wrong
+    // attempts lock the session, so the UI has to say so.
+    register<null>("transfer://expired", () => {
+      setReceiveStarted(null);
+      setReceiving(false);
+      setError("Код истёк через 2 минуты — запустите приём заново.");
+    });
+    register<number>("transfer://locked", (attempts) => {
+      setReceiveStarted(null);
+      setReceiving(false);
+      setError(`Приём остановлен после ${attempts} неверных попыток — запустите заново.`);
+    });
+
     return () => {
       active = false;
-      unlisten?.();
+      for (const stop of unlisten) stop();
+      unlisten = [];
       void vaultApi.transferReceiveStop().catch(() => undefined);
     };
   }, [installReceived]);
@@ -139,8 +186,8 @@ export function TransferView() {
       setError("Выберите устройство.");
       return;
     }
-    if (!/^\d{6}$/.test(code.trim())) {
-      setError("Введите шестизначный код с принимающего устройства.");
+    if (!normalizeCode(code)) {
+      setError("Введите код из 8 символов (буквы и цифры) с принимающего устройства.");
       return;
     }
     if (!vaultPath) {
@@ -154,7 +201,12 @@ export function TransferView() {
       const source = isAndroidPlatform()
         ? (staged = await stageVaultForTransfer(vaultPath))
         : vaultPath;
-      await vaultApi.transferSend(selectedPeer.host, selectedPeer.port, code.trim(), source);
+      await vaultApi.transferSend(
+        selectedPeer.host,
+        selectedPeer.port,
+        normalizeCode(code) ?? code.trim(),
+        source,
+      );
       toast.show({
         title: "Хранилище отправлено",
         description: selectedPeer.name,
@@ -391,13 +443,14 @@ export function TransferView() {
                     id="transfer-code"
                     value={code}
                     onChange={(event) => {
-                      setCode(event.target.value.replace(/\D/g, "").slice(0, 6));
+                      setCode(formatCodeInput(event.target.value));
                       setError(null);
                     }}
-                    inputMode="numeric"
                     autoComplete="one-time-code"
-                    placeholder="000000"
-                    className="pms-mono tracking-[0.25em]"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    placeholder="ABCD-2345"
+                    className="pms-mono tracking-[0.2em] uppercase"
                   />
                 </Field>
                 <Button onClick={() => void send()} disabled={sending || !selectedPeer}>
@@ -496,12 +549,12 @@ export function TransferView() {
                 <p className="text-[10.5px] font-medium tracking-wide text-[var(--accent-soft)]">
                   КОД ПОДТВЕРЖДЕНИЯ
                 </p>
-                <p className="pms-mono mt-2 text-[38px] tracking-[0.25em] text-[var(--text)]">
-                  {receiveStarted.code}
+                <p className="pms-mono mt-2 text-[34px] tracking-[0.18em] text-[var(--text)]">
+                  {displayCode(receiveStarted.code)}
                 </p>
                 <div className="mt-1 flex items-center justify-center gap-1.5 text-[10.5px] text-[var(--muted)]">
                   <span>Введите его на отправляющем устройстве</span>
-                  <CopyButton value={receiveStarted.code} label="Копировать код" />
+                  <CopyButton value={displayCode(receiveStarted.code)} label="Копировать код" />
                 </div>
                 <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-[var(--text-soft)]">
                   {receiving ? (

@@ -15,6 +15,7 @@ import {
   type FsUri,
 } from "tauri-plugin-android-fs-api";
 import { fromBase64, toBase64 } from "@/lib/base64";
+import { vaultApi } from "@/features/vault/api";
 import type { VaultStorage } from "@/lib/storage/types";
 
 const VAULT_FILE = "pms.vault";
@@ -258,6 +259,19 @@ export const androidStorage: VaultStorage = {
     const attachments = await resolveDir(root, ATTACHMENTS_DIR);
     if (!attachments) throw { code: "storage", message: "Вложение не найдено" };
     return readFileAt(attachments, `${id}.pmsa`);
+  },
+
+  async sealAttachment(sessionId, folder, name, mime, bytes) {
+    // SAF cannot be written from Rust, so the Android path still returns the
+    // sealed blob and stores it through the plugin.
+    const sealed = await vaultApi.sealAttachment(sessionId, name, mime, bytes);
+    await androidStorage.writeBlob(folder, sealed.meta.id, sealed.blob);
+    return sealed.meta;
+  },
+
+  async openAttachment(sessionId, folder, id) {
+    const blob = await androidStorage.readBlob(folder, id);
+    return vaultApi.openAttachment(sessionId, id, blob);
   },
 
   async writeBlob(folder, id, bytes) {

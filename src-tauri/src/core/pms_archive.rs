@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -8,7 +8,8 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::error::VaultError;
-use super::vault_file::parse_vault_file;
+use super::models::VaultHeader;
+use super::vault_file::{FIXED_HEADER_LEN, MAGIC, MAX_HEADER_LEN};
 
 const MANIFEST: &str = "manifest.json";
 const VAULT: &str = "pms.vault";
@@ -41,6 +42,36 @@ fn storage(error: impl std::fmt::Display) -> VaultError {
     VaultError::Storage(error.to_string())
 }
 
+/// Creates (or truncates) a file that only the current user can read. `umask`
+/// narrows `open` modes, so the permission is also set explicitly afterwards.
+fn create_private_file(path: &Path) -> Result<File, VaultError> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path).map_err(storage)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(storage)?;
+    }
+    Ok(file)
+}
+
+fn set_private_dir(path: &Path) -> Result<(), VaultError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(storage)?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 fn parse_manifest(bytes: &[u8]) -> Result<Manifest, VaultError> {
     let manifest: Manifest =
         serde_json::from_slice(bytes).map_err(|_| VaultError::ImportCorrupt)?;
@@ -59,17 +90,13 @@ fn safe_path(path: &str) -> bool {
             .any(|part| part == ".." || part.is_empty())
 }
 
-pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
+const COPY_BUFFER: usize = 1024 * 1024;
+
+fn collect_files(folder: &Path) -> Result<Vec<(String, PathBuf, u64)>, VaultError> {
+    let mut files = Vec::new();
     let vault = folder.join(VAULT);
-    let vault_bytes = fs::read(&vault).map_err(storage)?;
-    let (vault_id, created_at) = match parse_vault_file(&vault_bytes) {
-        Ok(parsed) => (
-            parsed.header.vault_id.to_string(),
-            parsed.header.created_at.clone(),
-        ),
-        Err(_) => (String::new(), String::new()),
-    };
-    let mut files = vec![(VAULT.to_string(), vault_bytes)];
+    let size = fs::metadata(&vault).map_err(storage)?.len();
+    files.push((VAULT.to_string(), vault, size));
 
     let attachments = folder.join("attachments");
     if attachments.is_dir() {
@@ -84,9 +111,106 @@ pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
             if !name.ends_with(".pmsa") || !safe_path(&name) {
                 continue;
             }
-            let bytes = fs::read(attachments.join(&name)).map_err(storage)?;
-            files.push((format!("attachments/{name}"), bytes));
+            let path = attachments.join(&name);
+            let size = fs::metadata(&path).map_err(storage)?.len();
+            files.push((format!("attachments/{name}"), path, size));
         }
+    }
+    Ok(files)
+}
+
+/// Hashes a file in fixed-size chunks. Nothing whole-file is ever held in
+/// memory: a 2 GiB vault plus its attachments used to be read with `fs::read`
+/// into one `Vec` per file and then again for the zip.
+/// Copies `source` into `sink` while hashing it, capped by `declared`.
+fn copy_and_hash<R: Read, W: Write>(
+    source: &mut R,
+    sink: &mut W,
+    declared: u64,
+) -> Result<(u64, String), VaultError> {
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; COPY_BUFFER];
+    let mut total = 0u64;
+    let mut limited = source.take(declared);
+    loop {
+        let read = limited.read(&mut buffer).map_err(storage)?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        hasher.update(&buffer[..read]);
+        sink.write_all(&buffer[..read]).map_err(storage)?;
+    }
+    if total != declared {
+        return Err(VaultError::ImportCorrupt);
+    }
+    Ok((total, hex::encode(hasher.finalize())))
+}
+
+fn sha256_file(path: &Path) -> Result<(String, u64), VaultError> {
+    let mut file = File::open(path).map_err(storage)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; COPY_BUFFER];
+    let mut total = 0u64;
+    loop {
+        let read = file.read(&mut buffer).map_err(storage)?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        hasher.update(&buffer[..read]);
+    }
+    Ok((hex::encode(hasher.finalize()), total))
+}
+
+/// Reads just the header of `pms.vault` (magic, lengths, header JSON) instead of
+/// the whole file, so the manifest can be built without loading gigabytes.
+fn read_vault_identity(folder: &Path) -> Result<(String, String), VaultError> {
+    let empty = (String::new(), String::new());
+    let mut file = match File::open(folder.join(VAULT)) {
+        Ok(file) => file,
+        Err(_) => return Ok(empty),
+    };
+    let mut fixed = [0u8; FIXED_HEADER_LEN];
+    if file.read_exact(&mut fixed).is_err() {
+        return Ok(empty);
+    }
+    if &fixed[..5] != MAGIC {
+        return Ok(empty);
+    }
+    let header_len =
+        u32::from_le_bytes([fixed[5], fixed[6], fixed[7], fixed[8]]) as usize;
+    if header_len == 0 || header_len > MAX_HEADER_LEN {
+        return Ok(empty);
+    }
+    let mut header_json = vec![0u8; header_len];
+    if file.read_exact(&mut header_json).is_err() {
+        return Ok(empty);
+    }
+    match serde_json::from_slice::<VaultHeader>(&header_json) {
+        Ok(header) => Ok((header.vault_id.to_string(), header.created_at)),
+        Err(_) => Ok(empty),
+    }
+}
+
+pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
+    let files = collect_files(folder)?;
+
+    let (vault_id, created_at) = read_vault_identity(folder)?;
+
+    let mut manifest_files = Vec::with_capacity(files.len());
+    for (path, real, size) in &files {
+        let (digest, actual) = sha256_file(real)?;
+        if actual != *size {
+            return Err(VaultError::Storage(format!(
+                "размер файла {path} изменился во время экспорта"
+            )));
+        }
+        manifest_files.push(ManifestFile {
+            path: path.clone(),
+            size: *size,
+            sha256: digest,
+        });
     }
 
     let manifest = Manifest {
@@ -95,28 +219,49 @@ pub fn export(folder: &Path, destination: &Path) -> Result<(), VaultError> {
         vault_id,
         created_at,
         exported_at: chrono::Utc::now().to_rfc3339(),
-        files: files
-            .iter()
-            .map(|(path, bytes)| ManifestFile {
-                path: path.clone(),
-                size: bytes.len() as u64,
-                sha256: sha256(bytes),
-            })
-            .collect(),
+        files: manifest_files,
     };
     let manifest_json =
         serde_json::to_vec_pretty(&manifest).map_err(|_| VaultError::ImportCorrupt)?;
 
-    let output = File::create(destination).map_err(storage)?;
+    let output = create_private_file(destination)?;
     let mut zip = ZipWriter::new(output);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
     zip.start_file(MANIFEST, options)
         .map_err(|_| VaultError::ImportCorrupt)?;
     zip.write_all(&manifest_json).map_err(storage)?;
-    for (path, bytes) in files {
-        zip.start_file(path, options)
+
+    // Second pass: copy the bytes and hash them again. Hashing and copying are
+    // separate passes (the manifest is written first), so a file that changed in
+    // between would leave an archive whose checksums never match — the user
+    // would only discover that when restoring. Detect it here instead.
+    let mut buffer = vec![0u8; COPY_BUFFER];
+    let mut changed = None;
+    for (index, (name, real, _)) in files.iter().enumerate() {
+        zip.start_file(name.as_str(), options)
             .map_err(|_| VaultError::ImportCorrupt)?;
-        zip.write_all(&bytes).map_err(storage)?;
+        let mut file = File::open(real).map_err(storage)?;
+        let mut hasher = Sha256::new();
+        loop {
+            let read = file.read(&mut buffer).map_err(storage)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            zip.write_all(&buffer[..read]).map_err(storage)?;
+        }
+        let digest = hex::encode(hasher.finalize());
+        if manifest.files[index].sha256 != digest {
+            changed = Some(name.clone());
+            break;
+        }
+    }
+    if let Some(name) = changed {
+        drop(zip);
+        let _ = fs::remove_file(destination);
+        return Err(VaultError::Storage(format!(
+            "файл {name} изменился во время экспорта, архив удалён — повторите"
+        )));
     }
     zip.finish().map_err(storage)?;
     Ok(())
@@ -177,12 +322,14 @@ pub fn import(archive_path: &Path, destination: &Path) -> Result<(), VaultError>
 
     let created = !destination.exists();
     fs::create_dir_all(destination).map_err(storage)?;
+    set_private_dir(destination)?;
     let cleanup = || {
         if created {
             let _ = fs::remove_dir_all(destination);
         }
     };
     let mut extracted = std::collections::HashSet::new();
+    let mut budget = crate::core::import::UnpackBudget::new();
 
     for index in 0..archive.len() {
         let mut entry = archive
@@ -202,15 +349,19 @@ pub fn import(archive_path: &Path, destination: &Path) -> Result<(), VaultError>
         let target = destination.join(&name);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(storage)?;
+            set_private_dir(parent)?;
         }
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes).map_err(storage)?;
-        if bytes.len() as u64 != expected_file.size || sha256(&bytes) != expected_file.sha256 {
+        let declared = entry.size();
+        if !budget.take(declared)? {
             cleanup();
             return Err(VaultError::ImportCorrupt);
         }
-        let mut output = File::create(&target).map_err(storage)?;
-        output.write_all(&bytes).map_err(storage)?;
+        let mut output = create_private_file(&target)?;
+        let (written, digest) = copy_and_hash(&mut entry, &mut output, declared)?;
+        if written != expected_file.size || digest != expected_file.sha256 {
+            cleanup();
+            return Err(VaultError::ImportCorrupt);
+        }
         extracted.insert(name);
     }
 

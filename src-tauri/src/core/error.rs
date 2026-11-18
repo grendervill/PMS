@@ -72,6 +72,8 @@ pub enum VaultError {
     EmptyCharset,
     #[error("vault id mismatch")]
     VaultIdMismatch,
+    #[error("the unlock method changed while the vault was being saved")]
+    SessionChanged,
     #[error("cryptographic failure")]
     Crypto,
     #[error("invalid JSON")]
@@ -118,6 +120,7 @@ impl VaultError {
             Self::ImportPasswordInvalid => "import_password_invalid",
             Self::ImportDestinationNotEmpty => "import_destination_not_empty",
             Self::VaultIdMismatch => "vault_id_mismatch",
+            Self::SessionChanged => "session_changed",
             Self::Crypto => "crypto",
             Self::Serde => "serde",
             Self::Storage(_) => "storage",

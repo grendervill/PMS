@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { fromBase64, toBase64 } from "@/lib/base64";
+import { toBase64 } from "@/lib/base64";
+import { toBytes } from "@/lib/ipc";
 import type { VaultStorage } from "@/lib/storage/types";
 
 const VAULT_FILE = "pms.vault";
@@ -17,27 +17,26 @@ async function blobPath(folder: string, id: string) {
 }
 
 export const desktopStorage: VaultStorage = {
+  // The pickers live in Rust: they are also the only way to grant the app access
+  // to a path (see `commands/fs_scope.rs`), so the renderer can never widen its
+  // own permissions.
   async pickFolder() {
-    const selected = await open({
-      directory: true,
-      multiple: false,
+    return invoke<string | null>("dialog_pick_folder", {
       title: "Выберите папку хранилища",
     });
-    return typeof selected === "string" ? selected : null;
   },
 
   async pickFile(title) {
-    const selected = await open({
-      directory: false,
-      multiple: false,
+    return invoke<string | null>("dialog_pick_file", {
       title: title ?? "Выберите файл",
     });
-    return typeof selected === "string" ? selected : null;
   },
 
   async pickSaveFile(defaultName) {
-    const selected = await save({ defaultPath: defaultName });
-    return typeof selected === "string" ? selected : null;
+    return invoke<string | null>("dialog_pick_save_file", {
+      suggestedName: defaultName,
+      title: "Сохранить файл",
+    });
   },
 
   displayName(value) {
@@ -46,8 +45,9 @@ export const desktopStorage: VaultStorage = {
   },
 
   async readFile(path) {
-    const response = await invoke<{ b64: string }>("storage_read_file", { path });
-    return fromBase64(response.b64);
+    // `storage_read_file` answers with an ArrayBuffer: base64 cost ~70 ms per
+    // 4 MiB in JavaScript and inflated the wire format by a third.
+    return toBytes(await invoke<ArrayBuffer>("storage_read_file", { path }));
   },
 
   async vaultExists(folder) {
@@ -67,10 +67,9 @@ export const desktopStorage: VaultStorage = {
   },
 
   async readVault(folder) {
-    const response = await invoke<{ b64: string }>("storage_read_file", {
-      path: await vaultPath(folder),
-    });
-    return fromBase64(response.b64);
+    return toBytes(
+      await invoke<ArrayBuffer>("storage_read_file", { path: await vaultPath(folder) }),
+    );
   },
 
   async writeVault(folder, bytes) {
@@ -134,10 +133,25 @@ export const desktopStorage: VaultStorage = {
   },
 
   async readBlob(folder, id) {
-    const response = await invoke<{ b64: string }>("storage_read_file", {
-      path: await blobPath(folder, id),
-    });
-    return fromBase64(response.b64);
+    return toBytes(
+      await invoke<ArrayBuffer>("storage_read_file", { path: await blobPath(folder, id) }),
+    );
+  },
+
+  async sealAttachment(sessionId, folder, name, mime, bytes) {
+    // The sealed blob is written by Rust: sending it back here cost three full
+    // base64 round trips per upload.
+    const response = await invoke<{ meta: import("@/features/vault/types").AttachmentMeta }>(
+      "attachment_seal_store",
+      { sessionId, folder, name, mime, b64: toBase64(bytes) },
+    );
+    return response.meta;
+  },
+
+  async openAttachment(sessionId, folder, id) {
+    return toBytes(
+      await invoke<ArrayBuffer>("attachment_open_file", { sessionId, attachmentId: id, folder }),
+    );
   },
 
   async writeBlob(folder, id, bytes) {

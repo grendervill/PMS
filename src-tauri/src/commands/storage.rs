@@ -7,16 +7,20 @@ use atomicwrites::{AllowOverwrite, AtomicFile};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::Serialize;
+use tauri::State;
 
-use crate::commands::{ApiError, ApiResult};
+use crate::commands::fs_scope::Access;
+use crate::commands::{ApiError, ApiResult, AppState};
 
-const MAX_READ_BYTES: u64 = 128 * 1024 * 1024;
+/// Must not be smaller than what the format allows to be written: a vault
+/// accepted by `vault_save` has to be readable again (512 MiB payload plus up
+/// to 1 MiB of header and framing).
+const MAX_READ_BYTES: u64 = 513 * 1024 * 1024;
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadFileResponse {
-    pub b64: String,
-}
+/// The renderer may only ask for these modes; anything else (0777, setuid bits)
+/// is refused. Files created by the app are either private or, for public keys,
+/// world readable.
+const ALLOWED_MODES: [u32; 4] = [0o600, 0o644, 0o700, 0o755];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +52,17 @@ fn decode_b64(value: &str) -> ApiResult<Vec<u8>> {
         .map_err(|_| ApiError::bad_base64())
 }
 
+fn checked_mode(mode: Option<u32>) -> ApiResult<Option<u32>> {
+    match mode {
+        None => Ok(None),
+        Some(value) if ALLOWED_MODES.contains(&value) => Ok(Some(value)),
+        Some(_) => Err(ApiError::new(
+            "bad_mode",
+            "Недопустимые права доступа к файлу",
+        )),
+    }
+}
+
 fn set_mode(path: &Path, mode: Option<u32>) -> ApiResult<()> {
     #[cfg(unix)]
     if let Some(mode) = mode {
@@ -58,6 +73,12 @@ fn set_mode(path: &Path, mode: Option<u32>) -> ApiResult<()> {
     #[cfg(not(unix))]
     let _ = (path, mode);
     Ok(())
+}
+
+/// Writes a private (0600) file. Used by code that produces secrets on the Rust
+/// side (sealed attachments) without going through the renderer.
+pub(crate) fn write_private_atomic(path: &Path, bytes: &[u8]) -> ApiResult<()> {
+    write_atomic(path, bytes, Some(0o600))
 }
 
 fn write_atomic(path: &Path, bytes: &[u8], mode: Option<u32>) -> ApiResult<()> {
@@ -97,12 +118,17 @@ fn stat(path: &Path) -> ApiResult<FileStat> {
     })
 }
 
+/// Returns the file as an `ArrayBuffer`: reads happen for the vault file, its
+/// backups and attachment blobs, and base64 cost ~70 ms per 4 MiB in JavaScript
+/// plus a third of the size on the wire.
 #[tauri::command]
-pub fn storage_read_file(path: String) -> ApiResult<ReadFileResponse> {
-    let bytes = read_file(Path::new(&path))?;
-    Ok(ReadFileResponse {
-        b64: STANDARD.encode(bytes),
-    })
+pub fn storage_read_file(
+    path: String,
+    state: State<'_, AppState>,
+) -> ApiResult<tauri::ipc::Response> {
+    let path = state.fs_scope.resolve(&path, Access::Read)?;
+    let bytes = read_file(&path)?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -110,19 +136,35 @@ pub fn storage_write_atomic(
     path: String,
     b64: String,
     mode: Option<u32>,
+    state: State<'_, AppState>,
 ) -> ApiResult<()> {
+    let path = state.fs_scope.resolve(&path, Access::Write)?;
+    let mode = checked_mode(mode)?;
     let bytes = decode_b64(&b64)?;
-    write_atomic(Path::new(&path), &bytes, mode)
+    write_atomic(&path, &bytes, mode)
 }
 
 #[tauri::command]
-pub fn storage_exists(path: String) -> bool {
-    Path::new(&path).exists()
+pub fn storage_exists(path: String, state: State<'_, AppState>) -> bool {
+    state
+        .fs_scope
+        .resolve(&path, Access::Read)
+        .map(|path| path.exists())
+        .unwrap_or(false)
 }
 
 #[tauri::command]
-pub fn storage_mkdir(path: String, mode: Option<u32>) -> ApiResult<()> {
-    let path = Path::new(&path);
+pub fn storage_mkdir(
+    path: String,
+    mode: Option<u32>,
+    state: State<'_, AppState>,
+) -> ApiResult<()> {
+    let path = state.fs_scope.resolve(&path, Access::Write)?;
+    let mode = checked_mode(mode)?;
+    mkdir_at(&path, mode)
+}
+
+fn mkdir_at(path: &Path, mode: Option<u32>) -> ApiResult<()> {
     let existed = path.exists();
     fs::create_dir_all(path).map_err(storage_error)?;
     if existed {
@@ -132,14 +174,23 @@ pub fn storage_mkdir(path: String, mode: Option<u32>) -> ApiResult<()> {
 }
 
 #[tauri::command]
-pub fn storage_stat(path: String) -> ApiResult<FileStat> {
-    stat(Path::new(&path))
+pub fn storage_stat(path: String, state: State<'_, AppState>) -> ApiResult<FileStat> {
+    let path = state.fs_scope.resolve(&path, Access::Read)?;
+    stat(&path)
 }
 
 #[tauri::command]
-pub fn storage_list_dir(path: String) -> ApiResult<Vec<DirEntryInfo>> {
+pub fn storage_list_dir(
+    path: String,
+    state: State<'_, AppState>,
+) -> ApiResult<Vec<DirEntryInfo>> {
+    let path = state.fs_scope.resolve(&path, Access::Read)?;
+    list_dir_at(&path)
+}
+
+fn list_dir_at(path: &Path) -> ApiResult<Vec<DirEntryInfo>> {
     let mut entries = Vec::new();
-    for entry in fs::read_dir(Path::new(&path)).map_err(storage_error)? {
+    for entry in fs::read_dir(path).map_err(storage_error)? {
         let entry = entry.map_err(storage_error)?;
         let entry_path = entry.path();
         let metadata = entry.metadata().map_err(storage_error)?;
@@ -161,15 +212,25 @@ pub fn storage_list_dir(path: String) -> ApiResult<Vec<DirEntryInfo>> {
 }
 
 #[tauri::command]
-pub fn storage_remove_file(path: String) -> ApiResult<()> {
-    fs::remove_file(Path::new(&path)).map_err(storage_error)
+pub fn storage_remove_file(path: String, state: State<'_, AppState>) -> ApiResult<()> {
+    let path = state.fs_scope.resolve(&path, Access::Write)?;
+    fs::remove_file(&path).map_err(storage_error)
 }
 
 #[tauri::command]
-pub fn storage_remove_dir(path: String) -> ApiResult<()> {
-    let path = Path::new(&path);
+pub fn storage_remove_dir(path: String, state: State<'_, AppState>) -> ApiResult<()> {
+    let path = state.fs_scope.resolve(&path, Access::Write)?;
+    // Never delete a granted root (the vault folder itself) or one of its
+    // ancestors: staging directories live below the root, so a legitimate call
+    // always points at a descendant.
+    if state.fs_scope.is_root_or_ancestor(&path) {
+        return Err(ApiError::new(
+            "fs_scope",
+            "Нельзя удалить корневую папку хранилища",
+        ));
+    }
     if path.exists() {
-        fs::remove_dir_all(path).map_err(storage_error)?;
+        fs::remove_dir_all(&path).map_err(storage_error)?;
     }
     Ok(())
 }
@@ -231,7 +292,7 @@ mod tests {
         fs::create_dir(&existing).unwrap();
         fs::set_permissions(&existing, fs::Permissions::from_mode(0o755)).unwrap();
 
-        storage_mkdir(existing.to_string_lossy().into_owned(), Some(0o700)).unwrap();
+        mkdir_at(&existing, Some(0o700)).unwrap();
 
         let mode = fs::metadata(&existing).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o755);
@@ -261,7 +322,7 @@ mod tests {
         write_atomic(&a, b"a", None).unwrap();
         write_atomic(&b, b"b", None).unwrap();
 
-        let entries = storage_list_dir(dir.path().to_string_lossy().into_owned()).unwrap();
+        let entries = list_dir_at(dir.path()).unwrap();
         let names: Vec<_> = entries.iter().map(|entry| entry.name.as_str()).collect();
 
         assert_eq!(names, vec!["a.vault", "b.vault"]);

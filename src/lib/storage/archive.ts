@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { appCacheDir, join } from "@tauri-apps/api/path";
-import { fromBase64, toBase64 } from "@/lib/base64";
+import { toBase64 } from "@/lib/base64";
+import { toBytes } from "@/lib/ipc";
 import { getStorage } from "@/lib/storage";
 import { isAndroidPlatform } from "@/lib/platform";
 import { vaultApi } from "@/features/vault/api";
@@ -21,8 +22,7 @@ async function writeCacheFile(path: string, bytes: Uint8Array) {
 }
 
 async function readCacheFile(path: string): Promise<Uint8Array> {
-  const response = await invoke<{ b64: string }>("storage_read_file", { path });
-  return fromBase64(response.b64);
+  return toBytes(await invoke<ArrayBuffer>("storage_read_file", { path }));
 }
 
 async function cacheDir(name: string) {

@@ -30,6 +30,8 @@ vi.mock("./api", async (importOriginal) => {
       biometricEnroll: vi.fn(),
       biometricDisable: vi.fn(),
       biometricUnlock: vi.fn(),
+      rememberFolder: vi.fn().mockResolvedValue(undefined),
+      saveTo: vi.fn().mockResolvedValue(undefined),
     },
   };
 });
@@ -80,6 +82,8 @@ function makeStorage(): VaultStorage {
     saveFile: vi.fn(),
     readBlob: vi.fn(),
     writeBlob: vi.fn(),
+    sealAttachment: vi.fn(),
+    openAttachment: vi.fn(),
     listBlobIds: vi.fn().mockResolvedValue([]),
     deleteBlob: vi.fn(),
   };
@@ -234,12 +238,17 @@ describe("vault store", () => {
       data: vaultData,
     });
     const updated = { ...vaultData, name: "Обновлено" };
-    vi.mocked(vaultApi.save).mockResolvedValue(new Uint8Array([9]));
+    vi.mocked(vaultApi.saveTo).mockResolvedValue(undefined);
 
     const saved = await useVaultStore.getState().save(updated);
 
     expect(saved).toBe(true);
-    expect(storage.writeVault).toHaveBeenCalledWith("/vaults/personal", new Uint8Array([9]));
+    expect(vaultApi.saveTo).toHaveBeenCalledWith(
+      "session-1",
+      "/vaults/personal",
+      expect.objectContaining({ name: "Обновлено" }),
+    );
+    expect(storage.writeVault).not.toHaveBeenCalled();
     expect(useVaultStore.getState().data).toEqual(updated);
   });
 
@@ -300,7 +309,7 @@ describe("vault store", () => {
 
     expect(saved).toBe(true);
     expect(useVaultStore.getState().data?.entries[0]?.name).toBe("GitHub");
-    expect(storage.writeVault).toHaveBeenCalled();
+    expect(vaultApi.saveTo).toHaveBeenCalled();
   });
 
   it("blocks a historical password through the store", async () => {
@@ -341,7 +350,7 @@ describe("vault store", () => {
     });
 
     expect(result.blockedReason).toBe("old-password");
-    expect(vaultApi.save).not.toHaveBeenCalled();
+    expect(vaultApi.saveTo).not.toHaveBeenCalled();
   });
 
   it("deletes an entry through save", async () => {
@@ -474,7 +483,7 @@ describe("vault store", () => {
 
     expect(saved).toBe(true);
     expect(useVaultStore.getState().data?.sshKeys[0]?.name).toBe("GitHub key");
-    expect(storage.writeVault).toHaveBeenCalled();
+    expect(vaultApi.saveTo).toHaveBeenCalled();
   });
 
   it("deletes an SSH key and unlinks it from entries", async () => {

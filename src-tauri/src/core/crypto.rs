@@ -1,4 +1,4 @@
-use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::aead::{Aead, AeadInPlace, KeyInit, Payload};
 use aes_gcm::Aes256Gcm;
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::Engine as _;
@@ -66,6 +66,12 @@ pub fn kdf_params(profile: KdfProfile, salt: [u8; 32]) -> KdfParams {
 pub fn generate_salt() -> [u8; 32] {
     random_array()
 }
+
+/// A keyfile is hashed as a whole, and the value comes from the file picker:
+/// without a cap a 500 MiB "keyfile" costs a 500 MiB decode plus hashing on
+/// every unlock attempt. Real keyfiles (OpenSSH, PKCS#8, any random file) are
+/// far below this limit.
+pub const MAX_KEYFILE_BYTES: usize = 1024 * 1024;
 
 pub fn derive_kek(secret: &[u8], params: &KdfParams) -> Result<Zeroizing<[u8; 32]>, VaultError> {
     if !params.algo.eq_ignore_ascii_case("argon2id") {
@@ -150,6 +156,71 @@ pub fn unwrap_vault_key(
     let mut vault_key = Zeroizing::new([0u8; 32]);
     vault_key.copy_from_slice(&plaintext);
     Ok(vault_key)
+}
+
+/// Seals a document with `prefix` in front of it, in a single allocation.
+///
+/// `write_plaintext` receives a buffer positioned exactly where the plaintext
+/// should go, so `serde_json::to_writer` writes straight into the output and the
+/// AEAD then encrypts that region in place. Compared with
+/// `serialize -> seal_payload -> serialize_file` this removes three full copies
+/// and three allocations per save (see `docs/reports/2026-11-18-perf-audit.md`).
+///
+/// The returned buffer is `prefix || envelope || tag`; the caller is responsible
+/// for any length fields stored inside `prefix`.
+pub fn seal_document_after<F>(
+    prefix: &[u8],
+    vault_key: &[u8; 32],
+    cipher: CipherSuite,
+    aad: &[u8],
+    plaintext_hint: usize,
+    write_plaintext: F,
+) -> Result<Vec<u8>, VaultError>
+where
+    F: FnOnce(&mut Vec<u8>) -> Result<(), VaultError>,
+{
+    let salt = random_array::<32>();
+    let nonce = random_bytes(cipher.nonce_len());
+    let nonce_len = nonce.len();
+
+    // `plaintext_hint` is the size of the previous serialization of this vault.
+    // Reserving it up front turns the doubling growth of the JSON writer into a
+    // single allocation: measured peak drops from ~2.7x to ~2.1x of the document.
+    let reserve = plaintext_hint.saturating_add(plaintext_hint / 16) + 512;
+    let mut buf = Vec::with_capacity(prefix.len() + 1 + salt.len() + nonce_len + reserve + 16);
+    buf.extend_from_slice(prefix);
+    buf.push(1);
+    buf.extend_from_slice(&salt);
+    buf.extend_from_slice(&nonce);
+
+    let ciphertext_start = buf.len();
+    write_plaintext(&mut buf)?;
+
+    let payload_key = derive_payload_key(vault_key, &salt)?;
+    let tag = match cipher {
+        CipherSuite::XChaCha20Poly1305 => {
+            let cipher = XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*payload_key));
+            cipher
+                .encrypt_in_place_detached(
+                    XNonce::from_slice(&nonce),
+                    aad,
+                    &mut buf[ciphertext_start..],
+                )
+                .map_err(|_| VaultError::Crypto)?
+        }
+        CipherSuite::Aes256Gcm => {
+            let cipher = Aes256Gcm::new(aes_gcm::Key::<Aes256Gcm>::from_slice(&*payload_key));
+            cipher
+                .encrypt_in_place_detached(
+                    aes_gcm::Nonce::from_slice(&nonce),
+                    aad,
+                    &mut buf[ciphertext_start..],
+                )
+                .map_err(|_| VaultError::Crypto)?
+        }
+    };
+    buf.extend_from_slice(&tag);
+    Ok(buf)
 }
 
 pub fn seal_payload(
@@ -330,6 +401,9 @@ fn keyfile_canonical(
 ) -> Result<Zeroizing<Vec<u8>>, VaultError> {
     if bytes.is_empty() {
         return Err(VaultError::EmptySecret);
+    }
+    if bytes.len() > MAX_KEYFILE_BYTES {
+        return Err(VaultError::FileTooLarge);
     }
     let (domain, material) = keyfile_material(bytes, passphrase)?;
     let material = Zeroizing::new(material);

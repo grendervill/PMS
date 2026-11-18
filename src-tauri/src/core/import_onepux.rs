@@ -1,7 +1,7 @@
 use base64::Engine as _;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use serde_json::Value;
 use zip::ZipArchive;
@@ -51,6 +51,7 @@ fn attachment(
 pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
     let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| VaultError::ImportCorrupt)?;
     let mut files = HashMap::new();
+    let mut budget = super::import::UnpackBudget::new();
     let mut data = None;
     for index in 0..archive.len() {
         let mut entry = archive
@@ -60,10 +61,8 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
             .name()
             .map_err(|_| VaultError::ImportCorrupt)?
             .to_string();
-        let mut content = Vec::new();
-        entry
-            .read_to_end(&mut content)
-            .map_err(|_| VaultError::ImportCorrupt)?;
+        let size = entry.size();
+        let content = budget.read_entry(&mut entry, size)?;
         if name == "export.data" || name.ends_with("/export.data") {
             data = Some(content);
         } else if name.starts_with("files/") {

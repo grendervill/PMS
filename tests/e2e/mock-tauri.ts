@@ -5,8 +5,13 @@ import type { Page } from "@playwright/test";
  * in Chromium. Crypto and file-format behavior are covered by Rust tests;
  * this harness tests the UI flows and command wiring.
  */
-export async function installMockTauri(page: Page) {
-  await page.addInitScript(() => {
+export type MockTauriOptions = {
+  /** Seeds the fresh vault with generated entries (perf measurements). */
+  seedEntries?: number;
+};
+
+export async function installMockTauri(page: Page, options: MockTauriOptions = {}) {
+  await page.addInitScript((seedEntries: number) => {
     const state: {
       vault: null | {
         data: Record<string, unknown>;
@@ -19,6 +24,7 @@ export async function installMockTauri(page: Page) {
       files: Map<string, string>;
       attachments: Map<string, string>;
       passwordIndex: number;
+      passphraseIndex: number;
       biometricAvailable: boolean;
       biometricFailures: number;
     } = {
@@ -27,6 +33,7 @@ export async function installMockTauri(page: Page) {
       files: new Map(),
       attachments: new Map(),
       passwordIndex: 0,
+      passphraseIndex: 0,
       biometricAvailable: true,
       biometricFailures: 0,
     };
@@ -57,6 +64,25 @@ export async function installMockTauri(page: Page) {
       listeners.get(event)?.delete(eventId);
     };
 
+    const makeEntry = (index: number, createdAt: string) => ({
+      id: `entry-seed-${index}`,
+      kind: "login",
+      schemaVersion: 1,
+      name: `Site ${String(index).padStart(4, "0")}`,
+      login: `user-${index}`,
+      password: "s3cret",
+      url: `https://site-${index}.example`,
+      urls: [`https://site-${index}.example`],
+      comment: `Seeded entry ${index}`,
+      totp: null,
+      attachmentIds: [],
+      sshKeyIds: [],
+      loginHistory: [],
+      passwordHistory: [],
+      createdAt,
+      updatedAt: createdAt,
+    });
+
     const makeData = (name: string, id: string, createdAt: string) => ({
       schemaVersion: 1,
       id,
@@ -71,7 +97,7 @@ export async function installMockTauri(page: Page) {
         faviconFetch: true,
         maxAttachmentMb: 50,
       },
-      entries: [],
+      entries: Array.from({ length: seedEntries }, (_, index) => makeEntry(index, createdAt)),
       sshKeys: [],
       attachments: [],
       drafts: [],
@@ -79,6 +105,15 @@ export async function installMockTauri(page: Page) {
       documents: [],
       favorites: [],
     });
+
+    const base64ToBytes = (value: string): ArrayBuffer => {
+      const binary = atob(value);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes.buffer;
+    };
 
     const requireVault = () => {
       if (!state.vault) {
@@ -89,8 +124,8 @@ export async function installMockTauri(page: Page) {
 
     const invoke = async (command: string, args: Record<string, unknown> = {}) => {
       const paths = args.paths as string[];
-      const options = args.options as { directory?: boolean } | undefined;
       const text = args.text as string | undefined;
+      const value = args.value as string | undefined;
       const path = args.path as string;
       const b64 = args.b64 as string;
       const config = args.config as { name: string };
@@ -116,12 +151,17 @@ export async function installMockTauri(page: Page) {
           return "/tmp/pms-home";
         case "plugin:path|resolve_directory":
           return "/tmp/pms-home";
-        case "plugin:dialog|open":
-          if (options?.directory) return "/tmp/pms-e2e-vault";
+        // The pickers moved to Rust (they also grant filesystem access).
+        case "dialog_pick_folder":
+          return "/tmp/pms-e2e-vault";
+        case "dialog_pick_file":
           state.files.set("/tmp/pms-e2e-attachment.txt", "aGVsbG8gYXR0YWNobWVudA==");
           return "/tmp/pms-e2e-attachment.txt";
-        case "plugin:dialog|save":
+        case "dialog_pick_save_file":
           return "/tmp/pms-e2e-download.txt";
+        case "clipboard_copy_secret":
+          w.__E2E_CLIPBOARD__ = value;
+          return null;
         case "plugin:clipboard-manager|write_text":
           w.__E2E_CLIPBOARD__ = text;
           return null;
@@ -141,7 +181,7 @@ export async function installMockTauri(page: Page) {
           if (value === undefined) {
             throw { code: "storage", message: "Файл не найден" };
           }
-          return { b64: value };
+          return base64ToBytes(value);
         }
         case "storage_stat":
           return { isFile: true, isDir: false, size: 1, mtimeMs: Date.now() };
@@ -218,7 +258,18 @@ export async function installMockTauri(page: Page) {
             throw { code: "session_not_found", message: "Сессия не найдена" };
           }
           vault.data = clone(data);
-          return { fileB64: "ZmFrZQ==" };
+          return new TextEncoder().encode("fake-vault-file").buffer;
+        }
+        case "vault_remember_folder":
+          return null;
+        case "vault_save_to": {
+          const vault = requireVault();
+          if (!state.session) {
+            throw { code: "session_not_found", message: "Сессия не найдена" };
+          }
+          vault.data = clone(data);
+          state.files.set(`${args.folder}/pms.vault`, "ZmFrZS12YXVsdC1maWxl");
+          return null;
         }
         case "vault_lock":
           state.session = null;
@@ -231,6 +282,21 @@ export async function installMockTauri(page: Page) {
         }
         case "generate_login":
           return "alex_generated_42";
+        case "generate_passphrase": {
+          const values = [
+            "jitterbug-wiping-stupor-litigate-taper",
+            "correct-horse-battery-staple-anchor",
+          ];
+          const value = values[state.passphraseIndex % values.length];
+          state.passphraseIndex += 1;
+          return value;
+        }
+        case "generator_entropy": {
+          const mode = (args.input as { mode?: string } | undefined)?.mode;
+          if (mode === "passphrase") return 77.55;
+          if (mode === "login") return 40.0;
+          return 104.2;
+        }
         case "vault_rewrap": {
           const vault = requireVault();
           const secretKind = String(secret.kind);
@@ -243,10 +309,10 @@ export async function installMockTauri(page: Page) {
           if (secretKind === "keyfile" || secretKind === "passphraseKeyfile") {
             vault.keyfileB64 = (secret as { bytesB64?: string }).bytesB64 ?? vault.keyfileB64;
           }
-          return { fileB64: "ZmFrZQ==" };
+          return new TextEncoder().encode("fake-vault-file").buffer;
         }
         case "vault_remove_slot":
-          return { fileB64: "ZmFrZQ==" };
+          return new TextEncoder().encode("fake-vault-file").buffer;
         case "attachment_seal": {
           const attachmentId = "attachment-1";
           state.attachments.set(attachmentId, b64);
@@ -269,8 +335,30 @@ export async function installMockTauri(page: Page) {
             },
           };
         }
+        case "attachment_seal_store": {
+          const attachmentId = "attachment-1";
+          state.attachments.set(attachmentId, b64);
+          return {
+            meta: {
+              id: attachmentId,
+              name: args.name,
+              mime: args.mime,
+              size: Math.floor((b64.length * 3) / 4),
+              sha256: "hash",
+              kind: String(args.mime).startsWith("image/")
+                ? "image"
+                : String(args.mime) === "application/pdf"
+                  ? "pdf"
+                  : String(args.mime).startsWith("text/")
+                    ? "text"
+                    : "other",
+              createdAt: new Date().toISOString(),
+            },
+          };
+        }
         case "attachment_open":
-          return { b64: state.attachments.get(String(args.attachmentId)) ?? "" };
+        case "attachment_open_file":
+          return base64ToBytes(state.attachments.get(String(args.attachmentId)) ?? "");
         case "totp_inspect":
           return {
             secret: String(args.input).startsWith("otpauth")
@@ -373,7 +461,7 @@ export async function installMockTauri(page: Page) {
             }
           );
         case "biometric_status":
-          return { available: state.biometricAvailable };
+          return { available: true, keychainProtected: true };
         case "biometric_enroll":
           return null;
         case "biometric_disable":
@@ -393,7 +481,7 @@ export async function installMockTauri(page: Page) {
             replaceCurrent: Boolean(args.replaceCurrent),
           };
           return {
-            code: "123456",
+            code: "ABCD2345",
             deviceName: "PMS · MacBook Pro",
             host: "192.168.1.42",
             port: 4040,
@@ -440,5 +528,5 @@ export async function installMockTauri(page: Page) {
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener },
       __E2E_EMIT__: emitEvent,
     });
-  });
+  }, options.seedEntries ?? 0);
 }

@@ -31,6 +31,8 @@ function storage(): VaultStorage {
     saveFile: vi.fn(),
     readBlob: vi.fn(),
     writeBlob: vi.fn(),
+    sealAttachment: vi.fn(),
+    openAttachment: vi.fn(),
     listBlobIds: vi.fn().mockResolvedValue([]),
     deleteBlob: vi.fn(),
   };

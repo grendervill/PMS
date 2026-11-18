@@ -1,6 +1,37 @@
 mod commands;
 mod core;
 
+use tauri::Manager;
+
+/// Stable surface for the external benchmark/tests in `src-tauri/tests`.
+///
+/// `core` is a private module on purpose; this re-export exposes only what the
+/// performance suite needs to measure the real data paths without widening the
+/// crate's public API.
+#[doc(hidden)]
+pub mod testing {
+    pub use crate::core::attachments::{
+        ATTACHMENT_HEADER_LEN, MAX_ATTACHMENT_BYTES, open_attachment, seal_attachment,
+        seal_attachment_in_place,
+    };
+    pub use crate::core::crypto::{
+        KdfProfile, UnlockSecretInput, open_payload, seal_document_after, seal_payload,
+    };
+    pub use crate::core::generator::{
+        LoginOptions, PassphraseOptions, PasswordOptions, generate_passphrase, generate_password,
+    };
+    pub use crate::core::import;
+    pub use crate::core::models::{
+        AttachmentKind, AttachmentMeta, CipherSuite, Draft, DraftKind, Entry, EntryKind, SshKey,
+        TotpAlgorithm, VaultData, VaultHeader, VaultSettings,
+    };
+    pub use crate::core::pms_archive::{export as archive_export, import as archive_import};
+    pub use crate::core::vault::{
+        CreateVaultConfig, VaultSession, create_vault, save_vault, seal_document, unlock_vault,
+    };
+    pub use crate::core::vault_file::{parse_vault_file, serialize_vault_file, serialize_vault_parts};
+}
+
 use commands::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,19 +51,58 @@ pub fn run() {
 
     builder
         .manage(AppState::default())
+        .setup(|app| {
+            // Load the filesystem grants the user approved earlier and remember
+            // where to store new ones. Without this the vault folder would have
+            // to be re-picked on every launch.
+            let handle = app.handle();
+            let state: tauri::State<'_, AppState> = handle.state();
+            // Only the cache directory is granted (archives are staged there).
+            // The app data directory is *not* granted: it holds the grant store
+            // and the biometric blob, both written by Rust directly.
+            let cache = handle.path().app_cache_dir().ok();
+            if let Some(dir) = cache.as_deref() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let store = handle
+                .path()
+                .app_config_dir()
+                .ok()
+                .map(|dir| dir.join("fs-scope.json"));
+            let always = cache.into_iter().collect();
+            state.fs_scope.attach(store, always);
+            if let Ok(dir) = handle.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&dir);
+                commands::set_data_dir(dir.clone());
+                state
+                    .attempts
+                    .attach(Some(dir.join("unlock-state.json")));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::vault::vault_inspect,
+            commands::vault::vault_remember_folder,
             commands::vault::keyfile_kind,
             commands::vault::vault_create,
             commands::vault::vault_unlock,
             commands::vault::vault_save,
+            commands::vault::vault_save_to,
             commands::vault::vault_rewrap,
             commands::vault::vault_remove_slot,
             commands::vault::vault_lock,
             commands::generator::generate_password,
             commands::generator::generate_login,
+            commands::generator::generate_passphrase,
+            commands::generator::generator_entropy,
+            commands::clipboard::clipboard_copy_secret,
+            commands::dialogs::dialog_pick_folder,
+            commands::dialogs::dialog_pick_file,
+            commands::dialogs::dialog_pick_save_file,
             commands::attachments::attachment_seal,
             commands::attachments::attachment_open,
+            commands::attachments::attachment_seal_store,
+            commands::attachments::attachment_open_file,
             commands::totp::totp_inspect,
             commands::totp::totp_code,
             commands::ssh::ssh_generate,

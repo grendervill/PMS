@@ -63,7 +63,7 @@ export function UnlockScreen() {
     if (!vaultId) return;
     let active = true;
     void vaultApi
-      .biometricStatus()
+      .biometricStatus(vaultId)
       .then((status) => {
         if (!active) return;
         setBioAvailable(status.available);

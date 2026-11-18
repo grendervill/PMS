@@ -1,5 +1,5 @@
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::aead::{Aead, AeadInPlace, KeyInit, Payload};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use uuid::Uuid;
@@ -17,6 +17,9 @@ const TAG_LEN: usize = 16;
 const HEADER_LEN: usize = 5 + 1 + 1 + SALT_LEN + NONCE_LEN + 8;
 pub const MAX_ATTACHMENT_BYTES: usize = 100 * 1024 * 1024;
 
+/// Where the plaintext must be placed before [`seal_attachment_in_place`].
+pub const ATTACHMENT_HEADER_LEN: usize = HEADER_LEN;
+
 pub fn seal_attachment(
     vault_key: &[u8; 32],
     vault_id: Uuid,
@@ -27,31 +30,47 @@ pub fn seal_attachment(
         return Err(VaultError::FileTooLarge);
     }
 
+    let mut blob = Vec::with_capacity(HEADER_LEN + plaintext.len() + TAG_LEN);
+    blob.resize(HEADER_LEN, 0);
+    blob.extend_from_slice(plaintext);
+    seal_attachment_in_place(vault_key, vault_id, attachment_id, &mut blob)?;
+    Ok(blob)
+}
+
+/// Seals an attachment whose plaintext already sits at `HEADER_LEN` in `blob`.
+///
+/// The ciphertext replaces the plaintext in place and only the 16-byte tag is
+/// appended, so a 100 MiB attachment is never copied. Used by the upload path,
+/// where base64 is decoded straight into `blob[HEADER_LEN..]`.
+pub fn seal_attachment_in_place(
+    vault_key: &[u8; 32],
+    vault_id: Uuid,
+    attachment_id: Uuid,
+    blob: &mut Vec<u8>,
+) -> Result<(), VaultError> {
+    let original_size = blob.len().checked_sub(HEADER_LEN).ok_or(VaultError::Truncated)? as u64;
+    if original_size > MAX_ATTACHMENT_BYTES as u64 {
+        return Err(VaultError::FileTooLarge);
+    }
+
     let salt = random_array::<SALT_LEN>();
     let nonce = random_array::<NONCE_LEN>();
     let key = derive_key(vault_key, &salt)?;
-    let aad = attachment_aad(vault_id, attachment_id, plaintext.len() as u64);
+    let aad = attachment_aad(vault_id, attachment_id, original_size);
 
     let cipher = XChaCha20Poly1305::new(chacha20poly1305::Key::from_slice(&*key));
-    let ciphertext = cipher
-        .encrypt(
-            XNonce::from_slice(&nonce),
-            Payload {
-                msg: plaintext,
-                aad: &aad,
-            },
-        )
+    let tag = cipher
+        .encrypt_in_place_detached(XNonce::from_slice(&nonce), &aad, &mut blob[HEADER_LEN..])
         .map_err(|_| VaultError::Crypto)?;
 
-    let mut blob = Vec::with_capacity(HEADER_LEN + ciphertext.len());
-    blob.extend_from_slice(MAGIC);
-    blob.push(VERSION);
-    blob.push(CIPHER);
-    blob.extend_from_slice(&salt);
-    blob.extend_from_slice(&nonce);
-    blob.extend_from_slice(&(plaintext.len() as u64).to_le_bytes());
-    blob.extend_from_slice(&ciphertext);
-    Ok(blob)
+    blob[0..5].copy_from_slice(MAGIC);
+    blob[5] = VERSION;
+    blob[6] = CIPHER;
+    blob[7..7 + SALT_LEN].copy_from_slice(&salt);
+    blob[7 + SALT_LEN..7 + SALT_LEN + NONCE_LEN].copy_from_slice(&nonce);
+    blob[7 + SALT_LEN + NONCE_LEN..HEADER_LEN].copy_from_slice(&original_size.to_le_bytes());
+    blob.extend_from_slice(&tag);
+    Ok(())
 }
 
 pub fn open_attachment(

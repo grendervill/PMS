@@ -14,19 +14,32 @@ const SERVICE: &str = "dev.pms.vault.biometric";
 #[serde(rename_all = "camelCase")]
 pub struct BiometricStatus {
     pub available: bool,
+    /// True when the stored key can only be read after the user authenticates
+    /// (macOS data-protection keychain with an access control object). False
+    /// means the older, weaker "generic password" storage is used.
+    pub keychain_protected: bool,
 }
 
 #[tauri::command]
-pub async fn biometric_status(app: AppHandle) -> ApiResult<BiometricStatus> {
-    let _ = &app;
+pub async fn biometric_status(
+    app: AppHandle,
+    vault_id: Option<Uuid>,
+) -> ApiResult<BiometricStatus> {
+    let _ = (&app, vault_id);
     #[cfg(target_os = "macos")]
-    let available = imp::available();
+    let (available, keychain_protected) = (
+        imp::available(),
+        vault_id.is_some_and(imp::is_protected) && imp::available(),
+    );
     #[cfg(target_os = "android")]
-    let available = android::available(&app);
+    let (available, keychain_protected) = (android::available(&app), true);
     #[cfg(not(any(target_os = "macos", target_os = "android")))]
-    let available = false;
+    let (available, keychain_protected) = (false, false);
 
-    Ok(BiometricStatus { available })
+    Ok(BiometricStatus {
+        available,
+        keychain_protected,
+    })
 }
 
 #[tauri::command]
@@ -103,12 +116,12 @@ pub async fn biometric_unlock(
     let file = base64::engine::general_purpose::STANDARD
         .decode(file_b64)
         .map_err(|_| ApiError::bad_base64())?;
+    // Biometric failures count against the same cool-down as passphrase
+    // failures: the five-attempt limit used to live only in the renderer.
+    state.attempts.check(vault_id)?;
 
     #[cfg(target_os = "macos")]
-    let key = {
-        imp::unlock(vault_id)?;
-        imp::read(vault_id)?
-    };
+    let key = imp::read(vault_id)?;
     #[cfg(target_os = "android")]
     let key = android::authenticate_and_read(&app, vault_id)?;
     #[cfg(not(any(target_os = "macos", target_os = "android")))]
@@ -120,7 +133,18 @@ pub async fn biometric_unlock(
         ));
     };
 
-    let (session, data) = unlock_vault_with_key(&file, &key).map_err(ApiError::from)?;
+    let (session, data) = match unlock_vault_with_key(&file, &key) {
+        Ok(result) => {
+            state.attempts.record_success(vault_id);
+            result
+        }
+        Err(error) => {
+            if matches!(error, crate::core::error::VaultError::InvalidCredentials) {
+                state.attempts.record_failure(vault_id);
+            }
+            return Err(error.into());
+        }
+    };
     let session_id = session.id;
     crate::commands::secure_screen::apply(&app, data.settings.secure_screen);
     state.sessions.put(session);
@@ -223,11 +247,33 @@ mod imp {
         }
     }
 
-    fn store(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
-        let account = vault_id.to_string();
-        let options = PasswordOptions::new_generic_password(SERVICE, &account);
-        let secret = Zeroizing::new(key.to_vec());
-        set_generic_password_options(&secret, options).map_err(map_keychain_error)
+    fn account(vault_id: Uuid) -> String {
+        vault_id.to_string()
+    }
+
+    /// Stores the vault key behind an access control object, so reading it
+    /// requires the user to authenticate (Touch ID, or the device passcode).
+    ///
+    /// Returns `Ok(false)` when the data-protection keychain is unavailable
+    /// (unsigned build, no device passcode): the caller then falls back to the
+    /// generic password item used by earlier versions.
+    pub fn store(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<bool> {
+        match protected::store(vault_id, key) {
+            Ok(()) => {
+                // Remove the unprotected copy left by older versions, otherwise
+                // the access control would be pointless.
+                let _ = delete_generic_password(SERVICE, &account(vault_id));
+                mark_protected(vault_id, true);
+                Ok(true)
+            }
+            Err(_) => {
+                let options = PasswordOptions::new_generic_password(SERVICE, &account(vault_id));
+                let secret = Zeroizing::new(key.to_vec());
+                set_generic_password_options(&secret, options).map_err(map_keychain_error)?;
+                mark_protected(vault_id, false);
+                Ok(false)
+            }
+        }
     }
 
     pub fn enroll(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
@@ -237,42 +283,241 @@ mod imp {
                 "Биометрия на этом устройстве недоступна",
             ));
         }
+        // User presence before storing: adding a keychain item does not prompt
+        // by itself.
         evaluate()?;
-        store(vault_id, key)
-    }
-
-    pub fn unlock(_vault_id: Uuid) -> ApiResult<()> {
-        if !available() {
-            return Err(ApiError::new(
-                "biometric_unavailable",
-                "Биометрия на этом устройстве недоступна",
-            ));
-        }
-        evaluate()
+        store(vault_id, key).map(|_| ())
     }
 
     pub fn disable(vault_id: Uuid) -> ApiResult<()> {
-        match delete_generic_password(SERVICE, &vault_id.to_string()) {
+        let _ = protected::delete(vault_id);
+        mark_protected(vault_id, false);
+        match delete_generic_password(SERVICE, &account(vault_id)) {
             Ok(()) => Ok(()),
             Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
             Err(error) => Err(map_keychain_error(error)),
         }
     }
 
+    /// Reads the vault key. A protected item makes the *system* ask for
+    /// authentication; the legacy item still needs the explicit prompt.
     pub fn read(vault_id: Uuid) -> ApiResult<[u8; 32]> {
-        let value = Zeroizing::new(
-            generic_password(PasswordOptions::new_generic_password(
-                SERVICE,
-                &vault_id.to_string(),
-            ))
-            .map_err(map_keychain_error)?,
-        );
+        match protected::read(vault_id) {
+            Ok(value) => into_key(value),
+            Err(protected::ReadError::NotFound) | Err(protected::ReadError::Unsupported) => {
+                evaluate()?;
+                let value = Zeroizing::new(
+                    generic_password(PasswordOptions::new_generic_password(
+                        SERVICE,
+                        &account(vault_id),
+                    ))
+                    .map_err(map_keychain_error)?,
+                );
+                into_key(value.to_vec())
+            }
+            Err(protected::ReadError::Denied(code)) => Err(map_la_error(code)),
+            Err(protected::ReadError::Other(code)) => Err(ApiError::new(
+                "biometric_failed",
+                format!("Не удалось прочитать сохранённый ключ ({code})"),
+            )),
+        }
+    }
+
+    fn into_key(value: Vec<u8>) -> ApiResult<[u8; 32]> {
+        let value = Zeroizing::new(value);
         value.as_slice().try_into().map_err(|_| {
             ApiError::new(
                 "biometric_key_missing",
                 "Сохранённый ключ биометрии повреждён",
             )
         })
+    }
+
+    /// Whether the key for this vault lives behind an access control object.
+    pub fn is_protected(vault_id: Uuid) -> bool {
+        marker(vault_id).is_file()
+    }
+
+    fn mark_protected(vault_id: Uuid, protected: bool) {
+        if !protected {
+            let _ = std::fs::remove_file(marker(vault_id));
+            return;
+        }
+        if let Some(parent) = marker(vault_id).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(marker(vault_id), b"1");
+    }
+
+    /// Holds no secret: only "this vault uses an access-controlled item", so the
+    /// status can be reported without triggering an authentication prompt.
+    fn marker(vault_id: Uuid) -> std::path::PathBuf {
+        crate::commands::app_data_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("biometric")
+            .join(format!("{vault_id}.protected"))
+    }
+
+    /// Keychain item protected by user presence.
+    ///
+    /// The item is created in the data-protection keychain: `SecAccessControl`
+    /// is only honoured there, the legacy file-based keychain ignores it. Add,
+    /// query and delete all pass `kSecUseDataProtectionKeychain`.
+    mod protected {
+        use std::ptr;
+
+        use super::{account, SERVICE};
+        use core_foundation::base::{CFType, TCFType};
+        use core_foundation::boolean::CFBoolean;
+        use core_foundation::data::CFData;
+        use core_foundation::dictionary::CFMutableDictionary;
+        use core_foundation::string::CFString;
+        use security_framework::access_control::{ProtectionMode, SecAccessControl};
+        use security_framework_sys::base::errSecItemNotFound;
+
+        type OSStatus = i32;
+        use security_framework_sys::item::{
+            kSecAttrAccessControl, kSecAttrAccount, kSecAttrService, kSecClass,
+            kSecClassGenericPassword, kSecMatchLimit, kSecReturnData, kSecUseDataProtectionKeychain,
+            kSecValueData,
+        };
+        use security_framework_sys::keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemDelete};
+
+        extern "C" {
+            static kSecMatchLimitOne: core_foundation_sys::string::CFStringRef;
+            static kSecUseOperationPrompt: core_foundation_sys::string::CFStringRef;
+        }
+
+        const AUTH_PROMPT: &str = "Разблокировать хранилище PMS";
+
+        #[derive(Debug)]
+        pub enum ReadError {
+            /// No protected item: fall back to the legacy storage.
+            NotFound,
+            /// The data-protection keychain is not usable here.
+            Unsupported,
+            /// The user cancelled or authentication failed.
+            Denied(i32),
+            Other(OSStatus),
+        }
+
+        #[allow(non_local_definitions)]
+        impl From<OSStatus> for ReadError {
+            fn from(code: OSStatus) -> Self {
+                if code == errSecItemNotFound {
+                    return Self::NotFound;
+                }
+                match code {
+                    // errSecMissingEntitlement / errSecParam / errSecDecode:
+                    // unsigned or unentitled build.
+                    -34018 | -50 | -26275 => Self::Unsupported,
+                    // userCanceled / authFailed / uiRequired / interactionNotAllowed
+                    -128 | -25293 | -25308 | -25315 => Self::Denied(code),
+                    other => Self::Other(other),
+                }
+            }
+        }
+
+        fn cf(value: core_foundation_sys::string::CFStringRef) -> CFString {
+            unsafe { CFString::wrap_under_get_rule(value) }
+        }
+
+        fn access_control() -> Option<SecAccessControl> {
+            use security_framework_sys::access_control::{
+                kSecAccessControlBiometryCurrentSet, kSecAccessControlDevicePasscode,
+                kSecAccessControlOr,
+            };
+            SecAccessControl::create_with_protection(
+                Some(ProtectionMode::AccessibleWhenPasscodeSetThisDeviceOnly),
+                kSecAccessControlBiometryCurrentSet
+                    | kSecAccessControlOr
+                    | kSecAccessControlDevicePasscode,
+            )
+            .ok()
+        }
+
+        fn base_query(vault_id: uuid::Uuid) -> CFMutableDictionary<CFString, CFType> {
+            let mut query: CFMutableDictionary<CFString, CFType> = CFMutableDictionary::new();
+            query.add(
+                &cf(unsafe { kSecClass }),
+                &cf(unsafe { kSecClassGenericPassword }).as_CFType(),
+            );
+            query.add(
+                &cf(unsafe { kSecAttrService }),
+                &CFString::new(SERVICE).as_CFType(),
+            );
+            query.add(
+                &cf(unsafe { kSecAttrAccount }),
+                &CFString::new(&account(vault_id)).as_CFType(),
+            );
+            query.add(
+                &cf(unsafe { kSecUseDataProtectionKeychain }),
+                &CFBoolean::true_value().as_CFType(),
+            );
+            query
+        }
+
+        pub fn store(vault_id: uuid::Uuid, key: &[u8; 32]) -> Result<(), OSStatus> {
+            let control = access_control().ok_or(-50)?;
+            let _ = delete(vault_id);
+
+            let mut attributes = base_query(vault_id);
+            attributes.add(
+                &cf(unsafe { kSecValueData }),
+                &CFData::from_buffer(key).as_CFType(),
+            );
+            attributes.add(
+                &cf(unsafe { kSecAttrAccessControl }),
+                &control.as_CFType(),
+            );
+
+            let status =
+                unsafe { SecItemAdd(attributes.as_concrete_TypeRef(), ptr::null_mut()) };
+            if status == 0 {
+                Ok(())
+            } else {
+                Err(status)
+            }
+        }
+
+        pub fn read(vault_id: uuid::Uuid) -> Result<Vec<u8>, ReadError> {
+            let mut query = base_query(vault_id);
+            query.add(
+                &cf(unsafe { kSecReturnData }),
+                &CFBoolean::true_value().as_CFType(),
+            );
+            query.add(
+                &cf(unsafe { kSecMatchLimit }),
+                &cf(unsafe { kSecMatchLimitOne }).as_CFType(),
+            );
+            query.add(
+                &cf(unsafe { kSecUseOperationPrompt }),
+                &CFString::new(AUTH_PROMPT).as_CFType(),
+            );
+
+            let mut result: core_foundation_sys::base::CFTypeRef = ptr::null();
+            let status = unsafe { SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) };
+            if status != 0 {
+                return Err(ReadError::from(status));
+            }
+            if result.is_null() {
+                return Err(ReadError::NotFound);
+            }
+            let data = unsafe {
+                CFData::wrap_under_create_rule(result as core_foundation_sys::data::CFDataRef)
+            };
+            Ok(data.bytes().to_vec())
+        }
+
+        pub fn delete(vault_id: uuid::Uuid) -> Result<(), OSStatus> {
+            let query = base_query(vault_id);
+            let status = unsafe { SecItemDelete(query.as_concrete_TypeRef()) };
+            if status == 0 || status == errSecItemNotFound {
+                Ok(())
+            } else {
+                Err(status)
+            }
+        }
     }
 
     #[cfg(test)]
@@ -294,8 +539,27 @@ mod imp {
             let _ = available();
         }
 
+        /// The protected query must answer "not found"/"unsupported" instead of
+        /// crashing or blocking when there is no item for this vault.
         #[test]
-        fn stored_key_unlocks_the_vault() {
+        fn protected_read_reports_a_missing_item() {
+            let vault_id = Uuid::new_v4();
+            match protected::read(vault_id) {
+                Err(protected::ReadError::NotFound) | Err(protected::ReadError::Unsupported) => {}
+                other => panic!("unexpected result for a missing item: {other:?}"),
+            }
+        }
+
+        /// Full round trip through the access-controlled keychain. Requires a
+        /// real user session with Touch ID, so it is not part of `cargo test`:
+        ///
+        /// ```sh
+        /// cargo test --lib biometric -- --ignored --nocapture
+        /// ```
+        /// Expected: the system asks for Touch ID once, then the key is read.
+        #[test]
+        #[ignore = "requires Touch ID and a user at the machine"]
+        fn protected_round_trip_after_biometric_prompt() {
             use crate::core::crypto::UnlockSecretInput;
             use crate::core::models::CipherSuite;
             use crate::core::vault::{CreateVaultConfig, create_vault, unlock_vault_with_key};
@@ -312,20 +576,17 @@ mod imp {
             )
             .unwrap();
             let vault_id = session.vault_id();
-            store(vault_id, session.vault_key()).unwrap();
+            let protected = store(vault_id, session.vault_key()).unwrap();
+            println!("keychain item is access controlled: {protected}");
+            assert!(protected, "the access-controlled keychain must be used here");
+            assert!(is_protected(vault_id));
+
             let key = read(vault_id).unwrap();
             let (_, unlocked) = unlock_vault_with_key(&file, &key).unwrap();
             assert_eq!(unlocked, data);
-            disable(vault_id).unwrap();
-        }
 
-        #[test]
-        fn stores_and_reads_key_without_a_biometric_prompt() {
-            let vault_id = Uuid::new_v4();
-            let key = [7u8; 32];
-            store(vault_id, &key).unwrap();
-            assert_eq!(read(vault_id).unwrap(), key);
             disable(vault_id).unwrap();
+            assert!(!is_protected(vault_id));
             assert!(matches!(
                 read(vault_id),
                 Err(ApiError { code, .. }) if code == "biometric_key_missing"

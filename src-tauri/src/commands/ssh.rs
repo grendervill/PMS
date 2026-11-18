@@ -1,11 +1,13 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use atomicwrites::{AllowOverwrite, AtomicFile};
 use serde::Serialize;
+use tauri::State;
 
-use crate::commands::{ApiError, ApiResult};
+use crate::commands::fs_scope::Access;
+use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::ssh::{formats, generate, GeneratedSshKey, SshFormats, SshGenerateOptions};
 
 #[derive(Debug, Serialize)]
@@ -98,6 +100,12 @@ fn set_windows_acl(path: &Path) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn ssh_directory_name(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == ".ssh" || name == "ssh")
+}
+
 fn mode_of(path: &Path) -> Option<u32> {
     #[cfg(unix)]
     {
@@ -150,13 +158,30 @@ pub fn ssh_install(
     private_key: String,
     public_key: String,
     overwrite: bool,
+    state: State<'_, AppState>,
 ) -> ApiResult<InstalledSshKey> {
-    safe_name(&name)?;
-    let directory_path = PathBuf::from(&directory);
-    fs::create_dir_all(&directory_path).map_err(error)?;
-    set_mode(&directory_path, 0o700)?;
+    let directory_path = state.fs_scope.resolve(&directory, Access::Write)?;
+    install_into(&directory_path, &name, &private_key, &public_key, overwrite)
+}
 
-    let private_path = directory_path.join(&name);
+fn install_into(
+    directory_path: &Path,
+    name: &str,
+    private_key: &str,
+    public_key: &str,
+    overwrite: bool,
+) -> ApiResult<InstalledSshKey> {
+    safe_name(name)?;
+    // Never chmod an unrelated folder the user happened to pick: 0700 on a
+    // shared directory would lock other applications out. A directory that we
+    // create, or one that is already meant for SSH keys, gets the strict mode.
+    let created = !directory_path.exists();
+    fs::create_dir_all(directory_path).map_err(error)?;
+    if created || ssh_directory_name(directory_path) {
+        set_mode(directory_path, 0o700)?;
+    }
+
+    let private_path = directory_path.join(name);
     let public_path = directory_path.join(format!("{name}.pub"));
     if !overwrite && (private_path.exists() || public_path.exists()) {
         return Err(ApiError::new(
@@ -170,7 +195,7 @@ pub fn ssh_install(
 
     let owned = current_user_owns(&private_path)
         && current_user_owns(&public_path)
-        && current_user_owns(&directory_path);
+        && current_user_owns(directory_path);
     let warning = if !owned && cfg!(unix) {
         Some(format!(
             "Файлы принадлежат другому пользователю. Выполните: sudo chown -R $(id -u):$(id -g) {}",
@@ -185,16 +210,24 @@ pub fn ssh_install(
         public_path: public_path.to_string_lossy().into_owned(),
         private_mode: mode_of(&private_path).unwrap_or(0o600),
         public_mode: mode_of(&public_path).unwrap_or(0o644),
-        directory_mode: mode_of(&directory_path).unwrap_or(0o700),
+        directory_mode: mode_of(directory_path).unwrap_or(0o700),
         owned_by_current_user: owned,
         warning,
     })
 }
 
 #[tauri::command]
-pub fn ssh_check(directory: String, name: String) -> ApiResult<SshPermissionStatus> {
-    safe_name(&name)?;
-    let directory_path = Path::new(&directory);
+pub fn ssh_check(
+    directory: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> ApiResult<SshPermissionStatus> {
+    let directory_path = state.fs_scope.resolve(&directory, Access::Read)?;
+    check_at(&directory_path, &name)
+}
+
+fn check_at(directory_path: &Path, name: &str) -> ApiResult<SshPermissionStatus> {
+    safe_name(name)?;
     let private_path = directory_path.join(&name);
     let public_path = directory_path.join(format!("{name}.pub"));
 
@@ -247,15 +280,11 @@ mod tests {
     fn installs_with_private_permissions_and_checks_them() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = tempdir().unwrap();
+        let base = tempdir().unwrap();
+        let dir = base.path().join(".ssh");
+        fs::create_dir(&dir).unwrap();
         let (private_key, public_key) = generated();
-        let installed = ssh_install(
-            dir.path().to_string_lossy().into_owned(),
-            "id_ed25519".to_string(),
-            private_key,
-            public_key,
-            false,
-        )
+        let installed = install_into(&dir, "id_ed25519", &private_key, &public_key, false)
         .unwrap();
 
         assert_eq!(installed.private_mode, 0o600);
@@ -271,10 +300,7 @@ mod tests {
             0o600
         );
 
-        let status = ssh_check(
-            dir.path().to_string_lossy().into_owned(),
-            "id_ed25519".to_string(),
-        )
+        let status = check_at(&dir, "id_ed25519")
         .unwrap();
         assert!(status.ok);
     }
@@ -285,13 +311,7 @@ mod tests {
         let (private_key, public_key) = generated();
         for name in ["../escape", "a/b", "", ".."] {
             assert_eq!(
-                ssh_install(
-                    dir.path().to_string_lossy().into_owned(),
-                    name.to_string(),
-                    private_key.clone(),
-                    public_key.clone(),
-                    false,
-                )
+                install_into(dir.path(), name, &private_key, &public_key, false)
                 .unwrap_err()
                 .code,
                 "invalid_ssh_name"
@@ -304,26 +324,12 @@ mod tests {
     fn refuses_to_overwrite_without_flag() {
         let dir = tempdir().unwrap();
         let (private_key, public_key) = generated();
-        let path = dir.path().to_string_lossy().into_owned();
-        ssh_install(
-            path.clone(),
-            "id_ed25519".to_string(),
-            private_key.clone(),
-            public_key.clone(),
-            false,
-        )
-        .unwrap();
+        install_into(dir.path(), "id_ed25519", &private_key, &public_key, false).unwrap();
 
         assert_eq!(
-            ssh_install(
-                path.clone(),
-                "id_ed25519".to_string(),
-                private_key,
-                public_key,
-                false
-            )
-            .unwrap_err()
-            .code,
+            install_into(dir.path(), "id_ed25519", &private_key, &public_key, false)
+                .unwrap_err()
+                .code,
             "file_exists"
         );
     }
@@ -333,20 +339,14 @@ mod tests {
     fn check_reports_wrong_modes() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = tempdir().unwrap();
+        let base = tempdir().unwrap();
+        let dir = base.path().join(".ssh");
+        fs::create_dir(&dir).unwrap();
         let (private_key, public_key) = generated();
-        let path = dir.path().to_string_lossy().into_owned();
-        let installed = ssh_install(
-            path.clone(),
-            "id_ed25519".to_string(),
-            private_key,
-            public_key,
-            false,
-        )
-        .unwrap();
+        let installed = install_into(&dir, "id_ed25519", &private_key, &public_key, false).unwrap();
         fs::set_permissions(&installed.private_path, fs::Permissions::from_mode(0o644)).unwrap();
 
-        let status = ssh_check(path, "id_ed25519".to_string()).unwrap();
+        let status = check_at(&dir, "id_ed25519").unwrap();
         assert!(!status.ok);
         assert_eq!(status.private_mode, Some(0o644));
     }

@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
 import { useToast } from "@/components/ui/toast-context";
 import { basename, formatBytes, mimeFromName } from "@/features/attachments/mime";
-import { vaultApi } from "@/features/vault/api";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
 import type { AttachmentMeta } from "@/features/vault/types";
@@ -53,14 +52,13 @@ export function AttachmentPicker({
         throw { code: "file_too_large", message: "Файл больше 50 МБ" };
       }
 
-      const sealed = await vaultApi.sealAttachment(sessionId, name, mime, bytes);
-      await getStorage().writeBlob(vaultPath, sealed.meta.id, sealed.blob);
-      const saved = await addAttachmentMeta(sealed.meta);
+      const meta = await getStorage().sealAttachment(sessionId, vaultPath, name, mime, bytes);
+      const saved = await addAttachmentMeta(meta);
       if (!saved) {
-        await getStorage().deleteBlob(vaultPath, sealed.meta.id).catch(() => undefined);
+        await getStorage().deleteBlob(vaultPath, meta.id).catch(() => undefined);
         throw new Error("Не удалось сохранить метаданные вложения");
       }
-      onChange([...ids, sealed.meta.id]);
+      onChange([...ids, meta.id]);
     } catch (error) {
       toast.show({
         title: "Не удалось добавить вложение",

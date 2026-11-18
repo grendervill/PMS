@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fromBase64, toBase64 } from "@/lib/base64";
+import { toBytes } from "@/lib/ipc";
 import type {
   KdfProfile,
   UnlockSecret,
@@ -12,7 +13,12 @@ import type {
   SshKey,
   SshKeyType,
 } from "@/features/vault/types";
-import type { LoginOptions, PasswordOptions } from "@/features/generator/types";
+import type {
+  EntropyInput,
+  LoginOptions,
+  PassphraseOptions,
+  PasswordOptions,
+} from "@/features/generator/types";
 
 export class VaultApiError extends Error {
   readonly code: string;
@@ -84,6 +90,12 @@ export type UnlockedVault = {
 
 export type BiometricStatus = {
   available: boolean;
+  /**
+   * True when the stored key can only be read after the user authenticates
+   * (macOS data-protection keychain). False means the older, weaker storage is
+   * in use — worth telling the user about.
+   */
+  keychainProtected: boolean;
 };
 
 export type SharedCard = {
@@ -201,6 +213,15 @@ export type SshPermissionStatus = {
 export type SshKeyDraft = Omit<SshKey, "id" | "createdAt" | "updatedAt">;
 
 export const vaultApi = {
+  /**
+   * Tells the Rust filesystem scope that this folder holds a vault, so the
+   * access grant survives a restart (folders without `pms.vault` are never
+   * remembered).
+   */
+  async rememberFolder(folder: string): Promise<void> {
+    await call<void>("vault_remember_folder", { folder });
+  },
+
   async inspect(file: Uint8Array): Promise<VaultPublicInfo> {
     return call<VaultPublicInfo>("vault_inspect", { fileB64: toBase64(file) });
   },
@@ -226,20 +247,22 @@ export const vaultApi = {
   },
 
   async save(sessionId: string, data: VaultData): Promise<Uint8Array> {
-    const response = await call<{ fileB64: string }>("vault_save", {
-      sessionId,
-      data,
-    });
-    return fromBase64(response.fileB64);
+    // The command answers with the sealed file as an ArrayBuffer.
+    return toBytes(await call<ArrayBuffer>("vault_save", { sessionId, data }));
+  },
+
+  /**
+   * Saves straight to the vault folder on desktop: the sealed file is written by
+   * Rust and never crosses the IPC boundary.
+   */
+  async saveTo(sessionId: string, folder: string, data: VaultData): Promise<void> {
+    await call<void>("vault_save_to", { sessionId, folder, data });
   },
 
   async rewrap(sessionId: string, secret: UnlockSecret, keepExisting = true): Promise<Uint8Array> {
-    const response = await call<{ fileB64: string }>("vault_rewrap", {
-      sessionId,
-      secret,
-      keepExisting,
-    });
-    return fromBase64(response.fileB64);
+    return toBytes(
+      await call<ArrayBuffer>("vault_rewrap", { sessionId, secret, keepExisting }),
+    );
   },
 
   async lock(sessionId: string): Promise<void> {
@@ -252,6 +275,14 @@ export const vaultApi = {
 
   async generateLogin(options: LoginOptions): Promise<string> {
     return call<string>("generate_login", { options });
+  },
+
+  async generatePassphrase(options: PassphraseOptions): Promise<string> {
+    return call<string>("generate_passphrase", { options });
+  },
+
+  async generatorEntropy(input: EntropyInput): Promise<number> {
+    return call<number>("generator_entropy", { input });
   },
 
   async sealAttachment(
@@ -274,12 +305,13 @@ export const vaultApi = {
     attachmentId: string,
     blob: Uint8Array,
   ): Promise<Uint8Array> {
-    const response = await call<{ b64: string }>("attachment_open", {
-      sessionId,
-      attachmentId,
-      blobB64: toBase64(blob),
-    });
-    return fromBase64(response.b64);
+    return toBytes(
+      await call<ArrayBuffer>("attachment_open", {
+        sessionId,
+        attachmentId,
+        blobB64: toBase64(blob),
+      }),
+    );
   },
 
   async inspectTotp(input: string): Promise<TotpConfig> {
@@ -324,8 +356,8 @@ export const vaultApi = {
     });
   },
 
-  async biometricStatus(): Promise<BiometricStatus> {
-    return call<BiometricStatus>("biometric_status");
+  async biometricStatus(vaultId?: string): Promise<BiometricStatus> {
+    return call<BiometricStatus>("biometric_status", { vaultId });
   },
 
   async biometricEnroll(sessionId: string): Promise<void> {

@@ -1,7 +1,11 @@
 pub mod app_icon;
 pub mod attachments;
+pub mod attempts;
+pub mod dialogs;
 pub mod favicon;
 pub mod biometric;
+pub mod clipboard;
+pub mod fs_scope;
 pub mod generator;
 pub mod import;
 pub mod pms_archive;
@@ -13,16 +17,39 @@ pub mod totp;
 pub mod transfer;
 pub mod vault;
 
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
 use serde::Serialize;
 
+use crate::commands::attempts::UnlockGuard;
+use crate::commands::fs_scope::FsScope;
+use crate::commands::transfer::TransferManager;
 use crate::core::error::VaultError;
 use crate::core::session::SessionManager;
-use crate::commands::transfer::TransferManager;
 
 #[derive(Default)]
 pub struct AppState {
     pub sessions: SessionManager,
     pub transfer: TransferManager,
+    /// Paths the user granted through a native dialog; every command that takes
+    /// a path from the renderer has to resolve it here first.
+    pub fs_scope: FsScope,
+    /// Cool-down after repeated failed unlocks.
+    pub attempts: UnlockGuard,
+}
+
+static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Remembers the app data directory once the app is set up. Commands that run
+/// on worker threads (and therefore have no `AppHandle`) need it for their own
+/// bookkeeping files.
+pub fn set_data_dir(path: PathBuf) {
+    let _ = DATA_DIR.set(path);
+}
+
+pub fn app_data_dir() -> Option<PathBuf> {
+    DATA_DIR.get().cloned()
 }
 
 #[derive(Debug, Clone, Serialize)]

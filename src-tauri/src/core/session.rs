@@ -3,7 +3,20 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use super::error::VaultError;
+use super::models::VaultHeader;
 use super::vault::VaultSession;
+
+/// Snapshot of a session taken under the lock, so the caller can run the actual
+/// work (Argon2, AEAD, JSON) without blocking every other command.
+pub struct SessionMaterial {
+    pub header: VaultHeader,
+    pub vault_key: zeroize::Zeroizing<[u8; 32]>,
+    /// Size of the last serialized document, used to size the save buffer.
+    pub plaintext_hint: usize,
+    /// Bumped whenever the header changes (rewrap / slot removal). A save that
+    /// started before the change must not overwrite the newer file.
+    pub generation: u64,
+}
 
 #[derive(Default)]
 pub struct SessionManager {
@@ -13,6 +26,39 @@ pub struct SessionManager {
 impl SessionManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Copies the key and the (small) header out of the session. The lock is
+    /// held only for the copy, not for the work that follows.
+    pub fn material(&self, session_id: Uuid) -> Result<SessionMaterial, VaultError> {
+        self.with(session_id, |session| {
+            Ok(SessionMaterial {
+                header: session.header.clone(),
+                vault_key: zeroize::Zeroizing::new(*session.vault_key()),
+                plaintext_hint: session.plaintext_len(),
+                generation: session.generation(),
+            })
+        })
+    }
+
+    /// Replaces the stored sealed payload after a save. `rewrap` and
+    /// `remove_slot` reuse it to rewrite the file without re-encrypting the data.
+    pub fn set_sealed(
+        &self,
+        session_id: Uuid,
+        payload: Vec<u8>,
+        plaintext_len: usize,
+        generation: u64,
+    ) -> Result<(), VaultError> {
+        self.with_mut(session_id, |session| {
+            if session.generation() != generation {
+                // The unlock method changed while this save was running; the
+                // renderer has to retry instead of writing an outdated header.
+                return Err(VaultError::SessionChanged);
+            }
+            session.set_sealed(payload, plaintext_len);
+            Ok(())
+        })
     }
 
     pub fn put(&self, session: VaultSession) {

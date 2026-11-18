@@ -13,10 +13,95 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tiny_http::{Method, Response, Server, StatusCode};
 use uuid::Uuid;
 
+use crate::commands::fs_scope::Access;
 use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::pms_archive;
 
 const SERVICE_TYPE: &str = "_pms._tcp.local.";
+/// Crockford-style alphabet: no `I`, `L`, `O`, `U`, `0`, `1`, so a code read from
+/// a screen cannot be mistyped that way. 32 symbols.
+const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTVWXYZ23456789";
+const CODE_LEN: usize = 8;
+/// 32^8 = 2^40: at one guess per second a brute force would need ~34 000 years,
+/// and the receiver stops after `MAX_CODE_ATTEMPTS` anyway.
+const MAX_CODE_ATTEMPTS: u32 = 3;
+const RECEIVE_TTL: Duration = Duration::from_secs(120);
+
+fn generate_code() -> String {
+    let mut rng = rand::rngs::OsRng;
+    (0..CODE_LEN)
+        .map(|_| CODE_ALPHABET[rng.gen_range(0..CODE_ALPHABET.len())] as char)
+        .collect()
+}
+
+/// Accepts what a person types: case-insensitive, spaces and dashes ignored.
+fn normalize_code(value: &str) -> Option<String> {
+    let mut out = String::with_capacity(CODE_LEN);
+    for character in value.chars() {
+        if character == '-' || character.is_whitespace() {
+            continue;
+        }
+        let upper = character.to_ascii_uppercase();
+        if CODE_ALPHABET.contains(&(upper as u8)) {
+            out.push(upper);
+        } else {
+            return None;
+        }
+    }
+    if out.len() == CODE_LEN {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// Constant-time comparison: the code is a shared secret, so a byte-wise
+/// comparison that stops at the first difference leaks timing.
+fn code_matches(expected: &str, received: &str) -> bool {
+    match normalize_code(received) {
+        Some(received) => {
+            let mut diff = 0u8;
+            for (a, b) in expected.bytes().zip(received.bytes()) {
+                diff |= a ^ b;
+            }
+            diff == 0
+        }
+        None => false,
+    }
+}
+
+/// Proves that the sender knows the code without putting it in a header: the MAC
+/// covers a digest of the body, so an interceptor cannot replay a captured
+/// upload to another receiver either.
+fn body_mac(code: &str, body_sha256: &[u8]) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = match Hmac::<Sha256>::new_from_slice(code.as_bytes()) {
+        Ok(mac) => mac,
+        Err(_) => return String::new(),
+    };
+    mac.update(b"PMS-TRANSFER-V1");
+    mac.update(body_sha256);
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn sha256_file(path: &Path) -> ApiResult<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = File::open(path).map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
 const DISCOVERY_PORT: u16 = 45873;
 const DISCOVERY_REQUEST: &[u8] = b"PMS_DISCOVER_V1";
 const MAX_ARCHIVE: u64 = 2 * 1024 * 1024 * 1024;
@@ -294,7 +379,7 @@ pub fn transfer_receive_start(
 
     #[cfg(not(target_os = "android"))]
     {
-        let destination_path = PathBuf::from(&destination);
+        let destination_path = state.fs_scope.resolve(&destination, Access::Write)?;
         if replace_current {
             if !destination_path.join("pms.vault").is_file() {
                 return Err(ApiError::new(
@@ -320,8 +405,14 @@ pub fn transfer_receive_start(
     }
 
     let temp_dir = transfer_temp_dir(&app)?;
+    // Prefer the LAN address: the receiver is not reachable from the internet
+    // anyway (no port forwarding), but binding one interface is still tighter
+    // than all of them.
+    let bind = local_address()
+        .map(|address| format!("{address}:0"))
+        .unwrap_or_else(|_| "0.0.0.0:0".to_string());
     let server = Arc::new(
-        Server::http("0.0.0.0:0")
+        Server::http(bind.as_str())
             .map_err(|error| ApiError::new("transfer_server", error.to_string()))?,
     );
     let port = server
@@ -336,7 +427,7 @@ pub fn transfer_receive_start(
             eprintln!("PMS transfer: mDNS unavailable: {}", error.message);
         })
         .ok();
-    let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
+    let code = generate_code();
     let stop = Arc::new(AtomicBool::new(false));
     let discovery = start_discovery_responder(port, &format!("PMS · {name}"), stop.clone()).ok();
     if discovery.is_none() {
@@ -349,7 +440,17 @@ pub fn transfer_receive_start(
     let thread_temp_dir = temp_dir;
 
     std::thread::spawn(move || {
+        let deadline = Instant::now() + RECEIVE_TTL;
+        let mut attempts = 0u32;
         while !stop_thread.load(Ordering::Relaxed) {
+            if Instant::now() > deadline {
+                // The code is short-lived on purpose: a code left on screen for
+                // an hour is a code someone else may use.
+                let _ = app.emit("transfer://expired", ());
+                stop_thread.store(true, Ordering::Relaxed);
+                server_thread.unblock();
+                break;
+            }
             let mut request = match server_thread.recv_timeout(Duration::from_millis(500)) {
                 Ok(Some(request)) => request,
                 Ok(None) | Err(_) => continue,
@@ -368,12 +469,21 @@ pub fn transfer_receive_start(
                     .map(|header| header.value.as_str().to_string())
                     .unwrap_or_default()
             };
-            if header_value(&request, "X-PMS-Code").trim() != thread_code {
+            if !code_matches(&thread_code, &header_value(&request, "X-PMS-Code")) {
+                attempts += 1;
                 std::thread::sleep(Duration::from_millis(250));
-                let _ = request.respond(Response::from_string("code").with_status_code(403));
+                let _ = request
+                    .respond(Response::from_string("code").with_status_code(403));
+                if attempts >= MAX_CODE_ATTEMPTS {
+                    let _ = app.emit("transfer://locked", attempts);
+                    stop_thread.store(true, Ordering::Relaxed);
+                    server_thread.unblock();
+                    break;
+                }
                 continue;
             }
             let sender = header_value(&request, "X-PMS-Name");
+            let expected_mac = header_value(&request, "X-PMS-Mac");
             let temp = thread_temp_dir.join(format!("pms-transfer-{}.pmsvault", Uuid::new_v4()));
             let mut output = match File::create(&temp) {
                 Ok(file) => {
@@ -392,6 +502,31 @@ pub fn transfer_receive_start(
             if copied.is_err() || size == 0 || size > MAX_ARCHIVE {
                 let _ = fs::remove_file(&temp);
                 let _ = request.respond(Response::from_string("size").with_status_code(413));
+                continue;
+            }
+            // The MAC covers a digest of the body: a receiver that does not know
+            // the code never accepts (or keeps) an archive, and a captured upload
+            // cannot be replayed against a different receiver.
+            let digest = match sha256_file(&temp) {
+                Ok(digest) => digest,
+                Err(_) => {
+                    let _ = fs::remove_file(&temp);
+                    let _ = request.respond(Response::from_string("io").with_status_code(500));
+                    continue;
+                }
+            };
+            let digest_bytes = hex::decode(&digest).unwrap_or_default();
+            if expected_mac.is_empty() || body_mac(&thread_code, &digest_bytes) != expected_mac {
+                attempts += 1;
+                let _ = fs::remove_file(&temp);
+                let _ = request
+                    .respond(Response::from_string("mac").with_status_code(403));
+                if attempts >= MAX_CODE_ATTEMPTS {
+                    let _ = app.emit("transfer://locked", attempts);
+                    stop_thread.store(true, Ordering::Relaxed);
+                    server_thread.unblock();
+                    break;
+                }
                 continue;
             }
             let _ = request.respond(Response::from_string("ok").with_status_code(StatusCode(200)));
@@ -511,10 +646,12 @@ pub async fn transfer_send(
     port: u16,
     code: String,
     vault_path: String,
+    state: State<'_, AppState>,
 ) -> ApiResult<()> {
     let temp_dir = transfer_temp_dir(&app)?;
+    let vault_path = state.fs_scope.resolve(&vault_path, Access::Read)?;
     tauri::async_runtime::spawn_blocking(move || {
-        send_archive(host, port, code, vault_path, temp_dir)
+        send_archive(host, port, code, vault_path.to_string_lossy().into_owned(), temp_dir)
     })
     .await
     .map_err(|error| ApiError::new("transfer_send", error.to_string()))?
@@ -527,6 +664,12 @@ fn send_archive(
     vault_path: String,
     temp_dir: PathBuf,
 ) -> ApiResult<()> {
+    let code = normalize_code(&code).ok_or_else(|| {
+        ApiError::new(
+            "transfer_code",
+            "Код состоит из 8 символов латиницы и цифр (регистр и дефисы не важны)",
+        )
+    })?;
     let peer = format!("{host}:{port}");
     let address: SocketAddr = peer
         .parse()
@@ -544,9 +687,11 @@ fn send_archive(
             .set_read_timeout(Some(Duration::from_secs(600)))
             .map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
         let name = header_safe(&device_name());
+        let digest = sha256_file(&archive)?;
+        let mac = body_mac(&code, &hex::decode(&digest).unwrap_or_default());
         write!(
             stream,
-            "POST /upload HTTP/1.1\r\nHost: {peer}\r\nX-PMS-Code: {code}\r\nX-PMS-Name: {name}\r\nContent-Type: application/octet-stream\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n"
+            "POST /upload HTTP/1.1\r\nHost: {peer}\r\nX-PMS-Code: {code}\r\nX-PMS-Mac: {mac}\r\nX-PMS-Name: {name}\r\nContent-Type: application/octet-stream\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n"
         )
         .map_err(|error| ApiError::new("transfer_network", error.to_string()))?;
         let mut file = File::open(&archive)
@@ -593,7 +738,14 @@ pub async fn transfer_install(
     archive_path: String,
     destination: String,
     replace_current: bool,
+    state: State<'_, AppState>,
 ) -> ApiResult<String> {
+    let archive_path = state.fs_scope.resolve(&archive_path, Access::Read)?;
+    // Either a replacement inside the current vault folder or a fresh folder the
+    // user picked for the new vault: both must be writable grants.
+    let destination = state.fs_scope.resolve(&destination, Access::Write)?;
+    let archive_path = archive_path.to_string_lossy().into_owned();
+    let destination = destination.to_string_lossy().into_owned();
     tauri::async_runtime::spawn_blocking(move || {
         install_archive(archive_path, destination, replace_current)
     })
@@ -678,6 +830,39 @@ fn install_archive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codes_are_long_random_and_forgiving_to_type() {
+        let code = generate_code();
+        assert_eq!(code.len(), CODE_LEN);
+        assert!(code.bytes().all(|byte| CODE_ALPHABET.contains(&byte)));
+        assert_ne!(code, generate_code());
+
+        // Case, spaces and dashes do not matter when the user retypes it.
+        let spaced = format!("{}-{}", &code[..4], &code[4..]);
+        assert_eq!(normalize_code(&spaced).as_deref(), Some(code.as_str()));
+        assert_eq!(
+            normalize_code(&code.to_lowercase()).as_deref(),
+            Some(code.as_str())
+        );
+        // Ambiguous characters and wrong length are refused.
+        assert_eq!(normalize_code("IIIIOOOO"), None);
+        assert_eq!(normalize_code("ABC"), None);
+        assert!(code_matches(&code, &spaced));
+        assert!(!code_matches(&code, "ABCDEFGH"));
+        assert!(!code_matches(&code, ""));
+    }
+
+    #[test]
+    fn the_upload_mac_binds_the_code_and_the_body() {
+        let code = "ABCD2345";
+        let digest = [7u8; 32];
+        let mac = body_mac(code, &digest);
+        assert_eq!(mac.len(), 64);
+        assert_eq!(body_mac(code, &digest), mac, "HMAC is deterministic");
+        assert_ne!(body_mac("ABCD2346", &digest), mac, "code is part of the key");
+        assert_ne!(body_mac(code, &[8u8; 32]), mac, "body digest is covered");
+    }
 
     #[test]
     #[ignore]
@@ -838,24 +1023,41 @@ mod tests {
                         .eq_ignore_ascii_case("X-PMS-Code")
                 })
                 .map(|header| header.value.as_str().to_string());
+            let mac = request
+                .headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .field
+                        .as_str()
+                        .as_str()
+                        .eq_ignore_ascii_case("X-PMS-Mac")
+                })
+                .map(|header| header.value.as_str().to_string());
             let mut body = Vec::new();
             request.as_reader().read_to_end(&mut body).unwrap();
             let _ = request.respond(Response::from_string("ok").with_status_code(200));
-            tx.send((code, body)).unwrap();
+            tx.send((code, mac, body)).unwrap();
         });
 
         let temp = tempfile::tempdir().unwrap();
         send_archive(
             "127.0.0.1".to_string(),
             port,
-            "123456".to_string(),
+            "ABCD2345".to_string(),
             source.path().to_string_lossy().into_owned(),
             temp.path().to_path_buf(),
         )
         .unwrap();
 
-        let (code, body) = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(code.as_deref(), Some("123456"));
+        let (code, request_mac, body) = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(code.as_deref(), Some("ABCD2345"));
+        // The MAC proves knowledge of the code without sending it in the clear.
+        let mac = request_mac.unwrap_or_default();
+        assert_eq!(mac.len(), 64);
+        use sha2::Digest as _;
+        let digest = sha2::Sha256::digest(&body);
+        assert_eq!(mac, body_mac("ABCD2345", &digest));
         let archive = source.path().join("received.pmsvault");
         fs::write(&archive, body).unwrap();
         let target = tempfile::tempdir().unwrap();
@@ -906,7 +1108,7 @@ mod tests {
         let error = send_archive(
             "127.0.0.1".to_string(),
             port,
-            "000000".to_string(),
+            "ZZZZ9999".to_string(),
             source.path().to_string_lossy().into_owned(),
             temp.path().to_path_buf(),
         )
@@ -936,7 +1138,7 @@ mod tests {
         let error = send_archive(
             "127.0.0.1".to_string(),
             port,
-            "123456".to_string(),
+            "ABCD2345".to_string(),
             source.path().to_string_lossy().into_owned(),
             temp.path().to_path_buf(),
         )

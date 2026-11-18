@@ -12,9 +12,95 @@ struct PendingEntry {
     group: String,
 }
 
+/// Where a text run belongs, derived from the element stack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextTarget {
+    Group,
+    FieldKey,
+    FieldValue,
+    BinaryKey,
+    BinaryValue,
+    None,
+}
+
+fn text_target(group_name_depth: usize, stack: &[String], is_binary: bool) -> TextTarget {
+    if group_name_depth > 0 {
+        return TextTarget::Group;
+    }
+    let in_tag = |tag: &str| stack.iter().any(|name| name == tag);
+    if in_tag("Key") {
+        if is_binary {
+            TextTarget::BinaryKey
+        } else {
+            TextTarget::FieldKey
+        }
+    } else if in_tag("Value") {
+        if is_binary {
+            TextTarget::BinaryValue
+        } else {
+            TextTarget::FieldValue
+        }
+    } else {
+        TextTarget::None
+    }
+}
+
+struct Buffers<'a> {
+    groups: &'a mut Vec<String>,
+    field_key: &'a mut String,
+    field_value: &'a mut String,
+    binary_key: &'a mut String,
+    binary_value: &'a mut String,
+}
+
+impl Buffers<'_> {
+    fn append(&mut self, target: TextTarget, value: &str) {
+        match target {
+            TextTarget::Group => {
+                if let Some(group) = self.groups.last_mut() {
+                    group.push_str(value);
+                }
+            }
+            TextTarget::FieldKey => self.field_key.push_str(value),
+            TextTarget::FieldValue => self.field_value.push_str(value),
+            TextTarget::BinaryKey => self.binary_key.push_str(value),
+            TextTarget::BinaryValue => self.binary_value.push_str(value),
+            TextTarget::None => {}
+        }
+    }
+}
+
+/// Expands `&amp;`-style references. quick-xml (>= 0.41) emits them as separate
+/// `GeneralRef` events; ignoring those would silently corrupt passwords and
+/// URLs. Unknown references are kept literally, losing no data.
+fn resolve_entity(name: &str) -> String {
+    match name {
+        "amp" => "&".to_string(),
+        "lt" => "<".to_string(),
+        "gt" => ">".to_string(),
+        "quot" => "\"".to_string(),
+        "apos" => "'".to_string(),
+        _ => {
+            let code = name.strip_prefix('#').and_then(|digits| {
+                if let Some(hex) = digits.strip_prefix(['x', 'X']) {
+                    u32::from_str_radix(hex, 16).ok()
+                } else {
+                    digits.parse::<u32>().ok()
+                }
+            });
+            match code.and_then(char::from_u32) {
+                Some(character) => character.to_string(),
+                None => format!("&{name};"),
+            }
+        }
+    }
+}
+
 pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
     let mut reader = Reader::from_reader(bytes);
-    reader.config_mut().trim_text(true);
+    // Text is *not* trimmed per event: with entity references split into their
+    // own events, `Bank &amp; Co` arrives as "Bank ", "&", " Co" and trimming
+    // each chunk would eat the spaces. Values are trimmed when they are read.
     let mut buffer = Vec::new();
     let mut stack: Vec<String> = Vec::new();
     let mut groups: Vec<String> = Vec::new();
@@ -44,7 +130,10 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                         current = Some(PendingEntry {
                             item: ImportedItem::new(Cow::Borrowed("Без названия")),
                             group: if groups.len() > 1 {
-                                groups.last().cloned().unwrap_or_default()
+                                groups
+                                    .last()
+                                    .map(|group| group.trim().to_string())
+                                    .unwrap_or_default()
                             } else {
                                 String::new()
                             },
@@ -65,25 +154,45 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
             Ok(Event::Text(text)) => {
                 let value = text
                     .decode()
-                    .map_err(|_| VaultError::ImportCorrupt)?
-                    .into_owned();
-                if group_name_depth > 0 {
-                    if let Some(group) = groups.last_mut() {
-                        group.push_str(&value);
-                    }
-                } else if stack.iter().any(|name| name == "Key") {
-                    if is_binary {
-                        binary_key.push_str(&value);
-                    } else {
-                        field_key.push_str(&value);
-                    }
-                } else if stack.iter().any(|name| name == "Value") {
-                    if is_binary {
-                        binary_value.push_str(&value);
-                    } else {
-                        field_value.push_str(&value);
-                    }
-                }
+                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let target = text_target(group_name_depth, &stack, is_binary);
+                let mut buffers = Buffers {
+                    groups: &mut groups,
+                    field_key: &mut field_key,
+                    field_value: &mut field_value,
+                    binary_key: &mut binary_key,
+                    binary_value: &mut binary_value,
+                };
+                buffers.append(target, &value);
+            }
+            Ok(Event::CData(cdata)) => {
+                let value = cdata
+                    .decode()
+                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let target = text_target(group_name_depth, &stack, is_binary);
+                let mut buffers = Buffers {
+                    groups: &mut groups,
+                    field_key: &mut field_key,
+                    field_value: &mut field_value,
+                    binary_key: &mut binary_key,
+                    binary_value: &mut binary_value,
+                };
+                buffers.append(target, &value);
+            }
+            Ok(Event::GeneralRef(reference)) => {
+                let name = reference
+                    .decode()
+                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let value = resolve_entity(&name);
+                let target = text_target(group_name_depth, &stack, is_binary);
+                let mut buffers = Buffers {
+                    groups: &mut groups,
+                    field_key: &mut field_key,
+                    field_value: &mut field_value,
+                    binary_key: &mut binary_key,
+                    binary_value: &mut binary_value,
+                };
+                buffers.append(target, &value);
             }
             Ok(Event::End(event)) => {
                 let name = String::from_utf8_lossy(event.name().as_ref()).into_owned();
@@ -92,7 +201,7 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                 } else if name == "String" {
                     if let Some(entry) = current.as_mut() {
                         let value = Cow::Owned(field_value.trim().to_string());
-                        match field_key.as_str() {
+                        match field_key.trim() {
                             "Title" => entry.item.name = value,
                             "UserName" => entry.item.login = value,
                             "Password" => entry.item.password = value,
@@ -111,24 +220,24 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                                     ))),
                                 }
                             }
-                            _ if !field_key.is_empty() && !value.is_empty() => {
+                            _ if !field_key.trim().is_empty() && !value.is_empty() => {
                                 entry
                                     .item
                                     .comment
                                     .to_mut()
-                                    .push_str(&format!("\n{}: {value}", field_key));
+                                    .push_str(&format!("\n{}: {value}", field_key.trim()));
                             }
                             _ => {}
                         }
                     }
                 } else if name == "Binary" {
                     if let Some(entry) = current.as_mut() {
-                        if !binary_key.is_empty() && !binary_value.trim().is_empty() {
+                        if !binary_key.trim().is_empty() && !binary_value.trim().is_empty() {
                             match base64::engine::general_purpose::STANDARD
                                 .decode(binary_value.trim())
                             {
                                 Ok(bytes) => entry.item.attachments.push(ImportedAttachment {
-                                    name: Cow::Owned(binary_key.clone()),
+                                    name: Cow::Owned(binary_key.trim().to_string()),
                                     mime: Cow::Borrowed("application/octet-stream"),
                                     b64: Cow::Owned(
                                         base64::engine::general_purpose::STANDARD.encode(bytes),
@@ -136,7 +245,8 @@ pub fn parse(bytes: &[u8]) -> Result<ImportBundle<'static>, VaultError> {
                                 }),
                                 Err(_) => warnings.push(Cow::Owned(format!(
                                     "{}: вложение {} повреждено",
-                                    entry.item.name, binary_key
+                                    entry.item.name,
+                                    binary_key.trim()
                                 ))),
                             }
                         }
@@ -203,5 +313,32 @@ mod tests {
         assert_eq!(bundle.items[0].urls, vec!["https://mail.example"]);
         assert!(bundle.items[0].totp.is_some());
         assert_eq!(bundle.items[0].attachments.len(), 1);
+    }
+
+    /// KeePass escapes `&`, `<` and `>` in values. A parser that drops entity
+    /// references would silently corrupt passwords, so the escaped forms must
+    /// survive the round trip.
+    #[test]
+    fn unescapes_entities_in_field_values() {
+        let xml = br#"<?xml version="1.0" encoding="utf-8"?>
+<KeePassFile><Root><Group><Entry>
+<String><Key>Title</Key><Value>Bank &amp; Co &lt;main&gt;</Value></String>
+<String><Key>Password</Key><Value>p&amp;a&#115;&#x73;word</Value></String>
+<String><Key>URL</Key><Value>https://example.com/?a=1&amp;b=2</Value></String>
+</Entry></Group></Root></KeePassFile>"#;
+        let bundle = parse(xml).unwrap();
+        assert_eq!(bundle.items[0].name, "Bank & Co <main>");
+        assert_eq!(bundle.items[0].password, "p&assword");
+        assert_eq!(bundle.items[0].urls, vec!["https://example.com/?a=1&b=2"]);
+    }
+
+    #[test]
+    fn keeps_unknown_entities_literally() {
+        let xml = br#"<?xml version="1.0" encoding="utf-8"?>
+<KeePassFile><Root><Group><Entry>
+<String><Key>Notes</Key><Value>a&nbsp;b</Value></String>
+</Entry></Group></Root></KeePassFile>"#;
+        let bundle = parse(xml).unwrap();
+        assert_eq!(bundle.items[0].comment, "a&nbsp;b");
     }
 }

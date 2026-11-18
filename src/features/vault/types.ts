@@ -209,7 +209,8 @@ export function defaultVaultSettings(): VaultSettings {
     secureScreen: false,
     backupRetentionDays: 7,
     autoBackupDays: 1,
-    faviconFetch: true,
+    // Opt-in: the icon service would otherwise learn every domain in the vault.
+    faviconFetch: false,
     maxAttachmentMb: 50,
   };
 }

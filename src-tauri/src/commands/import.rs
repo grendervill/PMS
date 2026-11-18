@@ -9,26 +9,38 @@ use crate::core::import::parse;
 /// bundle alive (and serializing it in one pass) avoids building tens of
 /// thousands of intermediate `String`s.
 #[tauri::command]
-pub fn import_parse(
+pub async fn import_parse(
     file_b64: String,
     password: Option<String>,
     keyfile_b64: Option<String>,
 ) -> ApiResult<Response> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(file_b64)
-        .map_err(|_| ApiError::bad_base64())?;
-    if bytes.len() > 500 * 1024 * 1024 {
-        return Err(ApiError::new(
-            "import_too_large",
-            "Файл импорта больше 500 МБ",
-        ));
+    tauri::async_runtime::spawn_blocking(move || import_parse_blocking(file_b64, password, keyfile_b64))
+        .await
+        .map_err(|error| ApiError::new("import_parse", error.to_string()))?
+}
+
+const MAX_IMPORT_BYTES: usize = 500 * 1024 * 1024;
+const MAX_KEYFILE_BYTES: usize = 4 * 1024 * 1024;
+
+fn decode_limited(value: &str, limit: usize, message: &str) -> ApiResult<Vec<u8>> {
+    // Reject by the *encoded* length before allocating: a 4 GB base64 argument
+    // must not cost 3 GB of memory only to be refused.
+    if value.len() > limit.saturating_mul(4) / 3 + 8 {
+        return Err(ApiError::new("import_too_large", message));
     }
+    base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .map_err(|_| ApiError::bad_base64())
+}
+
+fn import_parse_blocking(
+    file_b64: String,
+    password: Option<String>,
+    keyfile_b64: Option<String>,
+) -> ApiResult<Response> {
+    let bytes = decode_limited(&file_b64, MAX_IMPORT_BYTES, "Файл импорта больше 500 МБ")?;
     let keyfile = keyfile_b64
-        .map(|value| {
-            base64::engine::general_purpose::STANDARD
-                .decode(value)
-                .map_err(|_| ApiError::bad_base64())
-        })
+        .map(|value| decode_limited(&value, MAX_KEYFILE_BYTES, "Файл-ключ слишком большой"))
         .transpose()?;
 
     let bundle = parse(&bytes, password.as_deref(), keyfile.as_deref()).map_err(ApiError::from)?;

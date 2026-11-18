@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { addRecent, getStorage, listRecent } from "@/lib/storage";
+import { isAndroidPlatform } from "@/lib/platform";
 import type { RecentVault } from "@/lib/storage";
 import { VaultApiError, vaultApi } from "@/features/vault/api";
 import { setBiometricEnabled } from "@/features/vault/biometric";
@@ -11,6 +12,7 @@ import {
   type EntryDraft,
 } from "@/features/entries/entries";
 import { removeDraft as removeDraftFromData } from "@/features/vault/drafts";
+import { clearGeneratorHistory } from "@/features/generator/history";
 import { createBankCard } from "@/features/cards/cardModel";
 import { createDocument } from "@/features/documents/documentModel";
 import {
@@ -108,6 +110,18 @@ function toErrorInfo(error: unknown): VaultErrorInfo {
   return { code: "unknown", message: "Не удалось выполнить операцию" };
 }
 
+/**
+ * Remembers the folder in the Rust filesystem scope so the access grant survives
+ * a restart. Best effort: the vault is already open at this point.
+ */
+async function rememberVaultFolder(path: string): Promise<void> {
+  try {
+    await vaultApi.rememberFolder(path);
+  } catch {
+    // The grant is only a convenience for the next launch.
+  }
+}
+
 function recentEntry(path: string, name: string, vaultId: string): RecentVault {
   return {
     path,
@@ -159,6 +173,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
 
       const info = await vaultApi.inspect(file);
       await storage.writeVault(input.folder, file);
+      await rememberVaultFolder(input.folder);
       const recent = addRecent(recentEntry(input.folder, created.data.name, created.data.id));
 
       set({
@@ -186,6 +201,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     try {
       const file = await getStorage().readVault(path);
       const info = await vaultApi.inspect(file);
+      await rememberVaultFolder(path);
       const recent = addRecent(recentEntry(path, getStorage().displayName(path), info.vaultId));
 
       set({
@@ -334,8 +350,14 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     set({ busy: true, error: null });
     try {
       await createBackup(vaultPath, data.settings).catch(() => false);
-      const file = await vaultApi.save(sessionId, data);
-      await getStorage().writeVault(vaultPath, file);
+      if (isAndroidPlatform()) {
+        // SAF can only be written from JavaScript, so the file still comes back
+        // through the renderer there.
+        const file = await vaultApi.save(sessionId, data);
+        await getStorage().writeVault(vaultPath, file);
+      } else {
+        await vaultApi.saveTo(sessionId, vaultPath, data);
+      }
       set({ data, busy: false, error: null });
       return true;
     } catch (error) {
@@ -560,6 +582,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
   },
 
   async lock() {
+    clearGeneratorHistory();
     const sessionId = get().sessionId;
     if (sessionId) {
       await vaultApi.lock(sessionId).catch(() => undefined);
@@ -574,6 +597,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
   },
 
   async reset() {
+    clearGeneratorHistory();
     await get().lock();
     set({
       status: "welcome",

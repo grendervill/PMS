@@ -56,7 +56,7 @@ describe("SettingsView biometrics", () => {
       sessionId: "session-1",
       data,
     });
-    vi.spyOn(vaultApi, "biometricStatus").mockResolvedValue({ available: false });
+    vi.spyOn(vaultApi, "biometricStatus").mockResolvedValue({ available: false, keychainProtected: true });
     vi.spyOn(vaultApi, "setAppIcon").mockResolvedValue(undefined);
   });
 
@@ -169,7 +169,7 @@ describe("SettingsView biometrics", () => {
   });
 
   it("enrolls biometrics when available and the switch is enabled", async () => {
-    vi.mocked(vaultApi.biometricStatus).mockResolvedValue({ available: true });
+    vi.mocked(vaultApi.biometricStatus).mockResolvedValue({ available: true, keychainProtected: true });
     vi.spyOn(vaultApi, "biometricEnroll").mockResolvedValue(undefined);
     renderSettings();
 

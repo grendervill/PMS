@@ -1,0 +1,18 @@
+# Enable the ARMv8 AES intrinsics of the `aes` crate (used by AES-256-GCM).
+#
+# The crate only compiles them when this cfg is set; without it, AES-256-GCM
+# runs on the "soft" fixsliced implementation and is ~3.3x slower
+# (184 MiB/s vs ~890 MiB/s measured, see docs/reports/2026-11-18-perf-audit.md).
+# The intrinsics are selected at runtime through `cpufeatures`, so a core
+# without the crypto extension still uses the safe software path.
+[target.aarch64-apple-darwin]
+rustflags = ["--cfg", "aes_armv8"]
+
+[target.aarch64-apple-ios]
+rustflags = ["--cfg", "aes_armv8"]
+
+[target.aarch64-linux-android]
+rustflags = ["--cfg", "aes_armv8"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_armv8"]

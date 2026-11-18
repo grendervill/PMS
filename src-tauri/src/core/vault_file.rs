@@ -7,10 +7,11 @@ use super::error::VaultError;
 use super::models::{VaultHeader, VAULT_FORMAT_VERSION};
 
 pub const MAGIC: &[u8; 5] = b"PMSV1";
-const FIXED_HEADER_LEN: usize = 5 + 4 + 8;
-const MAX_HEADER_LEN: usize = 1024 * 1024;
-const MAX_PAYLOAD_LEN: usize = 512 * 1024 * 1024;
-const MIN_PAYLOAD_LEN: usize = 1 + 32 + 12 + 16;
+/// `magic | header_len (u32 LE) | payload_len (u64 LE)`.
+pub const FIXED_HEADER_LEN: usize = 5 + 4 + 8;
+pub const MAX_HEADER_LEN: usize = 1024 * 1024;
+pub const MAX_PAYLOAD_LEN: usize = 512 * 1024 * 1024;
+pub const MIN_PAYLOAD_LEN: usize = 1 + 32 + 12 + 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultFile {
@@ -68,22 +69,32 @@ pub fn parse_vault_file(bytes: &[u8]) -> Result<VaultFile, VaultError> {
 }
 
 pub fn serialize_vault_file(file: &VaultFile) -> Result<Vec<u8>, VaultError> {
-    validate_header(&file.header)?;
-    if file.payload.is_empty() || file.payload.len() > MAX_PAYLOAD_LEN {
+    serialize_vault_parts(&file.header, &file.payload)
+}
+
+/// Serializes a vault file from a header and an already sealed payload with a
+/// single allocation and a single copy of the payload (the previous version
+/// copied it twice: `payload.to_vec()` and then into the output buffer).
+pub fn serialize_vault_parts(
+    header: &VaultHeader,
+    payload: &[u8],
+) -> Result<Vec<u8>, VaultError> {
+    validate_header(header)?;
+    if payload.is_empty() || payload.len() > MAX_PAYLOAD_LEN {
         return Err(VaultError::BadPayload);
     }
 
-    let header_json = serde_json::to_vec(&file.header).map_err(|_| VaultError::BadHeader)?;
+    let header_json = serde_json::to_vec(header).map_err(|_| VaultError::BadHeader)?;
     if header_json.len() > MAX_HEADER_LEN {
         return Err(VaultError::BadHeader);
     }
 
-    let mut bytes = Vec::with_capacity(FIXED_HEADER_LEN + header_json.len() + file.payload.len());
+    let mut bytes = Vec::with_capacity(FIXED_HEADER_LEN + header_json.len() + payload.len());
     bytes.extend_from_slice(MAGIC);
     bytes.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&(file.payload.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&header_json);
-    bytes.extend_from_slice(&file.payload);
+    bytes.extend_from_slice(payload);
     Ok(bytes)
 }
 

@@ -52,7 +52,7 @@ const sectionMeta: Record<AppSection, { title: string; subtitle: string }> = {
   totp: { title: "TOTP", subtitle: "Живые коды двухфакторной аутентификации" },
   ssh: { title: "SSH", subtitle: "Ключи для серверов и Git" },
   transfer: { title: "Обмен", subtitle: "Передача хранилища между устройствами PMS" },
-  generator: { title: "Генератор", subtitle: "Пароли и логины с настраиваемыми правилами" },
+  generator: { title: "Генератор", subtitle: "Пароли, логины и парольные фразы" },
   audit: { title: "Проверка", subtitle: "Слабые и повторяющиеся пароли" },
   settings: { title: "Настройки", subtitle: "Хранилище, безопасность и оформление" },
 };

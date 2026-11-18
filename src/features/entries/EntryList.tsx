@@ -1,4 +1,5 @@
 import { Plus, QrCode, Search } from "lucide-react";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { IconButton } from "@/components/ui/IconButton";
@@ -6,8 +7,15 @@ import { Input } from "@/components/ui/Input";
 import { EntryCard } from "@/features/entries/EntryCard";
 import type { CardLayout } from "@/features/entries/cardLayout";
 import type { SortMode } from "@/features/entries/entries";
+import { VIRTUAL_LIST_THRESHOLD, useVirtualRows } from "@/features/entries/useVirtualRows";
 import type { Entry } from "@/features/vault/types";
 import { cn } from "@/lib/cn";
+
+const ESTIMATED_ROW_HEIGHT: Record<CardLayout, number> = {
+  compact: 46,
+  list: 62,
+  advanced: 132,
+};
 
 export function EntryList({
   entries,
@@ -36,6 +44,31 @@ export function EntryList({
   layout: CardLayout;
   faviconEnabled: boolean;
 }) {
+  const virtual = entries.length > VIRTUAL_LIST_THRESHOLD;
+  const rows = useVirtualRows({
+    count: entries.length,
+    enabled: virtual,
+    estimatedRowHeight: ESTIMATED_ROW_HEIGHT[layout],
+    resetKey: `${query}|${sort}|${layout}`,
+  });
+  const visibleEntries = virtual ? entries.slice(rows.range.start, rows.range.end) : entries;
+  const { containerRef, rowRef, scrollToRow } = rows;
+
+  // With a windowed list the selected card may not be mounted at all, so the
+  // container is scrolled first and the card is pulled into view afterwards.
+  useEffect(() => {
+    if (!selectedId) return;
+    const index = entries.findIndex((entry) => entry.id === selectedId);
+    if (index < 0) return;
+    if (virtual) scrollToRow(index);
+
+    const frame = requestAnimationFrame(() => {
+      const element = containerRef.current?.querySelector('[aria-current="true"]');
+      element?.scrollIntoView?.({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [containerRef, entries, scrollToRow, selectedId, virtual]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-[var(--border)] px-4 py-3.5">
@@ -91,7 +124,7 @@ export function EntryList({
         </div>
       </div>
 
-      <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div ref={containerRef} className="pms-scrollbar min-h-0 flex-1 overflow-y-auto">
         {entries.length > 0 ? (
           <div
             className={
@@ -100,16 +133,47 @@ export function EntryList({
                 : "divide-y divide-[var(--border)]/70"
             }
           >
-            {entries.map((entry) => (
-              <EntryCard
-                key={entry.id}
-                entry={entry}
-                active={entry.id === selectedId}
-                layout={layout}
-                faviconEnabled={faviconEnabled}
-                onSelect={() => onSelect(entry.id)}
+            {virtual ? (
+              <div
+                data-entry-pad="top"
+                style={{ height: rows.range.topPad }}
+                aria-hidden="true"
               />
-            ))}
+            ) : null}
+            {visibleEntries.map((entry, index) =>
+              virtual ? (
+                <div
+                  key={entry.id}
+                  ref={index === 0 ? rowRef : undefined}
+                  data-entry-row=""
+                  className="min-w-0"
+                >
+                  <EntryCard
+                    entry={entry}
+                    active={entry.id === selectedId}
+                    layout={layout}
+                    faviconEnabled={faviconEnabled}
+                    onSelect={() => onSelect(entry.id)}
+                  />
+                </div>
+              ) : (
+                <EntryCard
+                  key={entry.id}
+                  entry={entry}
+                  active={entry.id === selectedId}
+                  layout={layout}
+                  faviconEnabled={faviconEnabled}
+                  onSelect={() => onSelect(entry.id)}
+                />
+              ),
+            )}
+            {virtual ? (
+              <div
+                data-entry-pad="bottom"
+                style={{ height: rows.range.bottomPad }}
+                aria-hidden="true"
+              />
+            ) : null}
           </div>
         ) : (
           <div className="p-4">

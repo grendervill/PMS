@@ -1,7 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getStorage, type VaultStorage } from "@/lib/storage";
-import { vaultApi } from "@/features/vault/api";
 import { initialVaultState, useVaultStore } from "@/features/vault/store";
 import {
   defaultVaultSettings,
@@ -60,6 +59,8 @@ function storage(): VaultStorage {
     saveFile: vi.fn(),
     readBlob: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
     writeBlob: vi.fn(),
+    sealAttachment: vi.fn(),
+    openAttachment: vi.fn(),
     listBlobIds: vi.fn(),
     deleteBlob: vi.fn(),
   };
@@ -73,7 +74,7 @@ function Probe({ id }: { id: string | null }) {
 describe("useAttachmentUrl", () => {
   beforeEach(() => {
     vi.mocked(getStorage).mockReturnValue(storage());
-    vi.spyOn(vaultApi, "openAttachment").mockResolvedValue(new Uint8Array([1, 2, 3]));
+    vi.mocked(getStorage().openAttachment).mockResolvedValue(new Uint8Array([1, 2, 3]));
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     useVaultStore.setState({
@@ -95,12 +96,8 @@ describe("useAttachmentUrl", () => {
     await waitFor(() => {
       expect(screen.getByTestId("url")).toHaveTextContent("blob:test");
     });
-    expect(getStorage().readBlob).toHaveBeenCalledWith("/vault", "att-1");
-    expect(vaultApi.openAttachment).toHaveBeenCalledWith(
-      "session-1",
-      "att-1",
-      new Uint8Array([1, 2, 3]),
-    );
+    expect(getStorage().openAttachment).toHaveBeenCalledWith("session-1", "/vault", "att-1");
+    expect(getStorage().readBlob).not.toHaveBeenCalled();
 
     view.unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test");
@@ -109,6 +106,6 @@ describe("useAttachmentUrl", () => {
   it("returns null without an id", () => {
     render(<Probe id={null} />);
     expect(screen.getByTestId("url")).toHaveTextContent("none");
-    expect(getStorage().readBlob).not.toHaveBeenCalled();
+    expect(getStorage().openAttachment).not.toHaveBeenCalled();
   });
 });

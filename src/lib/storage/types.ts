@@ -23,6 +23,16 @@ export type VaultStorage = {
   mkdir(path: string, mode?: number): Promise<void>;
   saveFile(path: string, bytes: Uint8Array): Promise<void>;
   readBlob(folder: string, id: string): Promise<Uint8Array>;
+  /** Encrypts an attachment and stores it; returns its metadata. */
+  sealAttachment(
+    sessionId: string,
+    folder: string,
+    name: string,
+    mime: string,
+    bytes: Uint8Array,
+  ): Promise<import("@/features/vault/types").AttachmentMeta>;
+  /** Reads and decrypts an attachment without a base64 round trip. */
+  openAttachment(sessionId: string, folder: string, id: string): Promise<Uint8Array>;
   writeBlob(folder: string, id: string, bytes: Uint8Array): Promise<void>;
   listBlobIds(folder: string): Promise<string[]>;
   deleteBlob(folder: string, id: string): Promise<void>;

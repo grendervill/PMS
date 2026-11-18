@@ -4,13 +4,15 @@ use zeroize::Zeroizing;
 
 use super::crypto::{
     KdfProfile, UnlockSecretInput, canonical_secret, derive_kek, generate_salt, header_core_aad,
-    kdf_params, open_payload, seal_payload, slot_aad, unwrap_vault_key, wrap_vault_key,
+    kdf_params, open_payload, seal_document_after, slot_aad, unwrap_vault_key,
+    wrap_vault_key,
 };
 use super::error::VaultError;
 use super::models::{
     CipherSuite, KdfSlot, KdfSlotKind, VaultData, VaultHeader, VAULT_FORMAT_VERSION,
 };
-use super::vault_file::{VaultFile, parse_vault_file, serialize_vault_file};
+use super::vault_file;
+use super::vault_file::{VaultFile, parse_vault_file, serialize_vault_parts};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +27,11 @@ pub struct VaultSession {
     pub header: VaultHeader,
     vault_key: Zeroizing<[u8; 32]>,
     payload: Vec<u8>,
+    /// Size of the last serialized document; used to size the save buffer so a
+    /// repeated save needs no reallocation.
+    plaintext_len: usize,
+    /// Incremented on every header change (`rewrap`, `remove_slot`).
+    generation: u64,
 }
 
 impl VaultSession {
@@ -38,6 +45,31 @@ impl VaultSession {
 
     pub(crate) fn vault_key(&self) -> &[u8; 32] {
         &self.vault_key
+    }
+
+    /// Exposes the session key to the external measurement suite
+    /// (`tests/operations.rs`), which must seal real attachments against a real
+    /// session. Not part of the app's API.
+    #[doc(hidden)]
+    pub fn vault_key_for_tests(&self) -> &[u8; 32] {
+        &self.vault_key
+    }
+
+    pub(crate) fn replace_payload(&mut self, payload: Vec<u8>) {
+        self.payload = payload;
+    }
+
+    pub(crate) fn plaintext_len(&self) -> usize {
+        self.plaintext_len
+    }
+
+    pub(crate) fn set_sealed(&mut self, payload: Vec<u8>, plaintext_len: usize) {
+        self.payload = payload;
+        self.plaintext_len = plaintext_len;
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 }
 
@@ -61,20 +93,15 @@ pub fn create_vault(
     header.kdf_slots.push(slot);
 
     let data = empty_vault_data(&config.name, vault_id, &timestamp);
-    let plaintext = Zeroizing::new(serde_json::to_vec(&data).map_err(|_| VaultError::Serde)?);
-    let payload = seal_payload(
-        &vault_key,
-        header.cipher,
-        &header_core_aad(&header),
-        &plaintext,
-    )?;
-    let file = serialize_file(&header, &payload)?;
+    let (file, payload, plaintext_len) = seal_document(&header, &vault_key, &data, 0)?;
 
     let session = VaultSession {
         id: Uuid::new_v4(),
         header,
         vault_key,
         payload,
+        plaintext_len,
+        generation: 0,
     };
 
     Ok((file, session, data))
@@ -132,11 +159,14 @@ fn unlock_parsed(
         return Err(VaultError::VaultIdMismatch);
     }
 
+    let plaintext_len = plaintext.len();
     let session = VaultSession {
         id: Uuid::new_v4(),
         header: parsed.header,
         vault_key: Zeroizing::new(vault_key),
         payload: parsed.payload,
+        plaintext_len,
+        generation: 0,
     };
 
     Ok((session, data))
@@ -150,16 +180,61 @@ pub fn save_vault(
         return Err(VaultError::VaultIdMismatch);
     }
 
-    let plaintext = Zeroizing::new(serde_json::to_vec(data).map_err(|_| VaultError::Serde)?);
-    let payload = seal_payload(
-        &session.vault_key,
-        session.header.cipher,
-        &header_core_aad(&session.header),
-        &plaintext,
-    )?;
-    let file = serialize_file(&session.header, &payload)?;
-    session.payload = payload;
+    let (file, payload, plaintext_len) =
+        seal_document(&session.header, &session.vault_key, data, session.plaintext_len)?;
+    session.set_sealed(payload, plaintext_len);
     Ok(file)
+}
+
+/// Serializes `data` and seals it into a complete vault file.
+///
+/// The whole file is built in one allocation and the JSON is encrypted in
+/// place; the sealed payload (what `rewrap`/`remove_slot` need to keep) is
+/// returned as a separate, small-as-possible copy.
+pub fn seal_document(
+    header: &VaultHeader,
+    vault_key: &[u8; 32],
+    data: &VaultData,
+    plaintext_hint: usize,
+) -> Result<(Vec<u8>, Vec<u8>, usize), VaultError> {
+    // The document must belong to this vault: writing a foreign document would
+    // produce a file that can never be unlocked (`VaultIdMismatch` on open).
+    if data.id != header.vault_id {
+        return Err(VaultError::VaultIdMismatch);
+    }
+    let header_json = serde_json::to_vec(header).map_err(|_| VaultError::Serde)?;
+    if header_json.len() > vault_file::MAX_HEADER_LEN {
+        return Err(VaultError::BadHeader);
+    }
+
+    // magic | header_len | payload_len | header_json — the two length fields are
+    // patched once the payload size is known.
+    let mut prefix = Vec::with_capacity(vault_file::FIXED_HEADER_LEN + header_json.len());
+    prefix.resize(vault_file::FIXED_HEADER_LEN, 0);
+    prefix.extend_from_slice(&header_json);
+
+    let mut bytes = seal_document_after(
+        &prefix,
+        vault_key,
+        header.cipher,
+        &header_core_aad(header),
+        plaintext_hint,
+        |buffer| serde_json::to_writer(buffer, data).map_err(|_| VaultError::Serde),
+    )?;
+    let plaintext_len = bytes.len() - prefix.len() - 1 - 32 - header.cipher.nonce_len() - 16;
+
+    let payload_len = bytes.len() - prefix.len();
+    // A file above the format limit would be written to disk and then refused
+    // by `parse_vault_file`, so it has to be refused here.
+    if payload_len > vault_file::MAX_PAYLOAD_LEN {
+        return Err(VaultError::BadPayload);
+    }
+    bytes[0..5].copy_from_slice(vault_file::MAGIC);
+    bytes[5..9].copy_from_slice(&(header_json.len() as u32).to_le_bytes());
+    bytes[9..17].copy_from_slice(&(payload_len as u64).to_le_bytes());
+
+    let payload = bytes[prefix.len()..].to_vec();
+    Ok((bytes, payload, plaintext_len))
 }
 
 pub fn rewrap_vault(
@@ -200,6 +275,7 @@ pub fn rewrap_vault(
 
     let file = serialize_file(&header, &session.payload)?;
     session.header = header;
+    session.generation = session.generation.wrapping_add(1);
     Ok(file)
 }
 
@@ -220,6 +296,7 @@ pub fn remove_slot(
 
     let file = serialize_file(&header, &session.payload)?;
     session.header = header;
+    session.generation = session.generation.wrapping_add(1);
     Ok(file)
 }
 
@@ -246,10 +323,7 @@ fn empty_vault_data(name: &str, vault_id: Uuid, timestamp: &str) -> VaultData {
 }
 
 fn serialize_file(header: &VaultHeader, payload: &[u8]) -> Result<Vec<u8>, VaultError> {
-    serialize_vault_file(&VaultFile {
-        header: header.clone(),
-        payload: payload.to_vec(),
-    })
+    serialize_vault_parts(header, payload)
 }
 
 fn make_slot(

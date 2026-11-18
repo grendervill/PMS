@@ -301,6 +301,67 @@ struct ExportProbe {
     encrypted: Option<serde::de::IgnoredAny>,
 }
 
+/// Budgets for data unpacked from an archive. The declared size of a zip entry
+/// lives in the archive itself, so a hostile file can claim any number of
+/// uncompressed gigabytes ("zip bomb"): the limits below are enforced *before*
+/// anything is allocated.
+pub const MAX_ZIP_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
+pub const MAX_ZIP_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
+/// JSON metadata is deserialized into a tree, which costs 8-15x the input: keep
+/// it far below the attachment limit.
+pub const MAX_JSON_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Budget shared by all entries of a single archive.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct UnpackBudget {
+    remaining: u64,
+}
+
+impl UnpackBudget {
+    pub(crate) fn new() -> Self {
+        Self {
+            remaining: MAX_ZIP_TOTAL_BYTES,
+        }
+    }
+
+    /// Reserves `declared_size` bytes of the archive budget without reading:
+    /// used by callers that stream the entry instead of buffering it.
+    pub(crate) fn take(&mut self, declared_size: u64) -> Result<bool, VaultError> {
+        if declared_size > MAX_ZIP_ENTRY_BYTES || declared_size > self.remaining {
+            return Ok(false);
+        }
+        self.remaining -= declared_size;
+        Ok(true)
+    }
+
+    /// Reads one archive entry, refusing entries that are too large or that
+    /// would exhaust the archive budget. `entry.size()` is only trusted as an
+    /// upper bound: the reader is additionally capped, so a lying header can
+    /// never make us allocate more than `size` bytes.
+    pub(crate) fn read_entry<R: std::io::Read>(
+        &mut self,
+        entry: &mut R,
+        declared_size: u64,
+    ) -> Result<Vec<u8>, VaultError> {
+        if declared_size > MAX_ZIP_ENTRY_BYTES || declared_size > self.remaining {
+            return Err(VaultError::ImportCorrupt);
+        }
+        self.remaining -= declared_size;
+
+        // Do not pre-allocate more than 8 MiB up front even when the header
+        // claims a large (but allowed) file: the real growth is bounded anyway.
+        let mut content = Vec::with_capacity(declared_size.min(8 * 1024 * 1024) as usize);
+        let mut reader = entry.take(declared_size + 1);
+        reader
+            .read_to_end(&mut content)
+            .map_err(|_| VaultError::ImportCorrupt)?;
+        if content.len() as u64 != declared_size {
+            return Err(VaultError::ImportCorrupt);
+        }
+        Ok(content)
+    }
+}
+
 pub fn parse<'a>(
     bytes: &'a [u8],
     password: Option<&str>,
@@ -334,15 +395,16 @@ pub fn parse<'a>(
             return super::import_onepux::parse(bytes);
         }
         if names.iter().any(|name| name == "data.json") {
+            let mut budget = UnpackBudget::new();
             let data = {
                 let mut entry = archive
                     .by_name("data.json")
                     .map_err(|_| VaultError::ImportCorrupt)?;
-                let mut content = Vec::new();
-                entry
-                    .read_to_end(&mut content)
-                    .map_err(|_| VaultError::ImportCorrupt)?;
-                content
+                let size = entry.size();
+                if size > MAX_JSON_ENTRY_BYTES {
+                    return Err(VaultError::ImportCorrupt);
+                }
+                budget.read_entry(&mut entry, size)?
             };
             let mut attachments = HashMap::new();
             for index in 0..archive.len() {
@@ -356,10 +418,8 @@ pub fn parse<'a>(
                 if name == "data.json" || !name.starts_with("attachments/") {
                     continue;
                 }
-                let mut content = Vec::new();
-                entry
-                    .read_to_end(&mut content)
-                    .map_err(|_| VaultError::ImportCorrupt)?;
+                let size = entry.size();
+                let content = budget.read_entry(&mut entry, size)?;
                 attachments.insert(name, content);
             }
             // The JSON lives in the archive, so it is a temporary buffer:

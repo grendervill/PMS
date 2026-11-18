@@ -434,7 +434,7 @@ test("finds a nearby PMS and receives a vault copy", async ({ page }) => {
   await page.getByRole("button", { name: "Найти", exact: true }).click();
   await expect(page.getByText("PMS · MacBook Pro")).toBeVisible();
   await page.getByRole("button", { name: /PMS · MacBook Pro/ }).click();
-  await page.getByLabel("Код с другого устройства").fill("123456");
+  await page.getByLabel("Код с другого устройства").fill("ABCD-2345");
   await page.getByRole("button", { name: "Передать", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Хранилище отправлено");
 
@@ -442,7 +442,7 @@ test("finds a nearby PMS and receives a vault copy", async ({ page }) => {
   await page.getByRole("button", { name: /Выбрать новую папку/ }).click();
   await page.getByRole("button", { name: "Выбрать", exact: true }).last().click();
   await page.getByRole("button", { name: "Ждать передачу", exact: true }).click();
-  await expect(page.getByText("123456")).toBeVisible();
+  await expect(page.getByText("ABCD-2345")).toBeVisible();
   await page.waitForTimeout(150);
 
   await page.evaluate(() => {
@@ -470,7 +470,7 @@ test("replaces the current vault after a transfer", async ({ page }) => {
   const confirm = page.getByRole("dialog", { name: "Заменить текущее хранилище?" });
   await expect(confirm).toBeVisible();
   await confirm.getByRole("button", { name: "Продолжить" }).click();
-  await expect(page.getByText("123456")).toBeVisible();
+  await expect(page.getByText("ABCD-2345")).toBeVisible();
   await page.waitForTimeout(150);
 
   await page.evaluate(() => {

@@ -37,6 +37,7 @@ export function EntryCard({
       <button
         ref={advancedRef}
         type="button"
+        data-entry-id={entry.id}
         onClick={onSelect}
         aria-current={active ? "true" : undefined}
         onPointerMove={move}
@@ -85,6 +86,7 @@ export function EntryCard({
     return (
       <button
         type="button"
+        data-entry-id={entry.id}
         onClick={onSelect}
         aria-current={active ? "true" : undefined}
         className={cn(
@@ -111,6 +113,7 @@ export function EntryCard({
   return (
     <button
       type="button"
+      data-entry-id={entry.id}
       onClick={onSelect}
       aria-current={active ? "true" : undefined}
       className={cn(

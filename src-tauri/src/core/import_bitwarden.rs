@@ -22,6 +22,48 @@ use super::totp;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// KDF limits for imported Bitwarden exports. The values below are read from
+/// the file, i.e. from a potential attacker: an export claiming 8 GiB of Argon2
+/// memory or 10^10 PBKDF2 iterations would hang or abort the app.
+const MAX_KDF_MEMORY_KIB: u64 = 1024 * 1024; // 1 GiB
+const MAX_PBKDF2_ITERATIONS: u64 = 10_000_000;
+const MAX_ARGON2_ITERATIONS: u64 = 64;
+/// `memory (KiB) * iterations`: Bitwarden's default (64 MiB, 3 passes) is ~196k,
+/// so this leaves an order of magnitude of headroom. Checking the product
+/// matters because `t` alone says nothing: 1 GiB x 10^7 passes is years of work.
+const MAX_KDF_WORK: u64 = 2_000_000;
+
+/// Validates the KDF parameters taken from the export and reports whether they
+/// are for Argon2 (`true`) or PBKDF2 (`false`), because the iteration budget
+/// differs by three orders of magnitude.
+fn checked_kdf_params(
+    kdf_type: u64,
+    iterations: Option<u64>,
+    memory_kib: Option<u64>,
+) -> Result<(u32, u32), VaultError> {
+    let iterations = iterations.unwrap_or(600_000);
+    let memory_kib = memory_kib.unwrap_or(64);
+    if iterations == 0 || memory_kib > MAX_KDF_MEMORY_KIB {
+        return Err(VaultError::ImportCorrupt);
+    }
+    let too_much = match kdf_type {
+        0 => iterations > MAX_PBKDF2_ITERATIONS,
+        1 => {
+            iterations > MAX_ARGON2_ITERATIONS
+                || memory_kib.saturating_mul(iterations) > MAX_KDF_WORK
+        }
+        _ => true,
+    };
+    if too_much {
+        return Err(VaultError::ImportCorrupt);
+    }
+    // Reject values that do not fit instead of truncating them silently: a
+    // wrapped cast would turn a wrong password into "corrupt export".
+    let iterations = u32::try_from(iterations).map_err(|_| VaultError::ImportCorrupt)?;
+    let memory_kib = u32::try_from(memory_kib).map_err(|_| VaultError::ImportCorrupt)?;
+    Ok((iterations, memory_kib))
+}
+
 // ---------------------------------------------------------------- decryption
 
 fn hkdf_expand(prk: &[u8], info: &[u8], length: usize) -> Result<Vec<u8>, VaultError> {
@@ -111,16 +153,21 @@ fn decrypt_export<'a>(bytes: &'a [u8], password: Option<&str>) -> Result<Cow<'a,
     }
     let password = password.ok_or(VaultError::ImportPasswordRequired)?;
     let salt = envelope.salt.as_deref().ok_or(VaultError::ImportCorrupt)?;
-    let iterations = envelope.kdf_iterations.unwrap_or(600_000) as u32;
+    let (iterations, memory_kib) =
+        checked_kdf_params(envelope.kdf_type, envelope.kdf_iterations, envelope.kdf_memory)?;
 
     let mut master = [0u8; 32];
     match envelope.kdf_type {
         0 => pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), iterations, &mut master),
         1 => {
-            let memory = envelope.kdf_memory.unwrap_or(64) as u32;
-            let parallelism = envelope.kdf_parallelism.unwrap_or(4) as u32;
-            let params = argon2::Params::new(memory * 1024, iterations, parallelism, Some(32))
-                .map_err(|_| VaultError::ImportCorrupt)?;
+            let parallelism = envelope.kdf_parallelism.unwrap_or(4).clamp(1, 8) as u32;
+            let params = argon2::Params::new(
+                memory_kib.saturating_mul(1024),
+                iterations,
+                parallelism,
+                Some(32),
+            )
+            .map_err(|_| VaultError::ImportCorrupt)?;
             let argon =
                 argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
             argon
@@ -584,6 +631,35 @@ fn append_object(entry: &mut ImportedItem<'_>, object: Option<serde_json::Map<St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rejects_kdf_parameter_bombs() {
+        // PBKDF2 with too many rounds would take hours.
+        assert_eq!(
+            super::checked_kdf_params(0, Some(1_000_000_000), None),
+            Err(VaultError::ImportCorrupt)
+        );
+        // Argon2: individually acceptable values whose product is not.
+        assert_eq!(
+            super::checked_kdf_params(1, Some(10_000_000), Some(1024 * 1024)),
+            Err(VaultError::ImportCorrupt)
+        );
+        assert_eq!(
+            super::checked_kdf_params(1, Some(64), Some(1024 * 1024)),
+            Err(VaultError::ImportCorrupt)
+        );
+        // Values that never fit a u32 must not wrap around silently either.
+        assert_eq!(
+            super::checked_kdf_params(0, Some(u64::from(u32::MAX) + 1), None),
+            Err(VaultError::ImportCorrupt)
+        );
+        // The defaults and Bitwarden's own profiles are accepted.
+        assert_eq!(super::checked_kdf_params(0, None, None), Ok((600_000, 64)));
+        assert_eq!(
+            super::checked_kdf_params(1, Some(3), Some(65_536)),
+            Ok((3, 65_536))
+        );
+    }
+
     use super::*;
 
     #[test]

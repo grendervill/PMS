@@ -4,10 +4,18 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { getStorage } from "@/lib/storage";
 import { errorText } from "@/features/vault/errors";
-import { decodeQrBytes, decodeQrImageData } from "@/features/qr/qr";
+import { decodeQrBytes } from "@/features/qr/qr";
+import { createFrameScanner, createQrDecoder, fitFrameSize } from "@/features/qr/qrScanner";
 import { cn } from "@/lib/cn";
 
 type Tab = "image" | "camera";
+
+/** Reused between frames so the canvas is not allocated 60 times a second. */
+function frameContext(canvas: HTMLCanvasElement, width: number, height: number) {
+  canvas.width = width;
+  canvas.height = height;
+  return canvas.getContext("2d", { willReadFrequently: true });
+}
 
 export function QrScannerDialog({
   open,
@@ -25,9 +33,8 @@ export function QrScannerDialog({
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const frameRef = useRef<number | null>(null);
 
   const cameraSupported =
     typeof navigator !== "undefined" &&
@@ -56,37 +63,41 @@ export function QrScannerDialog({
   useEffect(() => {
     if (!open || tab !== "camera") return;
     let cancelled = false;
+    const decoder = createQrDecoder();
+    let scanner: { start(): void; stop(): void } | null = null;
 
     const stop = () => {
-      if (frameRef.current !== null) {
-        cancelAnimationFrame(frameRef.current);
-        frameRef.current = null;
-      }
+      scanner?.stop();
+      scanner = null;
+      decoder.dispose();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
 
-    const tick = () => {
-      if (cancelled) return;
+    const capture = (): ImageData | null => {
       const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (video && canvas && video.readyState >= 2 && video.videoWidth > 0) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const context = canvas.getContext("2d");
-        if (context) {
-          context.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const image = context.getImageData(0, 0, canvas.width, canvas.height);
-          const text = decodeQrImageData(image.data, image.width, image.height);
-          if (text) {
-            stop();
-            finish(text);
-            return;
-          }
-        }
-      }
-      frameRef.current = requestAnimationFrame(tick);
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return null;
+
+      const size = fitFrameSize(video.videoWidth, video.videoHeight);
+      if (size.width === 0 || size.height === 0) return null;
+
+      const canvas =
+        frameCanvasRef.current ??
+        (frameCanvasRef.current = document.createElement("canvas"));
+      const context = frameContext(canvas, size.width, size.height);
+      if (!context) return null;
+      context.drawImage(video, 0, 0, size.width, size.height);
+      return context.getImageData(0, 0, size.width, size.height);
     };
+
+    scanner = createFrameScanner({
+      capture,
+      decode: (image) => decoder.decode(image),
+      onResult: (text) => {
+        stop();
+        finish(text);
+      },
+    });
 
     const start = async () => {
       try {
@@ -106,7 +117,7 @@ export function QrScannerDialog({
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
           setCameraReady(true);
-          frameRef.current = requestAnimationFrame(tick);
+          scanner?.start();
         }
       } catch {
         if (!cancelled) {
@@ -120,7 +131,7 @@ export function QrScannerDialog({
       cancelled = true;
       stop();
     };
-    // finish/tick are intentionally tied to this open camera session.
+    // finish is intentionally tied to this open camera session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab, cameraSupported]);
 
@@ -197,7 +208,6 @@ export function QrScannerDialog({
               playsInline
               className="aspect-video w-full object-cover"
             />
-            <canvas ref={canvasRef} className="hidden" />
             {!cameraReady ? (
               <div className="absolute inset-0 grid place-items-center text-[11px] text-[var(--muted)]">
                 <span className="flex items-center gap-2">

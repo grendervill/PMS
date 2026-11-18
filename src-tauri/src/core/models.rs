@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const VAULT_FORMAT_VERSION: u16 = 1;
 pub const ENTRY_SCHEMA_VERSION: u32 = 1;
@@ -109,7 +110,9 @@ impl Default for VaultSettings {
             secure_screen: false,
             backup_retention_days: 7,
             auto_backup_days: 1,
-            favicon_fetch: true,
+            // The icon service receives every domain from the vault, so this is
+            // opt-in: the user enables it deliberately in the settings.
+            favicon_fetch: false,
             max_attachment_mb: 50,
         }
     }
@@ -126,7 +129,7 @@ fn default_entry_schema_version() -> u32 {
     ENTRY_SCHEMA_VERSION
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryItem {
     pub value: String,
@@ -143,10 +146,11 @@ pub enum TotpAlgorithm {
     Sha512,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct TotpConfig {
     pub secret: String,
+    #[zeroize(skip)]
     pub algorithm: TotpAlgorithm,
     pub digits: u8,
     pub period: u32,
@@ -154,11 +158,13 @@ pub struct TotpConfig {
     pub account: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
+    #[zeroize(skip)]
     pub id: Uuid,
     #[serde(default)]
+    #[zeroize(skip)]
     pub kind: EntryKind,
     #[serde(default = "default_entry_schema_version")]
     pub schema_version: u32,
@@ -176,8 +182,10 @@ pub struct Entry {
     #[serde(default)]
     pub totp: Option<TotpConfig>,
     #[serde(default)]
+    #[zeroize(skip)]
     pub attachment_ids: Vec<Uuid>,
     #[serde(default)]
+    #[zeroize(skip)]
     pub ssh_key_ids: Vec<Uuid>,
     #[serde(default)]
     pub login_history: Vec<HistoryItem>,
@@ -187,12 +195,14 @@ pub struct Entry {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct SshKey {
+    #[zeroize(skip)]
     pub id: Uuid,
     pub name: String,
     #[serde(rename = "type")]
+    #[zeroize(skip)]
     pub key_type: SshKeyType,
     #[serde(default)]
     pub rsa_bits: Option<u16>,
@@ -207,6 +217,7 @@ pub struct SshKey {
     #[serde(default)]
     pub comment: String,
     #[serde(default)]
+    #[zeroize(skip)]
     pub attachment_ids: Vec<Uuid>,
     pub created_at: String,
     pub updated_at: String,
@@ -229,14 +240,16 @@ pub enum AttachmentKind {
     Other,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentMeta {
+    #[zeroize(skip)]
     pub id: Uuid,
     pub name: String,
     pub mime: String,
     pub size: u64,
     pub sha256: String,
+    #[zeroize(skip)]
     pub kind: AttachmentKind,
     pub created_at: String,
 }
@@ -248,11 +261,13 @@ pub enum DraftKind {
     Ssh,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     pub id: String,
+    #[zeroize(skip)]
     pub kind: DraftKind,
+    #[zeroize(skip)]
     pub payload: serde_json::Value,
     pub updated_at: String,
 }
@@ -267,16 +282,19 @@ pub enum FavoriteKind {
     Document,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct FavoriteRef {
+    #[zeroize(skip)]
     pub kind: FavoriteKind,
+    #[zeroize(skip)]
     pub id: Uuid,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct BankCard {
+    #[zeroize(skip)]
     pub id: Uuid,
     #[serde(default = "default_entry_schema_version")]
     pub schema_version: u32,
@@ -299,14 +317,16 @@ pub struct BankCard {
     #[serde(default)]
     pub image_preset: String,
     #[serde(default)]
+    #[zeroize(skip)]
     pub image_attachment_id: Option<Uuid>,
     pub created_at: String,
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultDocument {
+    #[zeroize(skip)]
     pub id: Uuid,
     #[serde(default = "default_entry_schema_version")]
     pub schema_version: u32,
@@ -337,20 +357,23 @@ pub struct VaultDocument {
     #[serde(default)]
     pub birth_place: String,
     #[serde(default)]
+    #[zeroize(skip)]
     pub attachment_ids: Vec<Uuid>,
     pub created_at: String,
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultData {
     pub schema_version: u32,
+    #[zeroize(skip)]
     pub id: Uuid,
     pub name: String,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
+    #[zeroize(skip)]
     pub settings: VaultSettings,
     #[serde(default)]
     pub entries: Vec<Entry>,

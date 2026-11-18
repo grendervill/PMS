@@ -1,9 +1,30 @@
 import { useState } from "react";
-import { GeneratorPanel } from "@/features/generator/GeneratorPanel";
+import { GeneratorPanel, type GeneratorMode } from "@/features/generator/GeneratorPanel";
 import { cn } from "@/lib/cn";
 
+const MODES: { value: GeneratorMode; label: string; description: string }[] = [
+  {
+    value: "password",
+    label: "Пароль",
+    description:
+      "Настройте длину и наборы символов. Каждое нажатие «Сгенерировать» создаёт новое значение с текущими правилами.",
+  },
+  {
+    value: "login",
+    label: "Логин",
+    description:
+      "Короткое значение для логина: строчные, цифры и при желании символы. Пересоздавайте, пока результат не устроит.",
+  },
+  {
+    value: "passphrase",
+    label: "Парольная фраза",
+    description: "Слова из списка проще запомнить и набрать. Длина фразы задаётся числом слов.",
+  },
+];
+
 export function GeneratorView() {
-  const [mode, setMode] = useState<"password" | "login">("password");
+  const [mode, setMode] = useState<GeneratorMode>("password");
+  const active = MODES.find((item) => item.value === mode);
 
   return (
     <div className="pms-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
@@ -12,30 +33,24 @@ export function GeneratorView() {
           <div className="mb-5">
             <h2 className="pms-display text-[26px] leading-tight">Создать секрет</h2>
             <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--muted)]">
-              Настройте длину и наборы символов. Каждое нажатие «Сгенерировать»
-              создаёт новое значение с текущими правилами.
+              {active?.description ?? ""}
             </p>
           </div>
 
-          <div className="mb-5 grid grid-cols-2 gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-1">
-            {(
-              [
-                ["password", "Пароль"],
-                ["login", "Логин"],
-              ] as const
-            ).map(([value, label]) => (
+          <div className="mb-5 grid grid-cols-3 gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-1">
+            {MODES.map((item) => (
               <button
-                key={value}
+                key={item.value}
                 type="button"
-                onClick={() => setMode(value)}
+                onClick={() => setMode(item.value)}
                 className={cn(
-                  "h-8 rounded-[6px] text-[11.5px] transition-colors",
-                  mode === value
+                  "min-h-8 rounded-[6px] px-1 py-1 text-[11.5px] leading-tight transition-colors",
+                  mode === item.value
                     ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                     : "text-[var(--muted)] hover:text-[var(--text-soft)]",
                 )}
               >
-                {label}
+                {item.label}
               </button>
             ))}
           </div>

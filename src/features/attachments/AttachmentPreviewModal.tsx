@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/confirm-context";
 import { useToast } from "@/components/ui/toast-context";
-import { vaultApi } from "@/features/vault/api";
 import { getStorage } from "@/lib/storage";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
@@ -37,8 +36,7 @@ export function AttachmentPreviewModal({
   const loadBytes = async () => {
     if (bytesRef.current) return bytesRef.current;
     if (!sessionId || !vaultPath) throw new Error("Хранилище не разблокировано");
-    const blob = await getStorage().readBlob(vaultPath, meta.id);
-    const bytes = await vaultApi.openAttachment(sessionId, meta.id, blob);
+    const bytes = await getStorage().openAttachment(sessionId, vaultPath, meta.id);
     bytesRef.current = bytes;
     return bytes;
   };
