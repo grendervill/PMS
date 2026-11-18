@@ -390,7 +390,7 @@ export function AppShell() {
               )}
             >
               <Icon size={19} strokeWidth={1.8} />
-              <span className="truncate">{item.label}</span>
+              <span className="w-full truncate text-center leading-tight">{item.label}</span>
             </button>
           );
         })}
@@ -404,7 +404,7 @@ export function AppShell() {
           )}
         >
           <MoreHorizontal size={19} strokeWidth={1.8} />
-          <span className="truncate">Ещё</span>
+          <span className="w-full truncate text-center leading-tight">Ещё</span>
         </button>
       </nav>
 

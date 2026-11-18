@@ -26,7 +26,6 @@ pub struct VaultSession {
     pub id: Uuid,
     pub header: VaultHeader,
     vault_key: Zeroizing<[u8; 32]>,
-    payload: Vec<u8>,
     /// Size of the last serialized document; used to size the save buffer so a
     /// repeated save needs no reallocation.
     plaintext_len: usize,
@@ -55,16 +54,11 @@ impl VaultSession {
         &self.vault_key
     }
 
-    pub(crate) fn replace_payload(&mut self, payload: Vec<u8>) {
-        self.payload = payload;
-    }
-
     pub(crate) fn plaintext_len(&self) -> usize {
         self.plaintext_len
     }
 
-    pub(crate) fn set_sealed(&mut self, payload: Vec<u8>, plaintext_len: usize) {
-        self.payload = payload;
+    pub(crate) fn set_plaintext_len(&mut self, plaintext_len: usize) {
         self.plaintext_len = plaintext_len;
     }
 
@@ -93,13 +87,12 @@ pub fn create_vault(
     header.kdf_slots.push(slot);
 
     let data = empty_vault_data(&config.name, vault_id, &timestamp);
-    let (file, payload, plaintext_len) = seal_document(&header, &vault_key, &data, 0)?;
+    let (file, plaintext_len) = seal_document(&header, &vault_key, &data, 0)?;
 
     let session = VaultSession {
         id: Uuid::new_v4(),
         header,
         vault_key,
-        payload,
         plaintext_len,
         generation: 0,
     };
@@ -164,7 +157,6 @@ fn unlock_parsed(
         id: Uuid::new_v4(),
         header: parsed.header,
         vault_key: Zeroizing::new(vault_key),
-        payload: parsed.payload,
         plaintext_len,
         generation: 0,
     };
@@ -180,9 +172,9 @@ pub fn save_vault(
         return Err(VaultError::VaultIdMismatch);
     }
 
-    let (file, payload, plaintext_len) =
+    let (file, plaintext_len) =
         seal_document(&session.header, &session.vault_key, data, session.plaintext_len)?;
-    session.set_sealed(payload, plaintext_len);
+    session.set_plaintext_len(plaintext_len);
     Ok(file)
 }
 
@@ -196,7 +188,7 @@ pub fn seal_document(
     vault_key: &[u8; 32],
     data: &VaultData,
     plaintext_hint: usize,
-) -> Result<(Vec<u8>, Vec<u8>, usize), VaultError> {
+) -> Result<(Vec<u8>, usize), VaultError> {
     // The document must belong to this vault: writing a foreign document would
     // produce a file that can never be unlocked (`VaultIdMismatch` on open).
     if data.id != header.vault_id {
@@ -233,12 +225,17 @@ pub fn seal_document(
     bytes[5..9].copy_from_slice(&(header_json.len() as u32).to_le_bytes());
     bytes[9..17].copy_from_slice(&(payload_len as u64).to_le_bytes());
 
-    let payload = bytes[prefix.len()..].to_vec();
-    Ok((bytes, payload, plaintext_len))
+    Ok((bytes, plaintext_len))
 }
 
+/// Re-wraps the vault key with a new secret.
+///
+/// `payload` is the sealed payload of the current file: `rewrap` never
+/// re-encrypts the data, which is why the session does not keep a copy of it (it
+/// is read from the file on disk instead).
 pub fn rewrap_vault(
     session: &mut VaultSession,
+    payload: &[u8],
     new_secret: &UnlockSecretInput,
     keep_existing: bool,
 ) -> Result<Vec<u8>, VaultError> {
@@ -273,7 +270,7 @@ pub fn rewrap_vault(
         return Err(VaultError::NoSlots);
     }
 
-    let file = serialize_file(&header, &session.payload)?;
+    let file = serialize_file(&header, payload)?;
     session.header = header;
     session.generation = session.generation.wrapping_add(1);
     Ok(file)
@@ -281,6 +278,7 @@ pub fn rewrap_vault(
 
 pub fn remove_slot(
     session: &mut VaultSession,
+    payload: &[u8],
     kind: KdfSlotKind,
 ) -> Result<Vec<u8>, VaultError> {
     let mut header = session.header.clone();
@@ -294,7 +292,7 @@ pub fn remove_slot(
         return Err(VaultError::LastUnlockMethod);
     }
 
-    let file = serialize_file(&header, &session.payload)?;
+    let file = serialize_file(&header, payload)?;
     session.header = header;
     session.generation = session.generation.wrapping_add(1);
     Ok(file)
@@ -377,6 +375,12 @@ mod tests {
             bytes: bytes.to_vec(),
             passphrase: None,
         }
+    }
+
+    /// The sealed payload of a saved file, which `rewrap`/`remove_slot` take as
+    /// an argument now that the session no longer keeps a copy.
+    fn payload_of(file: &[u8]) -> Vec<u8> {
+        parse_vault_file(file).unwrap().payload
     }
 
     fn config(name: &str) -> CreateVaultConfig {
@@ -587,11 +591,12 @@ mod tests {
 
     #[test]
     fn rewrap_adds_keyfile_and_keeps_passphrase() {
-        let (_, mut session, data) =
+        let (saved, mut session, data) =
             create_vault(&config("Личное"), &passphrase("correct horse")).unwrap();
         let keyfile_secret = keyfile(b"backup-key");
 
-        let rewrapped = rewrap_vault(&mut session, &keyfile_secret, true).unwrap();
+        let rewrapped =
+            rewrap_vault(&mut session, &payload_of(&saved), &keyfile_secret, true).unwrap();
         assert_eq!(session.header.kdf_slots.len(), 2);
 
         let (_, by_keyfile) = unlock_vault(&rewrapped, &keyfile_secret).unwrap();
@@ -609,7 +614,7 @@ mod tests {
         let original_payload = parse_vault_file(&saved).unwrap().payload;
 
         let new_pass = passphrase("new pass");
-        let rewrapped = rewrap_vault(&mut session, &new_pass, true).unwrap();
+        let rewrapped = rewrap_vault(&mut session, &payload_of(&saved), &new_pass, true).unwrap();
         let rewritten = parse_vault_file(&rewrapped).unwrap();
 
         assert_eq!(rewritten.payload, original_payload);
@@ -623,14 +628,15 @@ mod tests {
 
     #[test]
     fn rewrap_can_replace_all_slots() {
-        let (_, mut session, _) =
+        let (saved, mut session, _) =
             create_vault(&config("Личное"), &passphrase("old pass")).unwrap();
         let keyfile_secret = keyfile(b"backup-key");
-        let with_keyfile = rewrap_vault(&mut session, &keyfile_secret, true).unwrap();
+        let with_keyfile =
+            rewrap_vault(&mut session, &payload_of(&saved), &keyfile_secret, true).unwrap();
         assert_eq!(session.header.kdf_slots.len(), 2);
 
         let new_pass = passphrase("new pass");
-        let only_pass = rewrap_vault(&mut session, &new_pass, false).unwrap();
+        let only_pass = rewrap_vault(&mut session, &payload_of(&saved), &new_pass, false).unwrap();
         assert_eq!(session.header.kdf_slots.len(), 1);
         assert!(matches!(
             unlock_vault(&only_pass, &keyfile_secret),
@@ -643,23 +649,24 @@ mod tests {
 
     #[test]
     fn remove_last_slot_is_rejected() {
-        let (_, mut session, _) =
+        let (saved, mut session, _) =
             create_vault(&config("Личное"), &passphrase("correct horse")).unwrap();
 
         assert_eq!(
-            remove_slot(&mut session, KdfSlotKind::Passphrase),
+            remove_slot(&mut session, &payload_of(&saved), KdfSlotKind::Passphrase),
             Err(VaultError::LastUnlockMethod)
         );
     }
 
     #[test]
     fn remove_one_of_two_slots_works() {
-        let (_, mut session, _) =
+        let (saved, mut session, _) =
             create_vault(&config("Личное"), &passphrase("correct horse")).unwrap();
         let keyfile_secret = keyfile(b"backup-key");
-        rewrap_vault(&mut session, &keyfile_secret, true).unwrap();
+        let rewrapped =
+            rewrap_vault(&mut session, &payload_of(&saved), &keyfile_secret, true).unwrap();
 
-        let file = remove_slot(&mut session, KdfSlotKind::Keyfile).unwrap();
+        let file = remove_slot(&mut session, &payload_of(&rewrapped), KdfSlotKind::Keyfile).unwrap();
         assert_eq!(session.header.kdf_slots.len(), 1);
         assert!(matches!(
             unlock_vault(&file, &keyfile_secret),

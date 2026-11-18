@@ -41,22 +41,21 @@ impl SessionManager {
         })
     }
 
-    /// Replaces the stored sealed payload after a save. `rewrap` and
-    /// `remove_slot` reuse it to rewrite the file without re-encrypting the data.
-    pub fn set_sealed(
+    /// Remembers the size of the last serialized document, so the next save can
+    /// size its buffer exactly. Rejected when the unlock method changed while the
+    /// save was running: the renderer has to retry instead of writing a header
+    /// that is already outdated.
+    pub fn set_plaintext_len(
         &self,
         session_id: Uuid,
-        payload: Vec<u8>,
         plaintext_len: usize,
         generation: u64,
     ) -> Result<(), VaultError> {
         self.with_mut(session_id, |session| {
             if session.generation() != generation {
-                // The unlock method changed while this save was running; the
-                // renderer has to retry instead of writing an outdated header.
                 return Err(VaultError::SessionChanged);
             }
-            session.set_sealed(payload, plaintext_len);
+            session.set_plaintext_len(plaintext_len);
             Ok(())
         })
     }

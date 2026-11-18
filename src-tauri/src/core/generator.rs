@@ -13,7 +13,7 @@ const DEFAULT_SYMBOLS: &str = "!@#$%^&*()-_=+[]{};:,.?/";
 const AMBIGUOUS: &[char] = &['0', 'O', '1', 'l', 'I', '|'];
 
 /// Word count of the bundled EFF large diceware list (6^5).
-const DICEWARE_WORDS: usize = 7776;
+pub const DICEWARE_WORDS: usize = 7776;
 const PASSPHRASE_MIN_WORDS: u8 = 3;
 const PASSPHRASE_MAX_WORDS: u8 = 12;
 /// Only these separators are accepted; arbitrary strings would silently change
@@ -103,6 +103,26 @@ impl Default for LoginOptions {
     }
 }
 
+/// Which word list a passphrase is built from.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WordlistSource {
+    /// Built-in EFF large list (7776 words, 12.9 bits per word).
+    #[default]
+    Eff,
+    /// A list the user imported (any language), stored in the app data directory.
+    Custom,
+}
+
+/// Where the optional digit goes.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NumberPosition {
+    Start,
+    #[default]
+    End,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PassphraseOptions {
@@ -110,6 +130,8 @@ pub struct PassphraseOptions {
     pub separator: String,
     pub capitalize: bool,
     pub include_number: bool,
+    pub number_position: NumberPosition,
+    pub wordlist: WordlistSource,
 }
 
 impl Default for PassphraseOptions {
@@ -119,6 +141,8 @@ impl Default for PassphraseOptions {
             separator: PASSPHRASE_DEFAULT_SEPARATOR.to_string(),
             capitalize: false,
             include_number: false,
+            number_position: NumberPosition::End,
+            wordlist: WordlistSource::Eff,
         }
     }
 }
@@ -231,16 +255,33 @@ pub fn generate_login(options: &LoginOptions) -> Result<String, VaultError> {
 pub fn generate_passphrase(options: &PassphraseOptions) -> Result<String, VaultError> {
     validate_passphrase(options)?;
 
-    let words = wordlist();
-    if words.is_empty() {
+    let custom = match options.wordlist {
+        WordlistSource::Eff => None,
+        WordlistSource::Custom => Some(load_custom_wordlist().ok_or_else(|| {
+            VaultError::Storage("словник не импортирован".to_string())
+        })?),
+    };
+    let words: &[String] = match &custom {
+        Some(list) => list,
+        None => &[],
+    };
+    let builtin = wordlist();
+    let pool_len = match &custom {
+        Some(list) => list.len(),
+        None => builtin.len(),
+    };
+    if pool_len == 0 {
         return Err(VaultError::EmptyCharset);
     }
 
     let mut rng = rand::rngs::OsRng;
     let mut parts: Vec<String> = Vec::with_capacity(usize::from(options.words));
     for _ in 0..options.words {
-        let index = rng.gen_range(0..words.len());
-        let word = *words.get(index).ok_or(VaultError::BadParams)?;
+        let index = rng.gen_range(0..pool_len);
+        let word = match &custom {
+            Some(list) => list.get(index).map(String::as_str).ok_or(VaultError::BadParams)?,
+            None => *builtin.get(index).ok_or(VaultError::BadParams)?,
+        };
         parts.push(if options.capitalize {
             capitalize_word(word)
         } else {
@@ -251,9 +292,13 @@ pub fn generate_passphrase(options: &PassphraseOptions) -> Result<String, VaultE
     let mut phrase = parts.join(&options.separator);
     if options.include_number {
         let digit = b'0' + rng.gen_range(0u8..10);
-        phrase.push(char::from(digit));
+        match options.number_position {
+            NumberPosition::Start => phrase.insert(0, char::from(digit)),
+            NumberPosition::End => phrase.push(char::from(digit)),
+        }
     }
 
+    let _ = words;
     Ok(phrase)
 }
 
@@ -301,8 +346,14 @@ fn login_entropy_bits(options: &LoginOptions) -> f64 {
 }
 
 fn passphrase_entropy_bits(options: &PassphraseOptions) -> f64 {
-    let per_word = (DICEWARE_WORDS as f64).log2();
-    let mut bits = f64::from(options.words) * per_word;
+    let pool = match options.wordlist {
+        WordlistSource::Eff => DICEWARE_WORDS,
+        WordlistSource::Custom => custom_wordlist_len().unwrap_or(0),
+    };
+    if pool < 2 {
+        return 0.0;
+    }
+    let mut bits = f64::from(options.words) * (pool as f64).log2();
     if options.include_number {
         bits += 10f64.log2();
     }
@@ -539,6 +590,97 @@ fn charset(source: &str, exclude_ambiguous: bool, exclude_chars: Option<&str>) -
     chars.sort_unstable();
     chars.dedup();
     chars
+}
+
+/// Minimum size of a user word list: fewer words would quietly weaken the
+/// passphrase, and 512 already gives 9 bits per word.
+pub const MIN_CUSTOM_WORDS: usize = 512;
+/// Upper bound for an imported list (a 20 000-word list is already unusual).
+pub const MAX_CUSTOM_WORDS: usize = 50_000;
+/// The imported file itself is capped before parsing.
+pub const MAX_CUSTOM_WORDLIST_BYTES: u64 = 2 * 1024 * 1024;
+
+fn custom_wordlist_path() -> Option<std::path::PathBuf> {
+    crate::commands::app_data_dir().map(|dir| dir.join("wordlists").join("passphrase.txt"))
+}
+
+/// Validates and normalizes an imported word list.
+///
+/// Words may be in any language; the rule is "one word per line, letters,
+/// digits, hyphen or apostrophe, 2-24 characters". Duplicates are collapsed.
+pub fn parse_custom_wordlist(bytes: &[u8]) -> Result<Vec<String>, VaultError> {
+    let text = std::str::from_utf8(bytes).map_err(|_| VaultError::BadParams)?;
+    let mut words: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for line in text.lines() {
+        let word = line.trim();
+        if word.is_empty() || word.starts_with('#') {
+            continue;
+        }
+        let length = word.chars().count();
+        if !(2..=24).contains(&length)
+            || !word
+                .chars()
+                .all(|character| character.is_alphanumeric() || character == '-' || character == '\'')
+        {
+            return Err(VaultError::BadParams);
+        }
+        let normalized = word.to_lowercase();
+        if seen.insert(normalized.clone()) {
+            words.push(normalized);
+        }
+        if words.len() > MAX_CUSTOM_WORDS {
+            return Err(VaultError::FileTooLarge);
+        }
+    }
+    if words.len() < MIN_CUSTOM_WORDS {
+        return Err(VaultError::EmptyCharset);
+    }
+    Ok(words)
+}
+
+/// Reads the imported list, if any.
+pub fn load_custom_wordlist() -> Option<Vec<String>> {
+    let path = custom_wordlist_path()?;
+    let bytes = std::fs::read(path).ok()?;
+    parse_custom_wordlist(&bytes).ok()
+}
+
+/// Stores an imported list (already validated) for later use.
+pub fn store_custom_wordlist(words: &[String]) -> Result<(), VaultError> {
+    let path = custom_wordlist_path().ok_or(VaultError::Storage("нет каталога данных".into()))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| VaultError::Storage(error.to_string()))?;
+    }
+    let mut body = String::with_capacity(words.len() * 8);
+    for word in words {
+        body.push_str(word);
+        body.push('\n');
+    }
+    std::fs::write(&path, body).map_err(|error| VaultError::Storage(error.to_string()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
+pub fn clear_custom_wordlist() -> Result<(), VaultError> {
+    let Some(path) = custom_wordlist_path() else {
+        return Ok(());
+    };
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(VaultError::Storage(error.to_string())),
+    }
+}
+
+/// Number of words in the imported list, if one is present.
+pub fn custom_wordlist_len() -> Option<usize> {
+    load_custom_wordlist().map(|words| words.len())
 }
 
 fn wordlist() -> &'static [&'static str] {
@@ -957,6 +1099,115 @@ mod tests {
         assert!(phrase.chars().count() >= 4 * 3);
     }
 
+    fn wordlist_body(count: usize) -> Vec<u8> {
+        let mut body = String::new();
+        for index in 0..count {
+            body.push_str(&format!("слово{index}\n"));
+        }
+        body.into_bytes()
+    }
+
+    #[test]
+    fn custom_wordlist_is_validated() {
+        // 512 distinct words are enough.
+        let words = parse_custom_wordlist(&wordlist_body(600)).unwrap();
+        assert_eq!(words.len(), 600);
+        // Duplicates are collapsed, comments and blank lines ignored.
+        let body = "# список\n\nСлово\nслово\nдругое\n";
+        let small = format!("{}{}", String::from_utf8(wordlist_body(520)).unwrap(), body);
+        let words = parse_custom_wordlist(small.as_bytes()).unwrap();
+        // 520 numbered words + "слово" + "другое", with the duplicate collapsed.
+        assert_eq!(words.len(), 522);
+        // Too few words: 512 is the floor.
+        assert_eq!(
+            parse_custom_wordlist(&wordlist_body(100)),
+            Err(VaultError::EmptyCharset)
+        );
+        // Characters a passphrase cannot contain.
+        assert_eq!(
+            parse_custom_wordlist(b"ok\nbad word\n"),
+            Err(VaultError::BadParams)
+        );
+        assert_eq!(
+            parse_custom_wordlist(b"ok\nbad\x00\n"),
+            Err(VaultError::BadParams)
+        );
+        // A single-character word and an over-long one are refused.
+        assert_eq!(parse_custom_wordlist(b"a\n").err(), Some(VaultError::BadParams));
+        let long = format!("{}\n", "a".repeat(25));
+        assert_eq!(
+            parse_custom_wordlist(long.as_bytes()).err(),
+            Some(VaultError::BadParams)
+        );
+    }
+
+    #[test]
+    fn custom_wordlist_drives_generation_and_entropy() {
+        // `store_custom_wordlist` writes into the app data directory; point it at
+        // a temporary one for this single test.
+        let dir = tempfile::tempdir().unwrap();
+        crate::commands::set_data_dir(dir.path().to_path_buf());
+
+        let words = parse_custom_wordlist(&wordlist_body(1000)).unwrap();
+        store_custom_wordlist(&words).unwrap();
+        assert_eq!(custom_wordlist_len(), Some(1000));
+
+        let options = PassphraseOptions {
+            wordlist: WordlistSource::Custom,
+            words: 4,
+            ..PassphraseOptions::default()
+        };
+        let phrase = generate_passphrase(&options).unwrap();
+        for part in phrase.split('-') {
+            assert!(
+                words.iter().any(|word| word == part),
+                "unexpected word {part}"
+            );
+        }
+
+        // 4 words out of 1000 = 4 * log2(1000) = 39.86 bits.
+        let bits = entropy_bits(&EntropyInput::Passphrase {
+            options: options.clone(),
+        })
+        .unwrap();
+        assert!((bits - 39.86).abs() < 0.05, "entropy was {bits}");
+
+        // Without an imported list the custom source is an explicit error.
+        clear_custom_wordlist().unwrap();
+        assert_eq!(custom_wordlist_len(), None);
+        assert!(matches!(
+            generate_passphrase(&options),
+            Err(VaultError::Storage(_))
+        ));
+        let empty_entropy = entropy_bits(&EntropyInput::Passphrase { options }).unwrap();
+        assert_eq!(empty_entropy, 0.0);
+    }
+
+    #[test]
+    fn the_number_can_go_first_or_last() {
+        let end = PassphraseOptions {
+            include_number: true,
+            number_position: NumberPosition::End,
+            ..PassphraseOptions::default()
+        };
+        let start = PassphraseOptions {
+            number_position: NumberPosition::Start,
+            ..end.clone()
+        };
+        for _ in 0..20 {
+            assert!(generate_passphrase(&end)
+                .unwrap()
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_ascii_digit()));
+            assert!(generate_passphrase(&start)
+                .unwrap()
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit()));
+        }
+    }
+
     #[test]
     fn passphrase_capitalizes_each_word() {
         let options = PassphraseOptions {
@@ -964,6 +1215,7 @@ mod tests {
             separator: "_".to_string(),
             capitalize: true,
             include_number: false,
+            ..PassphraseOptions::default()
         };
         let phrase = generate_passphrase(&options).unwrap();
 
@@ -984,6 +1236,7 @@ mod tests {
             separator: ".".to_string(),
             capitalize: false,
             include_number: true,
+            ..PassphraseOptions::default()
         };
 
         for _ in 0..50 {

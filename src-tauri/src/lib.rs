@@ -26,6 +26,8 @@ pub mod testing {
         TotpAlgorithm, VaultData, VaultHeader, VaultSettings,
     };
     pub use crate::core::pms_archive::{export as archive_export, import as archive_import};
+    pub use crate::core::share;
+    pub use crate::core::totp;
     pub use crate::core::vault::{
         CreateVaultConfig, VaultSession, create_vault, save_vault, seal_document, unlock_vault,
     };
@@ -95,6 +97,9 @@ pub fn run() {
             commands::generator::generate_login,
             commands::generator::generate_passphrase,
             commands::generator::generator_entropy,
+            commands::generator::generator_wordlist,
+            commands::generator::generator_import_wordlist,
+            commands::generator::generator_clear_wordlist,
             commands::clipboard::clipboard_copy_secret,
             commands::dialogs::dialog_pick_folder,
             commands::dialogs::dialog_pick_file,

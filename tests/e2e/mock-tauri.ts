@@ -282,6 +282,12 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
         }
         case "generate_login":
           return "alex_generated_42";
+        case "generator_wordlist":
+          return { customWords: null, builtinWords: 7776, minCustomWords: 512 };
+        case "generator_import_wordlist":
+          return { customWords: 900, builtinWords: 7776, minCustomWords: 512 };
+        case "generator_clear_wordlist":
+          return { customWords: null, builtinWords: 7776, minCustomWords: 512 };
         case "generate_passphrase": {
           const values = [
             "jitterbug-wiping-stupor-litigate-taper",

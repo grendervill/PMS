@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui/Toast";
 import { vaultApi } from "@/features/vault/api";
+import { getStorage } from "@/lib/storage";
 import { GENERATOR_HISTORY_KEY } from "./history";
 import { GeneratorPanel } from "./GeneratorPanel";
 
@@ -11,8 +12,23 @@ vi.mock("@/features/vault/api", () => ({
     generateLogin: vi.fn(),
     generatePassphrase: vi.fn(),
     generatorEntropy: vi.fn(),
+    generatorWordlist: vi.fn().mockResolvedValue({
+      customWords: null,
+      builtinWords: 7776,
+      minCustomWords: 512,
+    }),
+    importWordlist: vi.fn(),
+    clearWordlist: vi.fn(),
   },
 }));
+
+vi.mock("@/lib/storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/storage")>();
+  return {
+    ...actual,
+    getStorage: vi.fn(() => ({ pickFile: vi.fn().mockResolvedValue(null) })),
+  };
+});
 
 vi.mock("@/features/generator/strength", () => ({
   passwordStrength: vi.fn().mockResolvedValue({ score: 4, label: "Очень надёжный" }),
@@ -104,6 +120,8 @@ describe("GeneratorPanel", () => {
       separator: "-",
       capitalize: false,
       includeNumber: false,
+      numberPosition: "end",
+      wordlist: "eff",
     });
   });
 
@@ -130,6 +148,8 @@ describe("GeneratorPanel", () => {
         separator: ".",
         capitalize: true,
         includeNumber: true,
+        numberPosition: "end",
+        wordlist: "eff",
       });
     });
     expect(await screen.findByText("correct-horse-battery-staple-anchor")).toBeInTheDocument();
@@ -204,8 +224,90 @@ describe("GeneratorPanel", () => {
     expect(await screen.findByText("~78 бит")).toBeInTheDocument();
     expect(entropyMock).toHaveBeenCalledWith({
       mode: "passphrase",
-      options: { words: 5, separator: "-", capitalize: false, includeNumber: false },
+      options: {
+        words: 5,
+        separator: "-",
+        capitalize: false,
+        includeNumber: false,
+        numberPosition: "end",
+        wordlist: "eff",
+      },
     });
+  });
+
+  it("imports a custom word list and switches to it", async () => {
+    const pickFile = vi.fn().mockResolvedValue("/tmp/words.txt");
+    vi.mocked(getStorage).mockReturnValue({
+      ...getStorage(),
+      pickFile,
+    } as unknown as ReturnType<typeof getStorage>);
+    const importMock = vi.mocked(vaultApi.importWordlist);
+    importMock.mockResolvedValue({ customWords: 900, builtinWords: 7776, minCustomWords: 512 });
+
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="passphrase" />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Импорт/ }));
+
+    await waitFor(() => expect(importMock).toHaveBeenCalledWith("/tmp/words.txt"));
+    // The select now offers the imported list and the panel regenerates with it.
+    await waitFor(() =>
+      expect(generatePassphraseMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ wordlist: "custom" }),
+      ),
+    );
+  });
+
+  it("clears the custom word list and falls back to EFF", async () => {
+    vi.mocked(getStorage).mockReturnValue({
+      ...getStorage(),
+      pickFile: vi.fn().mockResolvedValue("/tmp/words.txt"),
+    } as unknown as ReturnType<typeof getStorage>);
+    vi.mocked(vaultApi.importWordlist).mockResolvedValue({
+      customWords: 900,
+      builtinWords: 7776,
+      minCustomWords: 512,
+    });
+    const clearMock = vi.mocked(vaultApi.clearWordlist);
+    clearMock.mockResolvedValue({ customWords: null, builtinWords: 7776, minCustomWords: 512 });
+
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="passphrase" />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Импорт/ }));
+    await screen.findByRole("button", { name: "Удалить свой словник" });
+    fireEvent.click(screen.getByRole("button", { name: "Удалить свой словник" }));
+
+    await waitFor(() => expect(clearMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(generatePassphraseMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ wordlist: "eff" }),
+      ),
+    );
+  });
+
+  it("puts the digit at the start when asked", async () => {
+    render(
+      <ToastProvider>
+        <GeneratorPanel mode="passphrase" />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("switch", { name: /Добавить цифру/ }));
+    fireEvent.change(await screen.findByLabelText("Где цифра"), { target: { value: "start" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать" }));
+
+    await waitFor(() =>
+      expect(generatePassphraseMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ numberPosition: "start", includeNumber: true }),
+      ),
+    );
   });
 
   it("keeps rendering when the entropy call fails", async () => {

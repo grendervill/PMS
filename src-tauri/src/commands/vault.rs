@@ -9,6 +9,7 @@ use crate::commands::fs_scope::Access;
 use crate::commands::secure_screen;
 use crate::commands::{ApiError, ApiResult, AppState};
 use crate::core::crypto::{MAX_KEYFILE_BYTES, UnlockSecretInput, keyfile_kind as classify_keyfile};
+use crate::core::error::VaultError;
 use crate::core::models::{CipherSuite, KdfSlotKind, VaultData};
 use crate::core::vault::{
     CreateVaultConfig, create_vault, remove_slot, rewrap_vault, seal_document, unlock_vault,
@@ -103,6 +104,19 @@ fn decode_keyfile(bytes_b64: &str) -> ApiResult<Vec<u8>> {
 
 /// Upper bound for a vault file on the wire (payload + header + framing).
 const MAX_VAULT_FILE_BYTES: usize = 512 * 1024 * 1024;
+
+/// Reads `folder/pms.vault` and returns its `vault_id` and sealed payload.
+///
+/// `rewrap` and `remove_slot` only change the header, so they need the payload
+/// but not the key; reading it from disk keeps it out of the session for the
+/// whole lifetime of the vault.
+fn read_sealed_payload(folder: &std::path::Path) -> ApiResult<(Uuid, Vec<u8>)> {
+    let path = folder.join("pms.vault");
+    let bytes = std::fs::read(&path)
+        .map_err(|error| ApiError::new("storage", format!("Не удалось прочитать хранилище: {error}")))?;
+    let parsed = parse_vault_file(&bytes)?;
+    Ok((parsed.header.vault_id, parsed.payload))
+}
 
 fn decode_file(file_b64: &str) -> ApiResult<Vec<u8>> {
     if file_b64.len() > MAX_VAULT_FILE_BYTES.saturating_mul(4) / 3 + 8 {
@@ -233,7 +247,7 @@ pub async fn vault_save(
         // The key is copied out of the session, so the lock is not held while
         // the data is serialized and encrypted.
         let material = state.sessions.material(session_id)?;
-        let (file, payload, plaintext_len) = seal_document(
+        let (file, plaintext_len) = seal_document(
             &material.header,
             &material.vault_key,
             &data,
@@ -241,7 +255,7 @@ pub async fn vault_save(
         )?;
         state
             .sessions
-            .set_sealed(session_id, payload, plaintext_len, material.generation)?;
+            .set_plaintext_len(session_id, plaintext_len, material.generation)?;
         secure_screen::apply(&app, data.settings.secure_screen);
         Ok(tauri::ipc::Response::new(file))
     })
@@ -265,7 +279,7 @@ pub async fn vault_save_to(
         let state = app.state::<AppState>();
         let folder = state.fs_scope.resolve(&folder, Access::Write)?;
         let material = state.sessions.material(session_id)?;
-        let (file, payload, plaintext_len) = seal_document(
+        let (file, plaintext_len) = seal_document(
             &material.header,
             &material.vault_key,
             &data,
@@ -275,7 +289,7 @@ pub async fn vault_save_to(
         crate::commands::storage::write_private_atomic(&path, &file)?;
         state
             .sessions
-            .set_sealed(session_id, payload, plaintext_len, material.generation)?;
+            .set_plaintext_len(session_id, plaintext_len, material.generation)?;
         secure_screen::apply(&app, data.settings.secure_screen);
         Ok(())
     })
@@ -287,14 +301,22 @@ pub async fn vault_save_to(
 pub async fn vault_rewrap(
     app: AppHandle,
     session_id: Uuid,
+    folder: String,
     secret: UnlockSecretDto,
     keep_existing: bool,
 ) -> ApiResult<tauri::ipc::Response> {
     let secret = UnlockSecretInput::try_from(secret)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        let folder = state.fs_scope.resolve(&folder, Access::Read)?;
+        // The sealed payload is read from the file instead of being kept in
+        // memory for the whole session.
+        let (file_vault_id, payload) = read_sealed_payload(&folder)?;
         let file = state.sessions.with_mut(session_id, |session| {
-            rewrap_vault(session, &secret, keep_existing)
+            if session.vault_id() != file_vault_id {
+                return Err(VaultError::VaultIdMismatch);
+            }
+            rewrap_vault(session, &payload, &secret, keep_existing)
         })?;
         Ok(tauri::ipc::Response::new(file))
     })
@@ -306,13 +328,19 @@ pub async fn vault_rewrap(
 pub async fn vault_remove_slot(
     app: AppHandle,
     session_id: Uuid,
+    folder: String,
     kind: KdfSlotKind,
 ) -> ApiResult<tauri::ipc::Response> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let file = state
-            .sessions
-            .with_mut(session_id, |session| remove_slot(session, kind))?;
+        let folder = state.fs_scope.resolve(&folder, Access::Read)?;
+        let (file_vault_id, payload) = read_sealed_payload(&folder)?;
+        let file = state.sessions.with_mut(session_id, |session| {
+            if session.vault_id() != file_vault_id {
+                return Err(VaultError::VaultIdMismatch);
+            }
+            remove_slot(session, &payload, kind)
+        })?;
         Ok(tauri::ipc::Response::new(file))
     })
     .await

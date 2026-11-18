@@ -574,10 +574,10 @@ fn perf_audit() {
 #[ignore]
 fn realloc_probe() {
     let base = bitwarden_json(1000);
-    let mut root: serde_json::Value = serde_json::from_slice(&base).unwrap();
+    let root: serde_json::Value = serde_json::from_slice(&base).unwrap();
     let mut variants = Vec::new();
     variants.push(("full", root.clone()));
-    let mut drop_key = |root: &mut serde_json::Value, key: &str| {
+    let drop_key = |root: &mut serde_json::Value, key: &str| {
         for item in root["items"].as_array_mut().unwrap() {
             item.as_object_mut().unwrap().remove(key);
             if key == "totp" {

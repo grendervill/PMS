@@ -39,6 +39,8 @@ describe("generator options", () => {
       separator: "-",
       capitalize: false,
       includeNumber: false,
+      numberPosition: "end",
+      wordlist: "eff",
     });
   });
 

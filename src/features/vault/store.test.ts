@@ -172,6 +172,7 @@ describe("vault store", () => {
 
     expect(vaultApi.rewrap).toHaveBeenCalledWith(
       "session-1",
+      "/vaults/personal",
       { kind: "keyfile", bytesB64: "a2V5" },
       true,
     );

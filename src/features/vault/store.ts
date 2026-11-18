@@ -168,7 +168,12 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
 
       let file = created.file;
       if (input.secondarySecret) {
-        file = await vaultApi.rewrap(created.sessionId, input.secondarySecret, true);
+        file = await vaultApi.rewrap(
+          created.sessionId,
+          input.folder,
+          input.secondarySecret,
+          true,
+        );
       }
 
       const info = await vaultApi.inspect(file);

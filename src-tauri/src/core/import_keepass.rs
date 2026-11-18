@@ -90,11 +90,10 @@ fn guard_kdf_params(bytes: &[u8]) -> Result<(), VaultError> {
         if field_id == HEADER_FIELD_END {
             break;
         }
-        if minor < 1 && field_id == HEADER_FIELD_ROUNDS_KDBX3 {
-            if data.len() == 8 {
-                let rounds = u64::from_le_bytes(data.try_into().map_err(|_| VaultError::ImportCorrupt)?);
-                check_limits(None, Some(rounds))?;
-            }
+        if minor < 1 && field_id == HEADER_FIELD_ROUNDS_KDBX3 && data.len() == 8 {
+            let rounds =
+                u64::from_le_bytes(data.try_into().map_err(|_| VaultError::ImportCorrupt)?);
+            check_limits(None, Some(rounds))?;
         }
         if minor >= 1 && field_id == HEADER_FIELD_KDF_KDBX4 {
             check_variant_dictionary(data)?;

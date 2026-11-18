@@ -279,13 +279,14 @@ fn operations() {
     let attachment_id = uuid::Uuid::new_v4();
     let baseline = rss_mib();
     let seal_ms = best_of(2, || {
-        let mut blob = vec![0u8; pms_lib::testing::ATTACHMENT_HEADER_LEN + raw.len()];
         use base64::Engine as _;
+        let mut blob = vec![0u8; pms_lib::testing::ATTACHMENT_HEADER_LEN + raw.len()];
         base64::engine::general_purpose::STANDARD
-            .decode_slice(encoded.as_bytes(), &mut blob[pms_lib::testing::ATTACHMENT_HEADER_LEN..])
+            .decode_slice(
+                encoded.as_bytes(),
+                &mut blob[pms_lib::testing::ATTACHMENT_HEADER_LEN..],
+            )
             .expect("decode");
-        let mut blob = blob;
-        blob.truncate(pms_lib::testing::ATTACHMENT_HEADER_LEN + raw.len());
         pms_lib::testing::seal_attachment_in_place(
             session.vault_key_for_tests(),
             session.header.vault_id,

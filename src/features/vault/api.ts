@@ -18,6 +18,7 @@ import type {
   LoginOptions,
   PassphraseOptions,
   PasswordOptions,
+  WordlistInfo,
 } from "@/features/generator/types";
 
 export class VaultApiError extends Error {
@@ -259,9 +260,19 @@ export const vaultApi = {
     await call<void>("vault_save_to", { sessionId, folder, data });
   },
 
-  async rewrap(sessionId: string, secret: UnlockSecret, keepExisting = true): Promise<Uint8Array> {
+  /**
+   * Re-wraps the vault key. The sealed payload is read from `folder` by Rust:
+   * the session does not keep a copy of it, so a save no longer duplicates the
+   * whole file in memory.
+   */
+  async rewrap(
+    sessionId: string,
+    folder: string,
+    secret: UnlockSecret,
+    keepExisting = true,
+  ): Promise<Uint8Array> {
     return toBytes(
-      await call<ArrayBuffer>("vault_rewrap", { sessionId, secret, keepExisting }),
+      await call<ArrayBuffer>("vault_rewrap", { sessionId, folder, secret, keepExisting }),
     );
   },
 
@@ -279,6 +290,19 @@ export const vaultApi = {
 
   async generatePassphrase(options: PassphraseOptions): Promise<string> {
     return call<string>("generate_passphrase", { options });
+  },
+
+  async generatorWordlist(): Promise<WordlistInfo> {
+    return call<WordlistInfo>("generator_wordlist");
+  },
+
+  /** Imports a word list from a file the user picked in the native dialog. */
+  async importWordlist(path: string): Promise<WordlistInfo> {
+    return call<WordlistInfo>("generator_import_wordlist", { path });
+  },
+
+  async clearWordlist(): Promise<WordlistInfo> {
+    return call<WordlistInfo>("generator_clear_wordlist");
   },
 
   async generatorEntropy(input: EntropyInput): Promise<number> {

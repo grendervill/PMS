@@ -258,8 +258,8 @@ fn size_label(bytes: usize) -> String {
 /// and `HistoryItem` are not part of `pms_lib::testing`, and `serde` is the
 /// only supported way to fill those fields from an integration test.
 fn entry(index: usize) -> Entry {
-    let with_totp = index % 3 == 0;
-    let with_history = index % 5 == 0;
+    let with_totp = index.is_multiple_of(3);
+    let with_history = index.is_multiple_of(5);
     let totp = if with_totp {
         json!({
             "secret": "JBSWY3DPEHPK3PXP",
@@ -545,7 +545,7 @@ fn savings(header: &VaultHeader) {
         });
         let stats = measurement.stats;
         let best_ms = measurement.best_ms;
-        let (file, payload, sealed_plain_len) = measurement.value;
+        let (file, sealed_plain_len) = measurement.value;
         assert_eq!(
             sealed_plain_len, plain_len,
             "seal_document {count}: the reported plaintext length must match the JSON"
@@ -571,11 +571,6 @@ fn savings(header: &VaultHeader) {
             parsed.payload.len(),
             file.len() - header_len,
             "seal_document {count}: payload must be the file tail"
-        );
-        assert_eq!(
-            payload.len(),
-            parsed.payload.len(),
-            "seal_document {count}: the returned payload copy must match"
         );
 
         let file_len = file.len();
@@ -670,8 +665,9 @@ fn savings(header: &VaultHeader) {
     );
 }
 
-/// 3. Opening: `parse_vault_file` + `open_payload`, and the decrypted bytes
-/// must equal `serde_json::to_vec(&data)`.
+/// 3. Opening: `parse_vault_file` + `open_payload`.
+///
+/// The decrypted bytes must equal `serde_json::to_vec(&data)`.
 fn opening(header: &VaultHeader) {
     println!("## 3. Открытие хранилища: `parse_vault_file` + `open_payload`\n");
     println!(

@@ -173,7 +173,7 @@ fn validate_loaded_grant(
         return None;
     }
     let covers = |target: &Path| target.starts_with(&canonical);
-    if store.is_some_and(&covers) || always.iter().any(|dir| covers(dir)) {
+    if store.is_some_and(covers) || always.iter().any(|dir| covers(dir)) {
         return None;
     }
     Some(Grant {

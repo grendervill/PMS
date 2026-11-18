@@ -228,7 +228,7 @@ pub fn ssh_check(
 
 fn check_at(directory_path: &Path, name: &str) -> ApiResult<SshPermissionStatus> {
     safe_name(name)?;
-    let private_path = directory_path.join(&name);
+    let private_path = directory_path.join(name);
     let public_path = directory_path.join(format!("{name}.pub"));
 
     let exists = private_path.exists() && public_path.exists();

@@ -16,11 +16,26 @@ export type PasswordOptions = {
 
 export type LoginOptions = PasswordOptions;
 
+/** Where the optional digit goes when `includeNumber` is on. */
+export type NumberPosition = "start" | "end";
+
+/** Which word list the passphrase is built from. */
+export type WordlistSource = "eff" | "custom";
+
 export type PassphraseOptions = {
   words: number;
   separator: string;
   capitalize: boolean;
   includeNumber: boolean;
+  numberPosition: NumberPosition;
+  wordlist: WordlistSource;
+};
+
+/** Mirrors `WordlistInfo` in `commands/generator.rs`. */
+export type WordlistInfo = {
+  customWords: number | null;
+  builtinWords: number;
+  minCustomWords: number;
 };
 
 /** Mirrors the tag union the Rust `generator_entropy` command expects. */
@@ -60,7 +75,14 @@ export const DEFAULT_PASSPHRASE_OPTIONS: PassphraseOptions = {
   separator: "-",
   capitalize: false,
   includeNumber: false,
+  numberPosition: "end",
+  wordlist: "eff",
 };
+
+export const NUMBER_POSITIONS: { value: NumberPosition; label: string }[] = [
+  { value: "end", label: "В конце" },
+  { value: "start", label: "В начале" },
+];
 
 /** Matches `MAX_EXCLUDE_CHARS` in `core/generator.rs`. */
 export const MAX_EXCLUDE_CHARS = 64;

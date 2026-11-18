@@ -1,4 +1,12 @@
-import { History, Loader2, RefreshCw, Undo2, Wand2 } from "lucide-react";
+import {
+  History,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Undo2,
+  Upload,
+  Wand2,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
@@ -22,6 +30,7 @@ import {
   LOGIN_MAX_LENGTH,
   MAX_EXCLUDE_CHARS,
   normalizeExcludeChars,
+  NUMBER_POSITIONS,
   PASSPHRASE_MAX_WORDS,
   PASSPHRASE_MIN_WORDS,
   PASSPHRASE_SEPARATORS,
@@ -29,11 +38,15 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   type EntropyInput,
+  type NumberPosition,
   type PassphraseOptions,
   type PasswordOptions,
+  type WordlistInfo,
+  type WordlistSource,
 } from "@/features/generator/types";
 import { passwordStrength, type PasswordStrength } from "@/features/generator/strength";
 import { vaultApi } from "@/features/vault/api";
+import { getStorage } from "@/lib/storage";
 import { cn } from "@/lib/cn";
 
 export type GeneratorMode = "password" | "login" | "passphrase";
@@ -44,6 +57,26 @@ const GENERATE_ERROR = "Не удалось сгенерировать знач�
  * The backend refuses a setup where the exclusion list empties a whole class.
  * Say so instead of showing the generic failure message.
  */
+/** Message for a backend error, preferring the specific wordlist codes. */
+function errorMessage(error: unknown): string {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? (error as { code?: unknown }).code
+      : null;
+  if (code === "wordlist_too_small") {
+    return "В словнике слишком мало слов: нужно не меньше 512";
+  }
+  if (code === "wordlist_too_large") {
+    return "В словнике слишком много слов: максимум 50 000";
+  }
+  if (code === "wordlist_invalid") {
+    return "Словник должен содержать по одному слову в строке (буквы, дефис, апостроф; 2–24 символа)";
+  }
+  return error && typeof error === "object" && "message" in error
+    ? String((error as { message: unknown }).message)
+    : GENERATE_ERROR;
+}
+
 function describeGenerateError(error: unknown): string {
   // Duck-typed on purpose: tests replace the whole `vault/api` module.
   const code =
@@ -115,6 +148,22 @@ export function GeneratorPanel({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<GeneratorHistoryEntry[]>(() => readGeneratorHistory());
+  const [wordlist, setWordlist] = useState<WordlistInfo | null>(null);
+  const [wordlistBusy, setWordlistBusy] = useState(false);
+  useEffect(() => {
+    if (mode !== "passphrase") return;
+    let active = true;
+    void vaultApi
+      .generatorWordlist()
+      .then((info) => {
+        if (active) setWordlist(info);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [mode]);
+
   const initialOptions = useRef(options);
   const generatedOnce = useRef(false);
 
@@ -236,8 +285,45 @@ export function GeneratorPanel({
     key: K,
     value: PassphraseOptions[K],
   ) => {
-    setPassphrase((current) => ({ ...current, [key]: value }));
+    const next = { ...passphrase, [key]: value };
+    setPassphrase(next);
     setError(null);
+    // Changing the word list changes the entropy base; regenerating keeps the
+    // shown value and the shown number in agreement.
+    if (key === "wordlist" && isPassphrase) void generate(options, next);
+  };
+
+  /**
+   * Imports a word list chosen through the native dialog. The file is copied
+   * into the app data directory and validated there (>= 512 words, one per
+   * line), so the passphrase can use any language.
+   */
+  const importWordlist = async () => {
+    setWordlistBusy(true);
+    try {
+      const path = await getStorage().pickFile("Выберите словник (.txt)");
+      if (!path) return;
+      const info = await vaultApi.importWordlist(path);
+      setWordlist(info);
+      updatePassphrase("wordlist", "custom");
+    } catch (importError) {
+      setError(errorMessage(importError));
+    } finally {
+      setWordlistBusy(false);
+    }
+  };
+
+  const removeWordlist = async () => {
+    setWordlistBusy(true);
+    try {
+      const info = await vaultApi.clearWordlist();
+      setWordlist(info);
+      if (passphrase.wordlist === "custom") updatePassphrase("wordlist", "eff");
+    } catch (importError) {
+      setError(errorMessage(importError));
+    } finally {
+      setWordlistBusy(false);
+    }
   };
 
   const maxLength = isPassword ? PASSWORD_MAX_LENGTH : LOGIN_MAX_LENGTH;
@@ -344,6 +430,53 @@ export function GeneratorPanel({
             </select>
           </label>
 
+          <div className="grid gap-1.5 text-[12px] text-[var(--text-soft)]">
+            <span>Словник</span>
+            <div className="flex items-center gap-2">
+              <select
+                aria-label="Словник"
+                value={passphrase.wordlist}
+                onChange={(event) =>
+                  updatePassphrase("wordlist", event.target.value as WordlistSource)
+                }
+                className="h-9 min-w-0 flex-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[12px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+              >
+                <option value="eff">
+                  EFF, английский ({wordlist?.builtinWords ?? 7776} слов)
+                </option>
+                <option value="custom" disabled={!wordlist?.customWords}>
+                  {wordlist?.customWords
+                    ? `Свой, ${wordlist.customWords} слов`
+                    : "Свой (не импортирован)"}
+                </option>
+              </select>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void importWordlist()}
+                disabled={wordlistBusy}
+              >
+                {wordlistBusy ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                Импорт
+              </Button>
+              {wordlist?.customWords ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void removeWordlist()}
+                  disabled={wordlistBusy}
+                  aria-label="Удалить свой словник"
+                >
+                  <Trash2 size={13} />
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-[10px] leading-relaxed text-[var(--muted)]">
+              Текстовый файл: по одному слову в строке, от {wordlist?.minCustomWords ?? 512} слов.
+              Русские фразы запоминаются лучше английских.
+            </p>
+          </div>
+
           <div className="grid gap-x-5">
             <Toggle
               label="Заглавные буквы"
@@ -353,10 +486,33 @@ export function GeneratorPanel({
             />
             <Toggle
               label="Добавить цифру"
-              description="В конце фразы появится случайная цифра."
+              description={
+                passphrase.numberPosition === "start"
+                  ? "В начале фразы появится случайная цифра."
+                  : "В конце фразы появится случайная цифра."
+              }
               checked={passphrase.includeNumber}
               onCheckedChange={(checked) => updatePassphrase("includeNumber", checked)}
             />
+            {passphrase.includeNumber ? (
+              <label className="grid gap-1.5 pt-1 text-[11px] text-[var(--text-soft)]">
+                Где цифра
+                <select
+                  aria-label="Где цифра"
+                  value={passphrase.numberPosition}
+                  onChange={(event) =>
+                    updatePassphrase("numberPosition", event.target.value as NumberPosition)
+                  }
+                  className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11.5px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                >
+                  {NUMBER_POSITIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         </div>
       ) : (
