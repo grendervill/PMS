@@ -6,4 +6,5 @@
 //! (файлы и SQLite-индекс), `auth` (nonce и сессии), `api` (HTTP).
 
 pub mod config;
+pub mod store;
 pub mod tls;
