@@ -22,6 +22,17 @@ pub fn identity_from_secret(secret: &UnlockSecretInput) -> Result<Identity, Remo
         .map_err(|error| RemoteError::BadRequest(error.to_string()))
 }
 
+/// Собирает `Identity` обратно из сохранённого семени.
+///
+/// Нужно, чтобы продлить сессию через 12 часов, не спрашивая мастер-ключ.
+pub fn identity_from_seed(seed: &[u8; 32]) -> Identity {
+    let signing = ed25519_dalek::SigningKey::from_bytes(seed);
+    Identity {
+        secret: Zeroizing::new(*seed),
+        public: signing.verifying_key().to_bytes(),
+    }
+}
+
 /// Читает или создаёт файл с идентификатором устройства.
 ///
 /// Идентификатор не секрет, но он привязан к подписи и к сессии: без него

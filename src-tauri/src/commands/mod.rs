@@ -10,6 +10,7 @@ pub mod fs_scope;
 pub mod generator;
 pub mod import;
 pub mod pms_archive;
+pub mod remote;
 pub mod secure_screen;
 pub mod share;
 pub mod ssh;
@@ -25,6 +26,7 @@ use serde::Serialize;
 
 use crate::commands::attempts::UnlockGuard;
 use crate::commands::fs_scope::FsScope;
+use crate::commands::remote::RemoteRegistry;
 use crate::commands::transfer::TransferManager;
 use crate::core::error::VaultError;
 use crate::core::session::SessionManager;
@@ -38,6 +40,8 @@ pub struct AppState {
     pub fs_scope: FsScope,
     /// Cool-down after repeated failed unlocks.
     pub attempts: UnlockGuard,
+    /// Активные сессии серверного режима: токены живут только здесь.
+    pub remote: RemoteRegistry,
 }
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
