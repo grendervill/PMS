@@ -13,6 +13,7 @@ pub mod models;
 #[cfg(test)]
 pub mod perf_audit;
 pub mod pms_archive;
+pub mod remote;
 pub mod session;
 pub mod share;
 pub mod ssh;

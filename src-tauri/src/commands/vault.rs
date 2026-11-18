@@ -435,6 +435,9 @@ pub async fn vault_remove_slot(
 #[tauri::command]
 pub fn vault_lock(session_id: Uuid, state: State<'_, AppState>) -> ApiResult<()> {
     state.sessions.lock(session_id)?;
+    // Семя identity-ключа не должно переживать блокировку сейфа: иначе серверную
+    // сессию можно продлевать без мастер-ключа сколько угодно.
+    state.remote.clear_seeds();
     Ok(())
 }
 

@@ -27,6 +27,7 @@ pub mod testing {
         TotpAlgorithm, VaultData, VaultHeader, VaultSettings,
     };
     pub use crate::core::pms_archive::{export as archive_export, import as archive_import};
+    pub use crate::core::remote::{self, tls as remote_tls, RemoteError, RemoteProfile, TlsPolicy};
     pub use crate::core::share;
     pub use crate::core::totp;
     pub use crate::core::vault::{
@@ -137,6 +138,22 @@ pub fn configure_mock<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::B
         commands::storage::storage_remove_dir,
         commands::favicon::favicon_fetch,
         commands::breach::password_breach_count,
+        commands::remote::remote_probe,
+        commands::remote::remote_fingerprint,
+        commands::remote::remote_register,
+        commands::remote::remote_login,
+        commands::remote::remote_logout,
+        commands::remote::remote_refresh,
+        commands::remote::remote_status,
+        commands::remote::remote_vault_meta,
+        commands::remote::remote_pull_vault,
+        commands::remote::remote_push_vault,
+        commands::remote::remote_usage,
+        commands::remote::remote_list_blobs,
+        commands::remote::remote_upload_blob,
+        commands::remote::remote_download_blob,
+        commands::remote::remote_delete_blob,
+        commands::remote::remote_delete_account,
     ])
 }
 
@@ -204,6 +221,22 @@ pub fn run() {
             commands::storage::storage_remove_dir,
             commands::favicon::favicon_fetch,
             commands::breach::password_breach_count,
+            commands::remote::remote_probe,
+            commands::remote::remote_fingerprint,
+            commands::remote::remote_register,
+            commands::remote::remote_login,
+            commands::remote::remote_logout,
+            commands::remote::remote_refresh,
+            commands::remote::remote_status,
+            commands::remote::remote_vault_meta,
+            commands::remote::remote_pull_vault,
+            commands::remote::remote_push_vault,
+            commands::remote::remote_usage,
+            commands::remote::remote_list_blobs,
+            commands::remote::remote_upload_blob,
+            commands::remote::remote_download_blob,
+            commands::remote::remote_delete_blob,
+            commands::remote::remote_delete_account,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");
