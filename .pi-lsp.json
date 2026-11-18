@@ -1,0 +1,14 @@
+{
+  "autoStart": [
+    "kotlin",
+    "typescript",
+    "typescriptreact",
+    "rust"
+  ],
+  "servers": {
+    "kotlin": {
+      "command": "kotlin-language-server",
+      "args": []
+    }
+  }
+}
