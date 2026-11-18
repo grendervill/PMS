@@ -6,6 +6,7 @@
 
 pub mod paths;
 pub mod sqlite;
+pub mod vault;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -260,6 +261,16 @@ pub enum StoreError {
     Locked,
     #[error("данные повреждены: {0}")]
     Corrupt(String),
+    #[error("версия сейфа устарела, на сервере {0:?}")]
+    Conflict(pms_proto::dto::VaultMeta),
+    #[error("версия сейфа в будущем: клиент прислал неправильный If-Match")]
+    PreconditionFailed,
+    #[error("квота исчерпана: занято {used} из {quota}")]
+    QuotaExceeded { used: u64, quota: u64 },
+    #[error("тело короче заявленного: ожидалось {expected}, получено {got}")]
+    Truncated { expected: u64, got: u64 },
+    #[error("BLAKE3 не совпал с заявленным")]
+    DigestMismatch,
 }
 
 #[cfg(test)]
