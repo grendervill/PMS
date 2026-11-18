@@ -7,7 +7,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use pms_proto::dto::VaultMeta;
+use pms_proto::dto::{
+    ChallengeRequest, ChallengeResponse, VaultMeta, VerifyRequest, VerifyResponse,
+};
 use pms_proto::identity::{verify_register, AccountId, DeviceId};
 use pms_proto::ErrorCode;
 
@@ -18,7 +20,87 @@ use super::{
 use crate::store::vault::ExpectedVersion;
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/v1/accounts", post(register))
+    Router::new()
+        .route("/v1/accounts", post(register))
+        .route("/v1/auth/challenge", post(challenge))
+        .route("/v1/auth/verify", post(verify))
+}
+
+fn unix_to_rfc3339(timestamp: i64) -> String {
+    chrono::DateTime::from_timestamp(timestamp, 0)
+        .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).expect("epoch"))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+pub async fn challenge(
+    State(state): State<AppState>,
+    Json(request): Json<ChallengeRequest>,
+) -> Result<Json<ChallengeResponse>, ApiError> {
+    let account = AccountId::from_hex(&request.account_id)
+        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "account_id не hex"))?;
+    let device = DeviceId::from_hex(&request.device_id)
+        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "device_id не hex"))?;
+
+    state.auth.rate_limiter().check(&account.to_string())?;
+
+    if state.store.account(account)?.is_none() {
+        return Err(ApiError::new(
+            ErrorCode::NotFound,
+            "аккаунта нет — сначала регистрация",
+        ));
+    }
+
+    let challenge = state.auth.issue_challenge(account, device)?;
+    Ok(Json(ChallengeResponse {
+        nonce: hex::encode(challenge.nonce),
+        expires_at: unix_to_rfc3339(challenge.expires_at),
+    }))
+}
+
+pub async fn verify(
+    State(state): State<AppState>,
+    Json(request): Json<VerifyRequest>,
+) -> Result<Json<VerifyResponse>, ApiError> {
+    let account = AccountId::from_hex(&request.account_id)
+        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "account_id не hex"))?;
+    let device = DeviceId::from_hex(&request.device_id)
+        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "device_id не hex"))?;
+
+    state.auth.rate_limiter().check(&account.to_string())?;
+
+    let record = state
+        .store
+        .account(account)?
+        .ok_or_else(|| ApiError::new(ErrorCode::NotFound, "аккаунта нет"))?;
+
+    let nonce: [u8; 32] = hex_array_of(&request.nonce, "nonce")?;
+    let signature: [u8; 64] = hex_array_of(&request.signature, "signature")?;
+
+    let token = state
+        .auth
+        .verify(account, device, &nonce, &signature, &record.public_key)?;
+    state.auth.rate_limiter().forget(&account.to_string());
+
+    Ok(Json(VerifyResponse {
+        token: token.expose().to_string(),
+        expires_at: unix_to_rfc3339(
+            chrono::Utc::now().timestamp() + i64::from(state.config.auth.token_ttl_hours) * 3600,
+        ),
+    }))
+}
+
+fn hex_array_of<const N: usize>(value: &str, name: &str) -> Result<[u8; N], ApiError> {
+    let bytes = hex::decode(value)
+        .map_err(|_| ApiError::new(ErrorCode::BadRequest, format!("{name} не hex")))?;
+    if bytes.len() != N {
+        return Err(ApiError::new(
+            ErrorCode::BadRequest,
+            format!("{name}: ожидалось {N} байт"),
+        ));
+    }
+    let mut array = [0u8; N];
+    array.copy_from_slice(&bytes);
+    Ok(array)
 }
 
 pub async fn register(

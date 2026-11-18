@@ -1,6 +1,7 @@
 //! HTTP-слой: роутер, лимиты, единый формат ошибок.
 
 pub mod auth;
+pub mod vault;
 
 use std::sync::Arc;
 
@@ -48,6 +49,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/healthz", get(healthz))
         .merge(auth::routes())
+        .merge(vault::routes())
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(limits.max_body_bytes as usize))
         .layer(ConcurrencyLimitLayer::new(limits.max_connections))
@@ -174,6 +176,35 @@ fn status_of(code: ErrorCode) -> axum::http::StatusCode {
         ErrorCode::DigestMismatch => StatusCode::BAD_REQUEST,
         ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         ErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+/// Извлечённая сессия: аккаунт и устройство из `Authorization: Bearer`.
+#[derive(Debug, Clone, Copy)]
+pub struct Authed {
+    pub account: pms_proto::identity::AccountId,
+    pub device: pms_proto::identity::DeviceId,
+}
+
+impl axum::extract::FromRequestParts<AppState> for Authed {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let token = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .ok_or_else(|| ApiError::new(ErrorCode::Unauthorized, "нужен Bearer-токен"))?;
+
+        let session = state.auth.authenticate(token.trim())?;
+        Ok(Self {
+            account: session.account,
+            device: session.device,
+        })
     }
 }
 
