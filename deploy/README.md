@@ -38,8 +38,14 @@ openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes \
   -keyout /etc/pms/server.key -out /etc/pms/server.crt \
   -subj "/CN=pms.home" \
   -addext "subjectAltName=DNS:pms.home,IP:192.168.1.10"
-chmod 0600 /etc/pms/server.key
+chown root:pms /etc/pms/server.crt /etc/pms/server.key
+chmod 0644 /etc/pms/server.crt
+chmod 0640 /etc/pms/server.key
 ```
+
+Если оставить ключ `0600 root:root`, сервис под пользователем `pms` не стартует —
+`check-config` от root при этом проходит, поэтому проверять надо тем же пользователем,
+что и сервис (или сразу `systemctl start`).
 
 Клиент в таком случае подключается с `tls_policy = "pin"` и отпечатком:
 
@@ -95,4 +101,20 @@ systemctl start pms-server
 
 ## 8. Результаты проверки на тестовой VM
 
-Заполняется после прогона (этап 13 плана).
+Debian 13 (trixie), 2 vCPU, 2 ГиБ RAM, локальная сеть:
+
+| Проверка | Результат |
+|---|---|
+| Сборка `cargo build --release -p pms-server` на самой VM | 2 мин 13 с |
+| Размер бинарника | 13 МиБ |
+| RSS в простое | 18.1 МиБ (`ps`), 0.4 МиБ в cgroup по `MemoryCurrent` |
+| Каталог данных пустого сервера | 108 КиБ (пустой `index.sqlite` с WAL) |
+| `GET /v1/healthz` по TLS с CA из своего сертификата | `200 {"protocol":1,"status":"ok"}` |
+| Тот же запрос без доверия к сертификату | обрыв на рукопожатии |
+| `http://` на TLS-порт | обрыв (`record layer failure`), открытого порта нет |
+| `check-config` без сертификата | отказ с кодом 1 и текстом причины |
+| `cargo test -p pms-server` на Linux | 57 тестов зелёные |
+| Стриминг: разовая аллокация при 16 МиБ тела | ≤ 1 МиБ (`tests/streaming.rs`) |
+
+Что осталось на живых устройствах: полный сценарий «ноутбук + телефон» через приложение —
+этап плана 2 (клиентский транспорт) и плана 5 (Android).
