@@ -46,6 +46,9 @@ fn label(value: Option<String>, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
+/// Folder picking is desktop-only: the plugin has no folder dialog on Android,
+/// where the app picks a SAF tree through `tauri-plugin-android-fs` instead.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn dialog_pick_folder(
     app: AppHandle,
@@ -61,6 +64,19 @@ pub async fn dialog_pick_folder(
     })?;
 
     grant_and_describe(&state, picked, Access::ReadWrite)
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn dialog_pick_folder(
+    _app: AppHandle,
+    _state: State<'_, AppState>,
+    _title: Option<String>,
+) -> ApiResult<Option<String>> {
+    Err(ApiError::new(
+        "dialog_unsupported",
+        "На этом устройстве папку выбирают системным файловым менеджером",
+    ))
 }
 
 #[tauri::command]

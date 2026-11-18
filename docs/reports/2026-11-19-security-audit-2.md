@@ -124,6 +124,24 @@ $ pnpm audit --prod    → No known vulnerabilities found
 | Зануление моделей | компиляция `Zeroize/ZeroizeOnDrop` на всех моделях секретов + 192 unit-теста |
 | Clipboard-маркеры | ручная проверка (значение не попадает в историю менеджера буфера) |
 
+## 6b. Android: сборка проверена
+
+Все правки этого раунда проверялись на desktop; отдельно прогнан `cargo check --target aarch64-linux-android --lib` (rustup-тулчейн + NDK 28.2, `CC_aarch64_linux_android=…android24-clang`). Он нашёл реальную поломку: `dialog_pick_folder` вызывал `tauri_plugin_dialog::pick_folder`, которого на mobile нет — сборка Android падала. Теперь `dialog_pick_folder` под `#[cfg(desktop)]`, а на mobile возвращает понятную ошибку (`dialog_unsupported`): на Android папку выбирает `tauri-plugin-android-fs` из JS. После правки мобильная цель собирается.
+
+Проверяется командой:
+
+```bash
+cd src-tauri
+NDK=$HOME/Library/Android/sdk/ndk/<версия>/toolchains/llvm/prebuilt/darwin-x86_64
+PATH="$NDK/bin:$HOME/.rustup/toolchains/<версия>/bin:$PATH" \
+CC_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang" \
+CXX_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang++" \
+AR_aarch64_linux_android="$NDK/bin/llvm-ar" \
+cargo check --target aarch64-linux-android --lib
+```
+
+Запуск на устройстве (эмулятор/телефон) в этом раунде не выполнялся: пункт остаётся в списке ниже.
+
 ## 7. Проверка после следующего изменения (чек-лист)
 
 ```bash
