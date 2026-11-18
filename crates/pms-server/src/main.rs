@@ -9,6 +9,10 @@ use pms_server::config::Config;
 use pms_server::store::Store;
 use pms_server::tls;
 
+/// Аллокатор сервера: mimalloc заметно ровнее glibc под нагрузкой от сокетов.
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Debug, Parser)]
 #[command(name = "pms-server", version, about = "Сервер синхронизации PMS")]
 struct Cli {
