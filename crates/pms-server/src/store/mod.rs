@@ -125,6 +125,33 @@ impl Store {
         }
     }
 
+    /// Удаляет аккаунт целиком: каталог с байтами и все строки индекса.
+    pub fn delete_account(&self, account: AccountId) -> Result<bool, StoreError> {
+        if self.account(account)?.is_none() {
+            return Ok(false);
+        }
+        let _ = std::fs::remove_dir_all(paths::account_dir(&self.root, account));
+
+        let mut connection = self.db()?;
+        let transaction = connection.transaction().map_err(db_error)?;
+        for table in ["nonces", "sessions", "blobs"] {
+            transaction
+                .execute(
+                    &format!("DELETE FROM {table} WHERE account_id = ?1"),
+                    rusqlite::params![account.to_string()],
+                )
+                .map_err(db_error)?;
+        }
+        transaction
+            .execute(
+                "DELETE FROM accounts WHERE account_id = ?1",
+                rusqlite::params![account.to_string()],
+            )
+            .map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
+        Ok(true)
+    }
+
     /// Пересчитывает занятое место по файловой системе и убирает из индекса
     /// блобы, чьих файлов больше нет. Вызывается при старте: после сбоя индекс
     /// мог разойтись с диском, и квота должна опираться на реальность.

@@ -285,6 +285,47 @@ pub fn verify_register(
         .is_ok()
 }
 
+const ACCOUNT_DELETE_LABEL: &[u8] = b"PMS-ACCOUNT-DELETE-v1";
+
+pub fn account_delete_message(account: &AccountId, device: &DeviceId) -> [u8; 32] {
+    let mut message = [0u8; 32];
+    message[..16].copy_from_slice(account.as_bytes());
+    message[16..].copy_from_slice(device.as_bytes());
+    message
+}
+
+pub fn sign_account_delete(
+    identity: &Identity,
+    account: &AccountId,
+    device: &DeviceId,
+) -> [u8; 64] {
+    use ed25519_dalek::Signer;
+    let mut payload = Vec::with_capacity(ACCOUNT_DELETE_LABEL.len() + 32);
+    payload.extend_from_slice(ACCOUNT_DELETE_LABEL);
+    payload.extend_from_slice(&account_delete_message(account, device));
+    SigningKey::from_bytes(&identity.secret)
+        .sign(&payload)
+        .to_bytes()
+}
+
+pub fn verify_account_delete(
+    public: &[u8; 32],
+    account: &AccountId,
+    device: &DeviceId,
+    signature: &[u8; 64],
+) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let Ok(verifying_key) = VerifyingKey::from_bytes(public) else {
+        return false;
+    };
+    let mut payload = Vec::with_capacity(ACCOUNT_DELETE_LABEL.len() + 32);
+    payload.extend_from_slice(ACCOUNT_DELETE_LABEL);
+    payload.extend_from_slice(&account_delete_message(account, device));
+    verifying_key
+        .verify(&payload, &Signature::from_bytes(signature))
+        .is_ok()
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum IdentityError {
     #[error("мастер-ключ пуст")]
@@ -388,6 +429,27 @@ mod tests {
             &account,
             &DeviceId::new([2u8; 16]),
             &digest,
+            &signature
+        ));
+    }
+
+    #[test]
+    fn account_delete_signature_binds_account_and_device() {
+        let identity = derive_identity(b"secret", &IdentityKdf::FAST_FOR_TESTS);
+        let account = AccountId::from_public_key(&identity.public);
+        let device = DeviceId::new([4u8; 16]);
+        let signature = sign_account_delete(&identity, &account, &device);
+
+        assert!(verify_account_delete(
+            &identity.public,
+            &account,
+            &device,
+            &signature
+        ));
+        assert!(!verify_account_delete(
+            &identity.public,
+            &account,
+            &DeviceId::new([5u8; 16]),
             &signature
         ));
     }

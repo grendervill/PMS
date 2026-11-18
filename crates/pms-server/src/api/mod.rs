@@ -1,6 +1,8 @@
 //! HTTP-слой: роутер, лимиты, единый формат ошибок.
 
+pub mod account;
 pub mod auth;
+pub mod blobs;
 pub mod vault;
 
 use std::sync::Arc;
@@ -50,6 +52,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/healthz", get(healthz))
         .merge(auth::routes())
         .merge(vault::routes())
+        .merge(blobs::routes())
+        .merge(account::routes())
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(limits.max_body_bytes as usize))
         .layer(ConcurrencyLimitLayer::new(limits.max_connections))
