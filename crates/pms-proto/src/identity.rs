@@ -420,10 +420,22 @@ mod tests {
         let digest = *blake3::hash(b"vault-bytes").as_bytes();
 
         let signature = sign_register(&identity, &account, &device, &digest);
-        assert!(verify_register(&identity.public, &account, &device, &digest, &signature));
+        assert!(verify_register(
+            &identity.public,
+            &account,
+            &device,
+            &digest,
+            &signature
+        ));
 
         let other = *blake3::hash(b"other-bytes").as_bytes();
-        assert!(!verify_register(&identity.public, &account, &device, &other, &signature));
+        assert!(!verify_register(
+            &identity.public,
+            &account,
+            &device,
+            &other,
+            &signature
+        ));
         assert!(!verify_register(
             &identity.public,
             &account,

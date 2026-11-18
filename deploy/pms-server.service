@@ -1,0 +1,35 @@
+[Unit]
+Description=PMS sync server
+Documentation=https://github.com/grendervill/PMS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pms
+Group=pms
+ExecStart=/usr/local/bin/pms-server run --config /etc/pms/server.toml
+Restart=on-failure
+RestartSec=5
+StateDirectory=pms
+Environment=RUST_LOG=info
+
+# Сервер принимает байты и пишет только в свой каталог данных.
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/pms
+ReadOnlyPaths=/etc/pms
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
