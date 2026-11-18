@@ -1,0 +1,38 @@
+# Конфигурация сервера PMS.
+#
+# Снятие tls.required допустимо только для сервера в доверенной сети: без TLS
+# трафик идёт открытым текстом, а данные в нём зашифрованы клиентом, но
+# аутентификация и метаданные видны по дороге.
+
+[server]
+data_dir = "/var/lib/pms"
+listen = "0.0.0.0:8443"
+
+[tls]
+# true — сервер не стартует без пригодного сертификата (значение по умолчанию).
+required = true
+# "files" — сертификат файлами; "off" — совсем без TLS (только вместе с required = false).
+mode = "files"
+cert_path = "/etc/pms/server.crt"
+key_path = "/etc/pms/server.key"
+min_version = "1.3"
+
+[quota]
+# Общее место на диске под сейф и вложения одного аккаунта: 1 ГиБ.
+default_bytes = 1073741824
+
+[registration]
+enabled = true
+# Непустой токен закрывает регистрацию: клиент обязан его предъявить.
+token = ""
+
+[auth]
+token_ttl_hours = 12
+max_sessions_per_account = 5
+challenge_ttl_seconds = 60
+
+[limits]
+max_body_bytes = 1073741824
+max_connections = 512
+header_read_timeout_secs = 10
+body_timeout_secs = 300
