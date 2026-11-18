@@ -46,9 +46,11 @@ impl RemoteClient {
             .map_err(storage)?;
 
         let mut stream = response.bytes_stream();
+        let mut hasher = blake3::Hasher::new();
         let mut written = 0u64;
         while let Some(chunk) = stream.try_next().await.map_err(unreachable)? {
             use tokio::io::AsyncWriteExt;
+            hasher.update(&chunk);
             file.write_all(&chunk).await.map_err(storage)?;
             written += chunk.len() as u64;
         }
@@ -62,6 +64,14 @@ impl RemoteClient {
                 "сервер обещал {} байт, пришло {written}",
                 meta.size
             )));
+        }
+        // Дайджест — единственная проверка целостности, на которую можно
+        // опираться: `Content-Length` может отсутствовать после прокси.
+        let actual = hasher.finalize().to_hex().to_string();
+        if !meta.digest.is_empty() && actual != meta.digest {
+            return Err(RemoteError::Protocol(
+                "скачанный сейф не совпал по BLAKE3 с серверным".to_string(),
+            ));
         }
 
         tokio::fs::rename(temp.path(), dest_dir.join(VAULT_FILE))
@@ -77,8 +87,10 @@ impl RemoteClient {
         expected: Option<u64>,
         file: &Path,
     ) -> Result<VaultMeta, RemoteError> {
-        let metadata = tokio::fs::metadata(file).await.map_err(storage)?;
+        // Длину берём у уже открытого файла: между `metadata` и `open` сейф
+        // могли переименовать, и Content-Length описал бы другие байты.
         let content = tokio::fs::File::open(file).await.map_err(storage)?;
+        let length = content.metadata().await.map_err(storage)?.len();
         let body = reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(content));
 
         let if_match = match expected {
@@ -92,7 +104,7 @@ impl RemoteClient {
             .header(HEADER_PROTOCOL, PROTOCOL_VERSION.to_string())
             .bearer_auth(token)
             .header(reqwest::header::IF_MATCH, if_match)
-            .header(reqwest::header::CONTENT_LENGTH, metadata.len())
+            .header(reqwest::header::CONTENT_LENGTH, length)
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
             .body(body)
             .send()

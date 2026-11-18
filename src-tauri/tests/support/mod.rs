@@ -19,6 +19,19 @@ pub struct TestServer {
 }
 
 impl TestServer {
+    /// Портим сейф на диске сервера, не обновляя индекс: так проверяется, что
+    /// клиент сверяет BLAKE3, а не верит только `Content-Length`.
+    pub fn tamper_vault(&self, account: &str, bytes: &[u8]) {
+        let path = self
+            ._dir
+            .path()
+            .join("data")
+            .join(&account[..2])
+            .join(account)
+            .join("vault.bin");
+        std::fs::write(path, bytes).expect("подмена сейфа");
+    }
+
     pub async fn spawn(extra: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()]).unwrap();

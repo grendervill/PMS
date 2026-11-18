@@ -37,14 +37,19 @@ async fn live_server_round_trip() {
     let identity = identity_from_secret(&UnlockSecretInput::Passphrase { value: phrase }).unwrap();
     let device = DeviceId::new([0xAB; 16]);
 
-    match client.register(&identity, device, b"live-test-vault").await {
-        Ok(_) => {}
-        // Повторный прогон: аккаунт уже создан, это нормально.
-        Err(error) if error.code() == "remote_bad_request" => {}
-        Err(other) => panic!("регистрация: {other}"),
-    }
+    let vault = std::env::temp_dir().join("pms-live-test.vault");
+    std::fs::write(&vault, b"live-test-vault").unwrap();
+    let registration = client
+        .register(&identity, device, Some(&vault))
+        .await
+        .unwrap_or_else(|error| panic!("регистрация: {error}"));
+    let _ = std::fs::remove_file(&vault);
+    println!(
+        "аккаунт {}: создан сейчас: {}",
+        registration.login.account, registration.created
+    );
 
-    let login = client.login(&identity, device).await.expect("вход");
+    let login = registration.login;
     let meta = client
         .vault_meta(login.token.expose())
         .await

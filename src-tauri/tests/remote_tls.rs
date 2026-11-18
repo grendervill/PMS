@@ -35,19 +35,17 @@ async fn pinned_client_trusts_the_saved_fingerprint() {
 #[tokio::test]
 async fn wrong_fingerprint_breaks_the_handshake() {
     let server = TestServer::spawn("").await;
-    let client = pms_lib::testing::remote_tls::build_client(&profile(
+    let error = pms_lib::testing::remote::client::RemoteClient::new(&profile(
         &server.base_url,
         TlsPolicy::Pin {
             spki_sha256: "11".repeat(32),
         },
     ))
-    .unwrap();
-
-    let result = client
-        .get(format!("{}/v1/healthz", server.base_url))
-        .send()
-        .await;
-    assert!(result.is_err(), "чужой отпечаток должен рвать соединение");
+    .unwrap()
+    .probe()
+    .await
+    .unwrap_err();
+    assert_eq!(error.code(), "remote_tls", "{error}");
 }
 
 #[tokio::test]

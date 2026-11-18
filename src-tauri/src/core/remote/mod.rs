@@ -88,7 +88,10 @@ impl RemoteError {
     /// Переводит код ошибки сервера в наш вариант.
     pub fn from_wire(code: ErrorCode, status: u16, message: String) -> Self {
         match code {
-            ErrorCode::Unauthorized | ErrorCode::Forbidden => Self::Unauthorized,
+            ErrorCode::Unauthorized => Self::Unauthorized,
+            // 403 — это «регистрация закрыта» или неверный токен регистрации:
+            // говорить «сессия истекла» значит гонять пользователя по кругу.
+            ErrorCode::Forbidden => Self::BadRequest(message),
             ErrorCode::QuotaExceeded | ErrorCode::PayloadTooLarge => Self::QuotaExceeded,
             ErrorCode::NotFound | ErrorCode::VaultMissing => Self::NotFound,
             ErrorCode::BadRequest | ErrorCode::DigestMismatch => Self::BadRequest(message),

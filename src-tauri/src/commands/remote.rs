@@ -54,12 +54,39 @@ impl RemoteRegistry {
         sessions.insert(session.account, session);
     }
 
-    pub fn token(&self, account: AccountId) -> ApiResult<String> {
+    pub fn token(&self, account: AccountId) -> ApiResult<Zeroizing<String>> {
+        let sessions = self.sessions.lock().expect("remote registry poisoned");
+        let session = sessions
+            .get(&account)
+            .ok_or_else(|| RemoteError::Unauthorized.as_api_error())?;
+
+        if let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(&session.expires_at) {
+            if expires_at.timestamp() <= chrono::Utc::now().timestamp() {
+                return Err(ApiError::new(
+                    "remote_unauthorized",
+                    "сессия истекла — нужен вход",
+                ));
+            }
+        }
+        Ok(Zeroizing::new(session.token.to_string()))
+    }
+
+    pub fn device(&self, account: AccountId) -> ApiResult<DeviceId> {
         let sessions = self.sessions.lock().expect("remote registry poisoned");
         sessions
             .get(&account)
-            .map(|session| session.token.to_string())
+            .map(|session| session.device)
             .ok_or_else(|| RemoteError::Unauthorized.as_api_error())
+    }
+
+    /// Обнуляет семена identity-ключей: после блокировки сейфа сессию нельзя
+    /// продлить без мастер-ключа.
+    pub fn clear_seeds(&self) {
+        let mut sessions = self.sessions.lock().expect("remote registry poisoned");
+        for session in sessions.values_mut() {
+            use zeroize::Zeroize;
+            session.auth_seed.zeroize();
+        }
     }
 
     pub fn profile(&self, account: AccountId) -> ApiResult<RemoteProfile> {
@@ -121,9 +148,17 @@ pub struct LoginInfo {
 pub(crate) async fn probe(profile: &RemoteProfile) -> ApiResult<ProbeInfo> {
     let client = RemoteClient::new(profile).map_err(to_api)?;
     let probe = client.probe().await.map_err(to_api)?;
-    let spki_sha256 = crate::core::remote::tls::fetch_spki_sha256(&profile.base_url)
-        .await
-        .map_err(to_api)?;
+
+    // У http-сервера сертификата нет: пустой отпечаток означает «пин не нужен»,
+    // иначе локальный сервер нельзя было бы даже проверить.
+    let spki_sha256 = if profile.base_url.trim().starts_with("https://") {
+        crate::core::remote::tls::fetch_spki_sha256(&profile.base_url)
+            .await
+            .map_err(to_api)?
+    } else {
+        String::new()
+    };
+
     Ok(ProbeInfo {
         protocol: probe.protocol,
         spki_sha256,
@@ -153,15 +188,13 @@ pub(crate) async fn login(
         .vault_meta(session.token.expose())
         .await
         .map_err(to_api)?;
-    let info = store_session(
+    Ok(store_session(
         state,
         profile.clone(),
         &identity,
-        device,
         session,
-        vault.clone(),
-    );
-    Ok(info)
+        vault,
+    ))
 }
 
 pub(crate) async fn register(
@@ -177,33 +210,34 @@ pub(crate) async fn register(
     let vault = match &vault_folder {
         Some(folder) => {
             let path = folder.join("pms.vault");
-            state.fs_scope.grant(&path, Access::Read)?;
-            tokio::fs::read(&path)
-                .await
-                .map_err(|error| ApiError::new("storage", error.to_string()))?
+            // Разрешение не выдаётся, а проверяется: через серверную команду
+            // рендерер не должен открыть себе доступ к произвольному файлу.
+            Some(
+                state
+                    .fs_scope
+                    .resolve(&path.to_string_lossy(), Access::Read)?,
+            )
         }
-        None => Vec::new(),
+        None => None,
     };
 
-    client
-        .register(&identity, DeviceId::new(device), &vault)
+    let registration = client
+        .register(&identity, DeviceId::new(device), vault.as_deref())
         .await
         .map_err(to_api)?;
 
-    let session = client
-        .login(&identity, DeviceId::new(device))
-        .await
-        .map_err(to_api)?;
-    let meta = client
-        .vault_meta(session.token.expose())
-        .await
-        .map_err(to_api)?;
+    let meta = match registration.vault {
+        Some(meta) => Some(meta),
+        None => client
+            .vault_meta(registration.login.token.expose())
+            .await
+            .map_err(to_api)?,
+    };
     Ok(store_session(
         state,
         profile.clone(),
         &identity,
-        device,
-        session,
+        registration.login,
         meta,
     ))
 }
@@ -212,20 +246,19 @@ fn store_session(
     state: &AppState,
     profile: RemoteProfile,
     identity: &Identity,
-    device: [u8; 16],
     session: Login,
     vault: Option<VaultMeta>,
 ) -> LoginInfo {
     let info = LoginInfo {
         account_id: session.account.to_string(),
-        device_id: DeviceId::new(device).to_string(),
+        device_id: session.device.to_string(),
         expires_at: session.expires_at.clone(),
         vault,
     };
     state.remote.put(RemoteSession {
         profile,
         account: session.account,
-        device: DeviceId::new(device),
+        device: session.device,
         auth_seed: Zeroizing::new(*identity.secret),
         token: Zeroizing::new(session.token.expose().to_string()),
         expires_at: session.expires_at,
@@ -233,7 +266,10 @@ fn store_session(
     info
 }
 
-fn client_for(state: &AppState, account: AccountId) -> ApiResult<(RemoteClient, String)> {
+fn client_for(
+    state: &AppState,
+    account: AccountId,
+) -> ApiResult<(RemoteClient, Zeroizing<String>)> {
     let profile = state.remote.profile(account)?;
     let token = state.remote.token(account)?;
     Ok((RemoteClient::new(&profile).map_err(to_api)?, token))
@@ -253,8 +289,10 @@ pub(crate) async fn pull_vault(
     folder: &Path,
 ) -> ApiResult<VaultMeta> {
     let (client, token) = client_for(state, account)?;
-    state.fs_scope.grant(folder, Access::Write)?;
-    client.pull_vault(&token, folder).await.map_err(to_api)
+    let folder = state
+        .fs_scope
+        .resolve(&folder.to_string_lossy(), Access::Write)?;
+    client.pull_vault(&token, &folder).await.map_err(to_api)
 }
 
 pub(crate) async fn push_vault(
@@ -265,7 +303,9 @@ pub(crate) async fn push_vault(
 ) -> ApiResult<VaultMeta> {
     let (client, token) = client_for(state, account)?;
     let path = folder.join("pms.vault");
-    state.fs_scope.grant(&path, Access::Read)?;
+    let path = state
+        .fs_scope
+        .resolve(&path.to_string_lossy(), Access::Read)?;
     client
         .push_vault(&token, expected, &path)
         .await
@@ -289,7 +329,12 @@ pub(crate) async fn upload_blob(
     path: PathBuf,
 ) -> ApiResult<BlobInfo> {
     let (client, token) = client_for(state, account)?;
-    state.fs_scope.grant(&path, Access::Read)?;
+    if !crate::core::remote::blobs::is_blob_id(&blob_id) {
+        return Err(ApiError::new("bad_blob_id", "blob_id должен быть UUID"));
+    }
+    let path = state
+        .fs_scope
+        .resolve(&path.to_string_lossy(), Access::Read)?;
     client
         .put_blob(&token, &blob_id, &path)
         .await
@@ -316,6 +361,9 @@ pub(crate) async fn delete_blob(
     blob_id: String,
 ) -> ApiResult<bool> {
     let (client, token) = client_for(state, account)?;
+    if !crate::core::remote::blobs::is_blob_id(&blob_id) {
+        return Err(ApiError::new("bad_blob_id", "blob_id должен быть UUID"));
+    }
     client.delete_blob(&token, &blob_id).await.map_err(to_api)
 }
 
@@ -326,13 +374,7 @@ pub(crate) async fn delete_account(
 ) -> ApiResult<()> {
     let (client, token) = client_for(state, account)?;
     let identity = identity_from_secret(secret).map_err(to_api)?;
-    let device = state
-        .remote
-        .list()
-        .into_iter()
-        .find(|status| status.account_id == account.to_string())
-        .and_then(|status| DeviceId::from_hex(&status.device_id))
-        .ok_or_else(|| RemoteError::Unauthorized.as_api_error())?;
+    let device = state.remote.device(account)?;
 
     client
         .delete_account(&token, &identity, device)
@@ -622,7 +664,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(info.account_id.len(), 32);
-        assert!(info.vault.is_none());
+        assert_eq!(
+            info.vault.as_ref().map(|meta| meta.version),
+            Some(0),
+            "аккаунт создан без сейфа"
+        );
 
         let folder = fixture.dir.path().join("vault");
         std::fs::create_dir_all(&folder).unwrap();
@@ -730,6 +776,135 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn probe_works_for_a_local_server_without_tls() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = format!(
+            "[server]\ndata_dir = \"{}\"\nlisten = \"127.0.0.1:0\"\n\
+             [tls]\nrequired = false\nmode = \"off\"\n",
+            dir.path().join("local-data").display()
+        );
+        let server = pms_server::run(Config::parse(&text).unwrap())
+            .await
+            .unwrap();
+        let profile = RemoteProfile {
+            base_url: format!("http://{}", server.addr()),
+            tls: crate::core::remote::TlsPolicy::Insecure,
+        };
+
+        let info = probe(&profile).await.unwrap();
+        assert_eq!(info.protocol, 1);
+        assert!(info.spki_sha256.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn blob_commands_round_trip() {
+        let fixture = fixture("").await;
+        let info = register(
+            &fixture.state,
+            &fixture.profile,
+            &passphrase("мастер-ключ"),
+            None,
+        )
+        .await
+        .unwrap();
+        let account = AccountId::from_hex(&info.account_id).unwrap();
+        let blob_id = "0b7c1d2e-3f40-4516-8798-a9bacbdcedfe".to_string();
+
+        let source = fixture.dir.path().join("attachment.pmsa");
+        std::fs::write(&source, b"sealed attachment").unwrap();
+
+        let uploaded = upload_blob(&fixture.state, account, blob_id.clone(), source.clone())
+            .await
+            .unwrap();
+        assert_eq!(uploaded.size, 17);
+        assert_eq!(list_blobs(&fixture.state, account).await.unwrap().len(), 1);
+        assert_eq!(usage(&fixture.state, account).await.unwrap().used, 17);
+
+        let restored = fixture.dir.path().join("restored.pmsa");
+        download_blob(&fixture.state, account, blob_id.clone(), restored.clone())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&restored).unwrap(), b"sealed attachment");
+
+        assert!(delete_blob(&fixture.state, account, blob_id.clone())
+            .await
+            .unwrap());
+        assert_eq!(usage(&fixture.state, account).await.unwrap().used, 0);
+
+        let bad = upload_blob(&fixture.state, account, "../../vault".to_string(), source)
+            .await
+            .unwrap_err();
+        assert_eq!(bad.code, "bad_blob_id");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn delete_account_command_removes_the_session() {
+        let fixture = fixture("").await;
+        let secret = passphrase("мастер-ключ");
+        let info = register(&fixture.state, &fixture.profile, &secret, None)
+            .await
+            .unwrap();
+        let account = AccountId::from_hex(&info.account_id).unwrap();
+
+        delete_account(&fixture.state, account, &secret)
+            .await
+            .unwrap();
+        assert!(status(&fixture.state).is_empty());
+        assert_eq!(
+            vault_meta(&fixture.state, account).await.unwrap_err().code,
+            "remote_unauthorized"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tampered_server_vault_is_refused_by_digest() {
+        let fixture = fixture("").await;
+        let info = register(
+            &fixture.state,
+            &fixture.profile,
+            &passphrase("мастер-ключ"),
+            None,
+        )
+        .await
+        .unwrap();
+        let account = AccountId::from_hex(&info.account_id).unwrap();
+
+        let folder = fixture.dir.path().join("vault");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("pms.vault"), b"genuine").unwrap();
+        push_vault(&fixture.state, account, &folder, None)
+            .await
+            .unwrap();
+
+        // Сейф на сервере подменён в обход индекса: BLAKE3 не совпадёт.
+        let server_vault = fixture
+            .dir
+            .path()
+            .join("server-data")
+            .join(&info.account_id[..2])
+            .join(&info.account_id)
+            .join("vault.bin");
+        std::fs::write(server_vault, b"tampered").unwrap();
+
+        let dest = fixture.dir.path().join("pulled");
+        std::fs::create_dir_all(&dest).unwrap();
+        let error = pull_vault(&fixture.state, account, &dest)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "remote_protocol", "{}", error.message);
+        assert!(
+            !dest.join("pms.vault").exists(),
+            "битый сейф не подменяет локальный"
+        );
+        let leftovers: Vec<String> = std::fs::read_dir(&dest)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(leftovers.is_empty(), "остались файлы: {leftovers:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn paths_outside_the_grant_are_refused() {
         let fixture = fixture("").await;
         let info = register(
@@ -741,11 +916,13 @@ mod tests {
         .await
         .unwrap();
 
-        let outside = std::env::temp_dir().join("pms-not-granted");
+        // Каталог существует: проверяем именно отказ в доступе, а не то, что
+        // путь не канонизируется.
+        let outside = tempfile::tempdir().unwrap();
         let error = pull_vault(
             &fixture.state,
             AccountId::from_hex(&info.account_id).unwrap(),
-            &outside,
+            outside.path(),
         )
         .await
         .unwrap_err();

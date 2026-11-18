@@ -1,6 +1,6 @@
 //! Запечатанные вложения: загрузка, список, скачивание, удаление и квота.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use pms_proto::dto::{BlobInfo, Deleted, Usage};
 use pms_proto::identity::{sign_account_delete, DeviceId, Identity};
@@ -12,6 +12,33 @@ use super::client::{
 };
 use super::temp::TempFile;
 use super::RemoteError;
+
+/// UUID в нижнем hex, как требует сервер.
+///
+/// Без проверки `blob_id` попадает в путь через `Url::join`, а тот схлопывает
+/// `..`: `blob_id = "../../vault"` превратил бы загрузку вложения в перезапись
+/// сейфа без `If-Match`.
+pub fn is_blob_id(value: &str) -> bool {
+    let mut digits = 0;
+    for byte in value.bytes() {
+        match byte {
+            b'-' => {}
+            b'0'..=b'9' | b'a'..=b'f' => digits += 1,
+            _ => return false,
+        }
+    }
+    digits == 32 && value.len() <= 36
+}
+
+fn check_blob_id(blob_id: &str) -> Result<(), RemoteError> {
+    if is_blob_id(blob_id) {
+        Ok(())
+    } else {
+        Err(RemoteError::BadRequest(
+            "blob_id должен быть UUID в нижнем регистре".to_string(),
+        ))
+    }
+}
 
 impl RemoteClient {
     pub async fn list_blobs(&self, token: &str) -> Result<Vec<BlobInfo>, RemoteError> {
@@ -38,6 +65,7 @@ impl RemoteClient {
         blob_id: &str,
         file: &Path,
     ) -> Result<BlobInfo, RemoteError> {
+        check_blob_id(blob_id)?;
         let digest = digest_of_file(file).await?;
         let metadata = tokio::fs::metadata(file).await.map_err(storage)?;
         let content = tokio::fs::File::open(file).await.map_err(storage)?;
@@ -69,6 +97,7 @@ impl RemoteClient {
         blob_id: &str,
         dest: &Path,
     ) -> Result<BlobInfo, RemoteError> {
+        check_blob_id(blob_id)?;
         let response = self
             .http()
             .get(self.endpoint(&format!("/v1/blobs/{blob_id}"))?)
@@ -89,7 +118,9 @@ impl RemoteClient {
             .unwrap_or_default()
             .to_string();
 
-        let temp = TempFile::at(dest.with_extension("part"));
+        // Суффикс, а не замена расширения: для `foo.part` иначе временный путь
+        // совпал бы с целевым и guard удалил бы только что скачанный файл.
+        let temp = TempFile::at(PathBuf::from(format!("{}.part", dest.display())));
         let mut file = tokio::fs::File::create(temp.path())
             .await
             .map_err(storage)?;
@@ -127,6 +158,7 @@ impl RemoteClient {
     }
 
     pub async fn delete_blob(&self, token: &str, blob_id: &str) -> Result<bool, RemoteError> {
+        check_blob_id(blob_id)?;
         let response = self
             .http()
             .delete(self.endpoint(&format!("/v1/blobs/{blob_id}"))?)
@@ -185,7 +217,7 @@ impl RemoteClient {
     }
 }
 
-async fn digest_of_file(path: &Path) -> Result<String, RemoteError> {
+pub async fn digest_of_file(path: &Path) -> Result<String, RemoteError> {
     use tokio::io::AsyncReadExt;
 
     const CHUNK: usize = 64 * 1024;

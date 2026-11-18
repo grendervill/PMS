@@ -4,7 +4,7 @@ use pms_proto::dto::{
     ChallengeRequest, ChallengeResponse, VaultMeta, VerifyRequest, VerifyResponse,
 };
 use pms_proto::identity::{sign_challenge, sign_register, AccountId, DeviceId, Identity};
-use pms_proto::{WireError, PROTOCOL_VERSION};
+use pms_proto::{ErrorCode, WireError, PROTOCOL_VERSION};
 
 use super::tls;
 use super::{RemoteError, RemoteProfile};
@@ -54,6 +54,14 @@ pub struct Login {
     pub account: AccountId,
     pub token: SessionToken,
     pub expires_at: String,
+    pub device: DeviceId,
+}
+
+/// Итог регистрации: аккаунт создан или уже был, и готовая сессия.
+pub struct Registration {
+    pub created: bool,
+    pub login: Login,
+    pub vault: Option<VaultMeta>,
 }
 
 impl std::fmt::Debug for Login {
@@ -100,15 +108,38 @@ impl RemoteClient {
         Ok(probe)
     }
 
+    /// Регистрирует аккаунт (тело сейфа — файлом, чтобы не держать его в памяти).
+    ///
+    /// Если аккаунт уже есть, вход выполняется сразу: для пользователя это один
+    /// экран «введите мастер-ключ», а не два сценария.
     pub async fn register(
         &self,
         identity: &Identity,
         device: DeviceId,
-        vault: &[u8],
-    ) -> Result<VaultMeta, RemoteError> {
+        vault: Option<&std::path::Path>,
+    ) -> Result<Registration, RemoteError> {
         let account = AccountId::from_public_key(&identity.public);
-        let digest = *blake3::hash(vault).as_bytes();
-        let signature = sign_register(identity, &account, &device, &digest);
+        let digest = match vault {
+            Some(path) => crate::core::remote::blobs::digest_of_file(path).await?,
+            None => blake3::hash(b"").to_hex().to_string(),
+        };
+        let digest_bytes: [u8; 32] = hex::decode(&digest)
+            .ok()
+            .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+            .ok_or_else(|| RemoteError::Protocol("хеш сейфа не посчитался".to_string()))?;
+        let signature = sign_register(identity, &account, &device, &digest_bytes);
+
+        let (body, length) = match vault {
+            Some(path) => {
+                let metadata = tokio::fs::metadata(path).await.map_err(storage)?;
+                let file = tokio::fs::File::open(path).await.map_err(storage)?;
+                (
+                    reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file)),
+                    metadata.len(),
+                )
+            }
+            None => (reqwest::Body::from(Vec::new()), 0),
+        };
 
         let response = self
             .http
@@ -118,21 +149,33 @@ impl RemoteClient {
             .header(HEADER_PUBLIC_KEY, hex::encode(identity.public))
             .header(HEADER_DEVICE, device.to_string())
             .header(HEADER_SIGNATURE, hex::encode(signature))
+            .header(reqwest::header::CONTENT_LENGTH, length)
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-            .body(vault.to_vec())
+            .body(body)
             .send()
             .await
             .map_err(unreachable)?;
 
         if response.status() == reqwest::StatusCode::CONFLICT {
-            return Err(RemoteError::BadRequest(
-                "аккаунт уже существует на этом сервере — выполните вход".to_string(),
-            ));
+            let login = self.login(identity, device).await?;
+            return Ok(Registration {
+                created: false,
+                login,
+                vault: None,
+            });
         }
         if !response.status().is_success() {
             return Err(error_from_response(response).await);
         }
-        response.json().await.map_err(unreachable)
+        // Сервер отвечает метаданными загруженного сейфа: второй запрос не нужен.
+        let meta: VaultMeta = response.json().await.map_err(unreachable)?;
+
+        let login = self.login(identity, device).await?;
+        Ok(Registration {
+            created: true,
+            login,
+            vault: Some(meta),
+        })
     }
 
     pub async fn login(&self, identity: &Identity, device: DeviceId) -> Result<Login, RemoteError> {
@@ -179,6 +222,7 @@ impl RemoteClient {
             account,
             token: SessionToken(verified.token),
             expires_at: verified.expires_at,
+            device,
         })
     }
 
@@ -195,7 +239,26 @@ impl RemoteClient {
 
         match response.status() {
             status if status.is_success() => Ok(Some(response.json().await.map_err(unreachable)?)),
-            reqwest::StatusCode::NOT_FOUND => Ok(None),
+            // 404 бывает двух видов: «сейфа ещё нет» и «такого метода нет» у
+            // прокси. Первый — это пустой аккаунт, второй — ошибка адреса.
+            reqwest::StatusCode::NOT_FOUND => {
+                // Ограничиваем тело ошибки: враждебный/битый сервер не должен раздувать
+                // память приложения своим ответом.
+                let body = response.text().await.unwrap_or_default();
+                let body = if body.len() > 4096 {
+                    body.chars().take(4096).collect::<String>()
+                } else {
+                    body
+                };
+                match serde_json::from_str::<WireError>(&body) {
+                    Ok(wire) if wire.code == ErrorCode::VaultMissing => Ok(None),
+                    Ok(wire) => Err(RemoteError::from_wire(wire.code, 404, wire.message)),
+                    Err(_) => Err(RemoteError::Server {
+                        status: 404,
+                        message: "по этому адресу нет PMS-сервера".to_string(),
+                    }),
+                }
+            }
             _ => Err(error_from_response(response).await),
         }
     }
@@ -203,6 +266,10 @@ impl RemoteClient {
     pub(crate) fn http(&self) -> &reqwest::Client {
         &self.http
     }
+}
+
+fn storage(error: std::io::Error) -> RemoteError {
+    RemoteError::Storage(error.to_string())
 }
 
 pub(crate) fn unreachable(error: reqwest::Error) -> RemoteError {
@@ -226,8 +293,9 @@ fn is_tls_error(error: &reqwest::Error) -> bool {
         let text = current.to_string().to_lowercase();
         if text.contains("certificate")
             || text.contains("handshake")
-            || text.contains("tls alert")
-            || text.contains("invalid peer certificate")
+            || text.contains("tls")
+            || text.contains("отпечаток")
+            || text.contains("alert")
         {
             return true;
         }
@@ -240,7 +308,14 @@ fn is_tls_error(error: &reqwest::Error) -> bool {
 pub(crate) async fn error_from_response(response: reqwest::Response) -> RemoteError {
     let status = response.status();
     let code = status.as_u16();
+    // Ограничиваем тело ошибки: враждебный/битый сервер не должен раздувать
+    // память приложения своим ответом.
     let body = response.text().await.unwrap_or_default();
+    let body = if body.len() > 4096 {
+        body.chars().take(4096).collect::<String>()
+    } else {
+        body
+    };
 
     // На 409 сервер отдаёт сами метаданные сейфа: клиенту нужна версия, чтобы
     // решить конфликт без второго запроса.

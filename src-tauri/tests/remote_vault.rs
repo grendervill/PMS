@@ -15,6 +15,12 @@ struct Fixture {
     _dir: tempfile::TempDir,
 }
 
+impl Fixture {
+    fn account_hex(&self) -> String {
+        pms_proto::identity::AccountId::from_public_key(&self.identity.public).to_string()
+    }
+}
+
 async fn fixture() -> Fixture {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
@@ -25,7 +31,7 @@ async fn fixture() -> Fixture {
     let client = RemoteClient::new(&profile).unwrap();
     let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
     let device = DeviceId::new([4u8; 16]);
-    client.register(&identity, device, b"").await.unwrap();
+    client.register(&identity, device, None).await.unwrap();
     let login = client.login(&identity, device).await.unwrap();
 
     Fixture {
@@ -104,6 +110,37 @@ async fn stale_push_reports_the_server_version() {
         pms_lib::testing::RemoteError::Conflict(meta) => assert_eq!(meta.version, 2),
         other => panic!("ожидали конфликт, получили {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn tampered_vault_is_refused_and_local_copy_survives() {
+    let fixture = fixture().await;
+    let dir = fixture._dir.path().join("vault");
+    std::fs::create_dir_all(&dir).unwrap();
+    let local = dir.join("local.bin");
+    std::fs::write(&local, b"genuine").unwrap();
+    fixture
+        .client
+        .push_vault(&fixture.token, None, &local)
+        .await
+        .unwrap();
+
+    // Подмена на диске сервера в обход индекса: Content-Length не спасёт, а
+    // BLAKE3 — должен.
+    fixture
+        .server
+        .tamper_vault(&fixture.account_hex(), b"tampered");
+
+    let dest = fixture._dir.path().join("pulled");
+    std::fs::create_dir_all(&dest).unwrap();
+    let error = fixture
+        .client
+        .pull_vault(&fixture.token, &dest)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "remote_protocol", "{error}");
+    assert!(!destination(&dest).exists());
+    assert!(std::fs::read_dir(&dest).unwrap().next().is_none());
 }
 
 #[tokio::test]

@@ -37,10 +37,16 @@ async fn register_then_login_gives_a_working_session() {
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
     let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
 
-    let meta = client
-        .register(&identity, device(), b"sealed vault")
+    let dir = tempfile::tempdir().unwrap();
+    let vault = dir.path().join("pms.vault");
+    std::fs::write(&vault, b"sealed vault").unwrap();
+
+    let registration = client
+        .register(&identity, device(), Some(&vault))
         .await
         .unwrap();
+    assert!(registration.created);
+    let meta = registration.vault.expect("метаданные сейфа");
     assert_eq!(meta.version, 1);
     assert_eq!(meta.size, 12);
 
@@ -58,8 +64,11 @@ async fn second_device_logs_in_and_sees_the_same_vault() {
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
     let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
 
+    let dir = tempfile::tempdir().unwrap();
+    let vault = dir.path().join("pms.vault");
+    std::fs::write(&vault, b"sealed vault").unwrap();
     client
-        .register(&identity, DeviceId::new([1u8; 16]), b"sealed vault")
+        .register(&identity, DeviceId::new([1u8; 16]), Some(&vault))
         .await
         .unwrap();
 
@@ -72,23 +81,25 @@ async fn second_device_logs_in_and_sees_the_same_vault() {
 }
 
 #[tokio::test]
-async fn registering_twice_explains_that_login_is_needed() {
+async fn registering_twice_falls_back_to_login() {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
     let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
 
-    client
-        .register(&identity, device(), b"sealed vault")
+    let first = client.register(&identity, device(), None).await.unwrap();
+    assert!(first.created);
+    assert!(!first.login.token.expose().is_empty());
+
+    let second = client.register(&identity, device(), None).await.unwrap();
+    assert!(!second.created, "второй раз аккаунт не создаётся заново");
+    assert!(!second.login.token.expose().is_empty());
+
+    let meta = client
+        .vault_meta(second.login.token.expose())
         .await
         .unwrap();
-    let error = client
-        .register(&identity, device(), b"sealed vault")
-        .await
-        .unwrap_err();
-
-    assert_eq!(error.code(), "remote_bad_request");
-    assert!(error.to_string().contains("вход"), "{error}");
+    assert!(meta.is_none(), "сейфа ещё нет");
 }
 
 #[tokio::test]
@@ -119,7 +130,7 @@ async fn vault_meta_is_none_before_the_first_push() {
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
     let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
 
-    client.register(&identity, device(), b"").await.unwrap();
+    client.register(&identity, device(), None).await.unwrap();
     let login = client.login(&identity, device()).await.unwrap();
 
     assert!(client

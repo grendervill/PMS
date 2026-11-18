@@ -26,7 +26,7 @@ async fn fixture(extra: &str) -> Fixture {
     let client = RemoteClient::new(&profile).unwrap();
     let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
     let device = DeviceId::new([5u8; 16]);
-    client.register(&identity, device, b"").await.unwrap();
+    client.register(&identity, device, None).await.unwrap();
     let login = client.login(&identity, device).await.unwrap();
 
     Fixture {
