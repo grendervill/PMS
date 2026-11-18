@@ -1,6 +1,14 @@
 #![allow(dead_code)]
 
 use pms_lib::testing::remote_tls;
+use pms_lib::testing::UnlockSecretInput;
+
+/// Мастер-ключ в виде пароль-фразы.
+pub fn secret(passphrase: &str) -> UnlockSecretInput {
+    UnlockSecretInput::Passphrase {
+        value: passphrase.to_string(),
+    }
+}
 use pms_server::config::Config;
 
 /// Настоящий `pms-server` на loopback с самоподписанным сертификатом.

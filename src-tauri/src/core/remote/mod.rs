@@ -4,6 +4,8 @@
 //! существующих путей. Политика TLS решается до первого запроса — профиль с
 //! `http://` без явного разрешения не отправит ни байта.
 
+pub mod client;
+pub mod identity;
 pub mod tls;
 
 use pms_proto::dto::VaultMeta;
