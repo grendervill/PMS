@@ -182,3 +182,86 @@ impl AsyncRead for FailingReader {
         Poll::Ready(Ok(()))
     }
 }
+
+/// Отдаёт 1000 байт и засыпает навсегда: имитирует брошенную загрузку.
+struct Stalling {
+    yielded: bool,
+}
+
+impl AsyncRead for Stalling {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if self.yielded {
+            return Poll::Pending;
+        }
+        self.yielded = true;
+        buf.put_slice(&[7u8; 1000]);
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn cancelled_vault_upload_leaves_no_temp_file() {
+    let (dir, store, account) = setup();
+    let background = Arc::clone(&store);
+    let task = tokio::spawn(async move {
+        background
+            .put_vault(
+                account,
+                ExpectedVersion::Any,
+                Stalling { yielded: false },
+                5_000,
+            )
+            .await
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    task.abort();
+    let _ = task.await;
+
+    let files: Vec<String> = std::fs::read_dir(paths::account_dir(dir.path(), account))
+        .unwrap()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|kind| kind.is_file())
+                .unwrap_or(false)
+        })
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(files.is_empty(), "после отмены остались файлы: {files:?}");
+    assert_eq!(store.usage(account).unwrap().used, 0);
+}
+
+#[tokio::test]
+async fn cancelled_blob_upload_leaves_no_temp_file() {
+    let (dir, store, account) = setup();
+    let background = Arc::clone(&store);
+    let task = tokio::spawn(async move {
+        background
+            .put_blob(
+                account,
+                "0b7c1d2e-3f40-4516-8798-a9bacbdcedfe",
+                blake3::hash(b"").to_hex().as_ref(),
+                Stalling { yielded: false },
+                5_000,
+            )
+            .await
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    task.abort();
+    let _ = task.await;
+
+    let files: Vec<String> = std::fs::read_dir(paths::blobs_dir(dir.path(), account))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(files.is_empty(), "после отмены остались файлы: {files:?}");
+    assert_eq!(store.usage(account).unwrap().used, 0);
+}

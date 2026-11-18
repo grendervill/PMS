@@ -7,10 +7,9 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use futures_util::TryStreamExt;
 use pms_proto::dto::BlobInfo;
 use pms_proto::ErrorCode;
-use tokio_util::io::{ReaderStream, StreamReader};
+use tokio_util::io::ReaderStream;
 
 use super::{header as header_value, ApiError, AppState, Authed, HEADER_DIGEST};
 use crate::store::StoreError;
@@ -75,16 +74,22 @@ async fn upload(
     body: Body,
 ) -> Result<Response, ApiError> {
     let digest = header_value(&headers, HEADER_DIGEST)?;
-    let len = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
+    let len = super::content_length(&headers)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "нужен Content-Length"))?;
+    if len > state.config.limits.max_body_bytes {
+        return Err(ApiError::new(
+            ErrorCode::PayloadTooLarge,
+            format!(
+                "тело больше лимита {} байт",
+                state.config.limits.max_body_bytes
+            ),
+        ));
+    }
 
-    let reader = StreamReader::new(
-        body.into_data_stream()
-            .map_err(|error| std::io::Error::other(error.to_string())),
-    );
+    let reader = Box::pin(super::body_reader(
+        body,
+        std::time::Duration::from_secs(state.config.limits.body_timeout_secs),
+    ));
 
     let info = state
         .store

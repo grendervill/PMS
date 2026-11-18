@@ -103,3 +103,23 @@ fn example_config_parses() {
     assert_eq!(config.quota.default_bytes, 1_073_741_824);
     assert!(config.tls.required);
 }
+
+#[test]
+fn bad_tls_min_version_is_rejected_before_start() {
+    let config = Config::parse(
+        r#"
+        [server]
+        data_dir = "/tmp/pms"
+
+        [tls]
+        required = false
+        min_version = "1.1"
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        config.validate().err(),
+        Some(ConfigError::BadTlsVersion("1.1".to_string()))
+    );
+}

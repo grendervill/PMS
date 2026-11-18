@@ -240,3 +240,29 @@ async fn rate_limiter_backs_off_after_five_failures() {
     ));
     assert!(limiter.check("другой-аккаунт").is_ok());
 }
+
+#[tokio::test]
+async fn expired_nonces_do_not_count_as_failed_attempts() {
+    let fixture = setup();
+
+    // Шесть просроченных nonce — это не подбор, а медленный пользователь.
+    for index in 0..6u8 {
+        let mut nonce = [0x80u8; 32];
+        nonce[1] = index;
+        fixture
+            .store
+            .insert_nonce(fixture.account, &nonce, 1)
+            .unwrap();
+        let signature = sign(&fixture, nonce);
+        let _ = fixture.auth.verify(
+            fixture.account,
+            fixture.device,
+            &nonce,
+            &signature,
+            &fixture.identity.public,
+        );
+    }
+
+    let token = login(&fixture);
+    assert!(fixture.auth.authenticate(token.expose()).is_ok());
+}

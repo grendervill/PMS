@@ -106,15 +106,23 @@ impl Default for Quota {
 pub struct Registration {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Потолок регистраций в минуту на весь сервер (0 — без ограничения).
+    #[serde(default = "default_registration_rate")]
+    pub max_per_minute: u32,
     /// Непустой токен закрывает регистрацию от посторонних.
     #[serde(default)]
     pub token: String,
+}
+
+fn default_registration_rate() -> u32 {
+    30
 }
 
 impl Default for Registration {
     fn default() -> Self {
         Self {
             enabled: true,
+            max_per_minute: default_registration_rate(),
             token: String::new(),
         }
     }
@@ -207,12 +215,15 @@ impl Config {
         if self.quota.default_bytes == 0 {
             return Err(ConfigError::BadQuota);
         }
-        if self.limits.max_body_bytes == 0
+        if self.limits.max_body_bytes < 64 * 1024
             || self.limits.max_connections == 0
             || self.limits.header_read_timeout_secs == 0
             || self.limits.body_timeout_secs == 0
         {
             return Err(ConfigError::BadLimit);
+        }
+        if !matches!(self.tls.min_version.as_str(), "1.2" | "1.3") {
+            return Err(ConfigError::BadTlsVersion(self.tls.min_version.clone()));
         }
         if self.auth.token_ttl_hours == 0
             || self.auth.max_sessions_per_account == 0
@@ -236,8 +247,12 @@ pub enum ConfigError {
     MissingCertificate(String),
     #[error("квота должна быть больше нуля")]
     BadQuota,
-    #[error("лимиты должны быть больше нуля")]
+    #[error(
+        "лимиты вне допустимых значений (max_body_bytes не меньше 64 КиБ, остальные больше нуля)"
+    )]
     BadLimit,
     #[error("параметры аутентификации должны быть больше нуля")]
     BadAuth,
+    #[error("tls.min_version = \"{0}\": поддерживаются 1.2 и 1.3")]
+    BadTlsVersion(String),
 }

@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::config::Auth as AuthConfig;
+use crate::store::state::NonceStatus;
 use crate::store::{Store, StoreError};
 
 /// Сколько неудач подряд допускается до торможения.
@@ -86,6 +87,8 @@ impl Auth {
         rand::rngs::OsRng.fill_bytes(&mut nonce);
         let expires_at = unix_now() + self.config.challenge_ttl_seconds as i64;
         self.store.insert_nonce(account, &nonce, expires_at)?;
+        // Nonce привязан к аккаунту; устройство попадает в подпись, поэтому
+        // переиграть чужой nonce на своё устройство всё равно нельзя.
         let _ = device;
         Ok(Challenge { nonce, expires_at })
     }
@@ -104,10 +107,15 @@ impl Auth {
             return Err(AuthError::BadNonce);
         }
 
-        let taken = self.store.take_nonce(account, nonce)?;
-        if !taken {
-            self.limiter.record_failure(&account.to_string());
-            return Err(AuthError::Unauthorized);
+        match self.store.take_nonce(account, nonce)? {
+            NonceStatus::Valid => {}
+            // Просроченный nonce — не попытка подбора: у пользователя мог
+            // уехать телефон или он просто думал дольше минуты.
+            NonceStatus::Expired => return Err(AuthError::Unauthorized),
+            NonceStatus::Unknown => {
+                self.limiter.record_failure(&account.to_string());
+                return Err(AuthError::Unauthorized);
+            }
         }
 
         if !verify_challenge(public_key, &account, &device, nonce, signature) {

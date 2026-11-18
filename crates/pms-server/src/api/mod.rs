@@ -33,6 +33,9 @@ pub struct AppState {
     pub store: Arc<Store>,
     pub auth: Arc<Auth>,
     pub config: Arc<Config>,
+    /// Бюджет регистраций на весь сервер: без него один хост создаёт аккаунты
+    /// пачками, а каждый аккаунт получает полную квоту.
+    pub registrations: Arc<RegistrationWindow>,
 }
 
 impl AppState {
@@ -41,24 +44,98 @@ impl AppState {
             store,
             auth,
             config,
+            registrations: Arc::new(RegistrationWindow::default()),
         }
+    }
+}
+
+/// Простое окно «N регистраций в минуту».
+pub struct RegistrationWindow {
+    state: std::sync::Mutex<(std::time::Instant, u32)>,
+}
+
+impl Default for RegistrationWindow {
+    fn default() -> Self {
+        Self {
+            state: std::sync::Mutex::new((std::time::Instant::now(), 0)),
+        }
+    }
+}
+
+impl RegistrationWindow {
+    pub fn allow(&self, limit: u32) -> bool {
+        if limit == 0 {
+            return true;
+        }
+        let mut state = self.state.lock().expect("registration window poisoned");
+        let now = std::time::Instant::now();
+        if now.duration_since(state.0).as_secs() >= 60 {
+            *state = (now, 0);
+        }
+        if state.1 >= limit {
+            return false;
+        }
+        state.1 += 1;
+        true
     }
 }
 
 pub fn router(state: AppState) -> Router {
     let limits = state.config.limits.clone();
 
-    Router::new()
-        .route("/v1/healthz", get(healthz))
+    // Живость проверяется вне лимита соединений: иначе под нагрузкой сервер
+    // выглядит мёртвым именно тогда, когда он занят работой.
+    let health = Router::new().route("/v1/healthz", get(healthz));
+
+    let api: Router<AppState> = Router::new()
         .merge(auth::routes())
         .merge(vault::routes())
         .merge(blobs::routes())
         .merge(account::routes())
-        .fallback(not_found)
         .layer(DefaultBodyLimit::max(limits.max_body_bytes as usize))
-        .layer(ConcurrencyLimitLayer::new(limits.max_connections))
+        .layer(ConcurrencyLimitLayer::new(limits.max_connections));
+
+    Router::new()
+        .merge(health)
+        .merge(api)
+        .fallback(not_found)
         .layer(middleware::from_fn(check_protocol))
         .with_state(state)
+}
+
+/// Поток тела с таймаутом на каждый кусок.
+///
+/// Без него одна медленная загрузка держит блокировку аккаунта и место в лимите
+/// соединений сколько угодно, а временный файл растёт.
+pub(crate) fn body_reader(
+    body: axum::body::Body,
+    timeout: std::time::Duration,
+) -> tokio_util::io::StreamReader<
+    impl futures_util::Stream<Item = std::io::Result<axum::body::Bytes>>,
+    axum::body::Bytes,
+> {
+    use futures_util::{StreamExt, TryStreamExt};
+
+    let stream = body
+        .into_data_stream()
+        .map_err(|error| std::io::Error::other(error.to_string()));
+    let timed = tokio_stream::StreamExt::timeout(stream, timeout);
+    let mapped = timed.map(|item| match item {
+        Ok(Ok(bytes)) => Ok(bytes),
+        Ok(Err(error)) => Err(error),
+        Err(_elapsed) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "тело запроса не пришло вовремя",
+        )),
+    });
+    tokio_util::io::StreamReader::new(mapped)
+}
+
+pub(crate) fn content_length(headers: &axum::http::HeaderMap) -> Option<u64> {
+    headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
 }
 
 async fn healthz() -> impl IntoResponse {

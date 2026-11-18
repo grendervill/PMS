@@ -212,3 +212,27 @@ async fn example_config_is_loadable_through_support() {
     );
     let _ = ExpectedVersion::Any;
 }
+
+#[tokio::test]
+async fn registration_budget_is_enforced_per_server() {
+    let server = TestServer::start("[registration]\nmax_per_minute = 1\n").await;
+    let device = DeviceId::new([9u8; 16]);
+
+    let first = register_request(&server, &identity(), device, b"", None)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 201);
+
+    let second = register_request(
+        &server,
+        &derive_identity("другой ключ".as_bytes(), &IdentityKdf::FAST_FOR_TESTS),
+        device,
+        b"",
+        None,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(second.status(), 429);
+}

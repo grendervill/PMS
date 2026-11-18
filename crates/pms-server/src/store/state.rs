@@ -2,7 +2,17 @@
 
 use pms_proto::identity::{AccountId, DeviceId};
 
+use rusqlite::OptionalExtension;
+
 use super::{db_error, Store, StoreError};
+
+/// Что стало с одноразовым nonce при попытке его забрать.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NonceStatus {
+    Valid,
+    Expired,
+    Unknown,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionRecord {
@@ -18,29 +28,42 @@ impl Store {
         nonce: &[u8; 32],
         expires_at: i64,
     ) -> Result<(), StoreError> {
-        self.db()?
+        let connection = self.db()?;
+        connection
             .execute(
                 "INSERT INTO nonces (account_id, nonce, expires_at) VALUES (?1, ?2, ?3)",
                 rusqlite::params![account.to_string(), nonce.to_vec(), expires_at],
             )
             .map_err(db_error)?;
+        // Просроченные nonce иначе копятся вечно: challenge выдаётся без пароля.
+        connection
+            .execute(
+                "DELETE FROM nonces WHERE expires_at <= ?1",
+                rusqlite::params![chrono::Utc::now().timestamp()],
+            )
+            .map_err(db_error)?;
         Ok(())
     }
 
-    /// Забирает nonce из индекса и сообщает, был ли он и не истёк ли.
+    /// Забирает nonce из индекса и сообщает, что с ним было.
     ///
     /// Удаление и проверка идут в одной транзакции: повторное использование
     /// невозможно даже при параллельных запросах.
-    pub fn take_nonce(&self, account: AccountId, nonce: &[u8; 32]) -> Result<bool, StoreError> {
+    pub fn take_nonce(
+        &self,
+        account: AccountId,
+        nonce: &[u8; 32],
+    ) -> Result<NonceStatus, StoreError> {
         let mut connection = self.db()?;
         let transaction = connection.transaction().map_err(db_error)?;
-        let expires_at: Option<i64> = transaction
+        let existing: Option<i64> = transaction
             .query_row(
                 "SELECT expires_at FROM nonces WHERE account_id = ?1 AND nonce = ?2",
                 rusqlite::params![account.to_string(), nonce.to_vec()],
                 |row| row.get(0),
             )
-            .ok();
+            .optional()
+            .map_err(db_error)?;
         transaction
             .execute(
                 "DELETE FROM nonces WHERE account_id = ?1 AND nonce = ?2",
@@ -49,7 +72,12 @@ impl Store {
             .map_err(db_error)?;
         transaction.commit().map_err(db_error)?;
 
-        Ok(matches!(expires_at, Some(expires_at) if expires_at > chrono::Utc::now().timestamp()))
+        let now = chrono::Utc::now().timestamp();
+        Ok(match existing {
+            Some(expires_at) if expires_at > now => NonceStatus::Valid,
+            Some(_) => NonceStatus::Expired,
+            None => NonceStatus::Unknown,
+        })
     }
 
     pub fn insert_session(
@@ -136,5 +164,30 @@ impl Store {
             )
             .map_err(db_error)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn expired_nonces_are_pruned_on_insert() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path(), 1024).unwrap();
+        let account = AccountId::new([0x61; 16]);
+        store.create_account(account, [1u8; 32], 1024).unwrap();
+
+        for index in 0..200u8 {
+            let mut nonce = [0u8; 32];
+            nonce[0] = index;
+            store.insert_nonce(account, &nonce, 1).unwrap();
+        }
+
+        let connection = store.db().unwrap();
+        let rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM nonces", [], |row| row.get(0))
+            .unwrap();
+        assert!(rows <= 1, "просроченные nonce копятся: {rows}");
     }
 }

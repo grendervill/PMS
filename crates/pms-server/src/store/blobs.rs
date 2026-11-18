@@ -5,12 +5,11 @@ use std::path::Path;
 
 use pms_proto::dto::{BlobInfo, Usage};
 use pms_proto::identity::AccountId;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncRead;
 
 use super::paths::{self, is_blob_id};
+use super::temp::TempFile;
 use super::{db_error, io_error, now, AccountRecord, Store, StoreError};
-
-const CHUNK: usize = 64 * 1024;
 
 impl Store {
     pub async fn put_blob<R: AsyncRead + Unpin>(
@@ -51,22 +50,16 @@ impl Store {
         let temp_path = blob_temp_path(self.root(), account, blob_id);
         let final_path = paths::blob_path(self.root(), account, blob_id);
 
-        let written = write_stream(&temp_path, &mut body, len)
-            .await
-            .inspect_err(|_| {
-                let _ = std::fs::remove_file(&temp_path);
-            })?;
+        let guard = TempFile::at(temp_path.clone());
+        let written = super::hash_stream_to_file(&temp_path, &mut body, len).await?;
         if written != digest {
-            let _ = std::fs::remove_file(&temp_path);
             return Err(StoreError::DigestMismatch);
         }
 
         tokio::fs::rename(&temp_path, &final_path)
             .await
-            .map_err(|error| {
-                let _ = std::fs::remove_file(&temp_path);
-                io_error(error)
-            })?;
+            .map_err(io_error)?;
+        drop(guard);
 
         let created_at = existing
             .as_ref()
@@ -177,7 +170,13 @@ impl Store {
             return Ok(false);
         };
 
-        let _ = std::fs::remove_file(paths::blob_path(self.root(), account, blob_id));
+        match std::fs::remove_file(paths::blob_path(self.root(), account, blob_id)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(account = %account, blob_id, %error, "не удалось удалить файл блоба");
+            }
+        }
 
         let mut connection = self.db()?;
         let transaction = connection.transaction().map_err(db_error)?;
@@ -264,39 +263,4 @@ fn read_blob(row: &rusqlite::Row<'_>) -> rusqlite::Result<BlobInfo> {
         created_at: row.get(3)?,
         last_used_at: row.get(4)?,
     })
-}
-
-/// Пишет ровно `len` байт и возвращает BLAKE3 в hex.
-async fn write_stream<R: AsyncRead + Unpin>(
-    path: &Path,
-    body: &mut R,
-    len: u64,
-) -> Result<String, StoreError> {
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).await.map_err(io_error)?;
-
-    let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; CHUNK];
-    let mut remaining = len;
-    while remaining > 0 {
-        let want = CHUNK.min(remaining as usize);
-        let read = body.read(&mut buffer[..want]).await.map_err(io_error)?;
-        if read == 0 {
-            return Err(StoreError::Truncated {
-                expected: len,
-                got: len - remaining,
-            });
-        }
-        hasher.update(&buffer[..read]);
-        file.write_all(&buffer[..read]).await.map_err(io_error)?;
-        remaining -= read as u64;
-    }
-    file.flush().await.map_err(io_error)?;
-    file.sync_all().await.map_err(io_error)?;
-    Ok(hasher.finalize().to_hex().to_string())
 }

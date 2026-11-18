@@ -43,6 +43,9 @@ async fn delete_account(
     }
 
     state.auth.revoke_all(account)?;
-    state.store.delete_account(account)?;
+    let store = std::sync::Arc::clone(&state.store);
+    tokio::task::spawn_blocking(move || store.delete_account(account))
+        .await
+        .map_err(|_| ApiError::new(ErrorCode::Internal, "удаление сорвалось"))??;
     Ok((StatusCode::OK, Json(Deleted { deleted: true })))
 }

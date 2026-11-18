@@ -7,7 +7,9 @@
 pub mod blobs;
 pub mod paths;
 pub mod sqlite;
+pub mod staging;
 pub mod state;
+pub mod temp;
 pub mod vault;
 
 use std::collections::{HashMap, HashSet};
@@ -142,7 +144,13 @@ impl Store {
         if self.account(account)?.is_none() {
             return Ok(false);
         }
-        let _ = std::fs::remove_dir_all(paths::account_dir(&self.root, account));
+        match std::fs::remove_dir_all(paths::account_dir(&self.root, account)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(account = %account, %error, "не удалось удалить каталог аккаунта");
+            }
+        }
 
         let mut connection = self.db()?;
         let transaction = connection.transaction().map_err(db_error)?;
@@ -201,8 +209,22 @@ impl Store {
                     if !meta.is_file() {
                         continue;
                     }
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    // Временные файлы прерванных загрузок не считаются блобами.
+                    if name.ends_with(".tmp") {
+                        let _ = std::fs::remove_file(entry.path());
+                        continue;
+                    }
                     blobs_total += meta.len();
-                    present.insert(entry.file_name().to_string_lossy().into_owned());
+                    present.insert(name);
+                }
+            }
+            if let Ok(entries) = std::fs::read_dir(paths::account_dir(&self.root, account)) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.ends_with(".tmp") {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
                 }
             }
 
@@ -282,6 +304,48 @@ pub(crate) fn create_private_dir(path: &Path) -> Result<(), StoreError> {
         std::fs::set_permissions(path, permissions).map_err(io_error)?;
     }
     Ok(())
+}
+
+/// Пишет ровно `len` байт из `body` в `path` и возвращает BLAKE3 в hex.
+///
+/// Один буфер на 64 КиБ и никакой буферизации целиком: именно это позволяет
+/// держать память сервера независимой от размера сейфа.
+pub(crate) async fn hash_stream_to_file<R: tokio::io::AsyncRead + Unpin>(
+    path: &Path,
+    body: &mut R,
+    len: u64,
+) -> Result<String, StoreError> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const CHUNK: usize = 64 * 1024;
+
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).await.map_err(io_error)?;
+
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; CHUNK];
+    let mut remaining = len;
+    while remaining > 0 {
+        let want = CHUNK.min(remaining as usize);
+        let read = body.read(&mut buffer[..want]).await.map_err(io_error)?;
+        if read == 0 {
+            return Err(StoreError::Truncated {
+                expected: len,
+                got: len - remaining,
+            });
+        }
+        hasher.update(&buffer[..read]);
+        file.write_all(&buffer[..read]).await.map_err(io_error)?;
+        remaining -= read as u64;
+    }
+    file.flush().await.map_err(io_error)?;
+    file.sync_all().await.map_err(io_error)?;
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 pub(crate) fn io_error(error: std::io::Error) -> StoreError {

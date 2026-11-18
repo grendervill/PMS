@@ -92,6 +92,30 @@ async fn large_uploads_are_streamed_not_buffered() {
 }
 
 #[tokio::test]
+async fn registration_body_is_staged_not_buffered() {
+    const TOTAL: usize = 16 * 1024 * 1024;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path(), 64 * 1024 * 1024).unwrap();
+
+    MAX_ALLOC.store(0, Ordering::Relaxed);
+    TRACK.store(true, Ordering::Relaxed);
+    let staged = store
+        .stage_upload(Generated { remaining: TOTAL }, TOTAL as u64)
+        .await;
+    TRACK.store(false, Ordering::Relaxed);
+    let staged = staged.unwrap();
+
+    assert_eq!(staged.len(), TOTAL as u64);
+    assert!(!staged.is_empty());
+    let largest = MAX_ALLOC.load(Ordering::Relaxed);
+    assert!(
+        largest <= 1024 * 1024,
+        "регистрация {TOTAL} байт потребовала разовой аллокации {largest} байт"
+    );
+}
+
+#[tokio::test]
 async fn blob_uploads_use_a_fixed_buffer() {
     const TOTAL: usize = 16 * 1024 * 1024;
     const BLOB_ID: &str = "0b7c1d2e-3f40-4516-8798-a9bacbdcedfe";

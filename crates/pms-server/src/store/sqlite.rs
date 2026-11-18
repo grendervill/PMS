@@ -54,7 +54,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     connection.pragma_update(None, "journal_mode", "WAL")?;
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
-    connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    connection.busy_timeout(std::time::Duration::from_millis(1000))?;
     connection.execute_batch(SCHEMA)?;
     Ok(connection)
 }

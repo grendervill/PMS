@@ -1,7 +1,7 @@
 //! Регистрация аккаунта. Identity-подпись подтверждает, что клиент владеет
 //! ключом, из которого выведен `account_id`.
 
-use axum::body::Bytes;
+use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -14,8 +14,8 @@ use pms_proto::identity::{verify_register, AccountId, DeviceId};
 use pms_proto::ErrorCode;
 
 use super::{
-    header, hex_array, now_rfc3339, ApiError, AppState, HEADER_ACCOUNT, HEADER_DEVICE,
-    HEADER_PUBLIC_KEY, HEADER_REGISTRATION_TOKEN, HEADER_SIGNATURE,
+    body_reader, content_length, header, hex_array, now_rfc3339, ApiError, AppState,
+    HEADER_ACCOUNT, HEADER_DEVICE, HEADER_PUBLIC_KEY, HEADER_REGISTRATION_TOKEN, HEADER_SIGNATURE,
 };
 use crate::store::vault::ExpectedVersion;
 
@@ -106,7 +106,7 @@ fn hex_array_of<const N: usize>(value: &str, name: &str) -> Result<[u8; N], ApiE
 pub async fn register(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Response, ApiError> {
     if !state.config.registration.enabled {
         return Err(ApiError::new(
@@ -114,6 +114,16 @@ pub async fn register(
             "регистрация на этом сервере выключена",
         ));
     }
+    if !state
+        .registrations
+        .allow(state.config.registration.max_per_minute)
+    {
+        return Err(ApiError::new(
+            ErrorCode::RateLimited,
+            "слишком много регистраций, повторите через минуту",
+        ));
+    }
+
     let expected_token = &state.config.registration.token;
     if !expected_token.is_empty() {
         let provided = headers
@@ -142,7 +152,26 @@ pub async fn register(
         ));
     }
 
-    let digest = *blake3::hash(&body).as_bytes();
+    let quota = state.config.quota.default_bytes;
+    let len = content_length(&headers).unwrap_or(0);
+    if len > state.config.limits.max_body_bytes || len > quota {
+        return Err(ApiError::new(
+            ErrorCode::QuotaExceeded,
+            format!("сейф не может быть больше {quota} байт"),
+        ));
+    }
+
+    // Тело идёт на диск, а не в память: регистрация может нести целый сейф.
+    let reader = Box::pin(body_reader(
+        body,
+        std::time::Duration::from_secs(state.config.limits.body_timeout_secs),
+    ));
+    let staged = state.store.stage_upload(reader, len).await?;
+
+    let digest = hex::decode(staged.digest())
+        .ok()
+        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+        .ok_or_else(|| ApiError::new(ErrorCode::Internal, "хеш тела не посчитался"))?;
     if !verify_register(&public_key, &account, &device, &digest, &signature) {
         return Err(ApiError::new(
             ErrorCode::Unauthorized,
@@ -150,18 +179,14 @@ pub async fn register(
         ));
     }
 
-    let created =
-        state
-            .store
-            .create_account(account, public_key, state.config.quota.default_bytes)?;
-    if !created {
+    if !state.store.create_account(account, public_key, quota)? {
         return Err(ApiError::new(
             ErrorCode::Conflict,
             "аккаунт уже существует — выполните вход",
         ));
     }
 
-    let meta = if body.is_empty() {
+    let meta = if staged.is_empty() {
         VaultMeta {
             version: 0,
             size: 0,
@@ -169,15 +194,22 @@ pub async fn register(
             updated_at: now_rfc3339(),
         }
     } else {
-        state
+        let file = tokio::fs::File::open(staged.path())
+            .await
+            .map_err(|error| ApiError::new(ErrorCode::Internal, error.to_string()))?;
+        match state
             .store
-            .put_vault(
-                account,
-                ExpectedVersion::Any,
-                body.as_ref(),
-                body.len() as u64,
-            )
-            .await?
+            .put_vault(account, ExpectedVersion::Any, file, staged.len())
+            .await
+        {
+            Ok(meta) => meta,
+            Err(error) => {
+                // Аккаунт без сейфа оставлять нельзя: повторная регистрация
+                // упрётся в 409, а входить будет некуда.
+                let _ = state.store.delete_account(account);
+                return Err(error.into());
+            }
+        }
     };
 
     Ok((StatusCode::CREATED, Json(meta)).into_response())

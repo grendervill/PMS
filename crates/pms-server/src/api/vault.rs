@@ -6,10 +6,9 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use futures_util::TryStreamExt;
 use pms_proto::dto::VaultMeta;
 use pms_proto::ErrorCode;
-use tokio_util::io::{ReaderStream, StreamReader};
+use tokio_util::io::ReaderStream;
 
 use super::{ApiError, AppState, Authed, HEADER_DIGEST};
 use crate::store::vault::ExpectedVersion;
@@ -40,12 +39,19 @@ pub async fn download(
     let Some((meta, file)) = state.store.open_vault(account).await? else {
         return Err(ApiError::new(ErrorCode::VaultMissing, "сейфа ещё нет"));
     };
+    // Длину берём у файла: если запись на диск и обновление индекса разошлись
+    // при сбое, отдавать заведомо неверный Content-Length нельзя.
+    let size = file
+        .metadata()
+        .await
+        .map(|metadata| metadata.len())
+        .unwrap_or(meta.size);
 
     let body = Body::from_stream(ReaderStream::new(file));
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
-        .header(header::CONTENT_LENGTH, meta.size.to_string())
+        .header(header::CONTENT_LENGTH, size.to_string())
         .header(header::ETAG, etag(&meta))
         .header(HEADER_VAULT_VERSION, meta.version.to_string())
         .header(HEADER_DIGEST, &meta.digest)
@@ -62,16 +68,22 @@ pub async fn upload(
     body: Body,
 ) -> Result<Response, ApiError> {
     let expected = expected_version(&headers)?;
-    let len = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
+    let len = super::content_length(&headers)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "нужен Content-Length"))?;
+    if len > state.config.limits.max_body_bytes {
+        return Err(ApiError::new(
+            ErrorCode::PayloadTooLarge,
+            format!(
+                "тело больше лимита {} байт",
+                state.config.limits.max_body_bytes
+            ),
+        ));
+    }
 
-    let reader = StreamReader::new(
-        body.into_data_stream()
-            .map_err(|error| std::io::Error::other(error.to_string())),
-    );
+    let reader = Box::pin(super::body_reader(
+        body,
+        std::time::Duration::from_secs(state.config.limits.body_timeout_secs),
+    ));
 
     let result = state.store.put_vault(account, expected, reader, len).await;
     let meta = match result {
@@ -116,7 +128,13 @@ fn expected_version(headers: &HeaderMap) -> Result<ExpectedVersion, ApiError> {
     if value == "*" {
         return Ok(ExpectedVersion::Any);
     }
-    value
+    // Принимаем и голую версию, и собственный ETag сервера вида "v7-<digest>".
+    let version = value
+        .strip_prefix('v')
+        .and_then(|rest| rest.split('-').next())
+        .unwrap_or(value);
+
+    version
         .parse::<u64>()
         .map(ExpectedVersion::Version)
         .map_err(|_| ApiError::new(ErrorCode::BadRequest, "If-Match не число"))
