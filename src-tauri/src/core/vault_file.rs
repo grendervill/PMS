@@ -4,7 +4,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 
 use super::error::VaultError;
-use super::models::{VaultHeader, VAULT_FORMAT_VERSION};
+use super::models::{VaultHeader, VAULT_FORMAT_VERSION, VAULT_MIN_FORMAT_VERSION};
 
 pub const MAGIC: &[u8; 5] = b"PMSV1";
 /// `magic | header_len (u32 LE) | payload_len (u64 LE)`.
@@ -96,8 +96,13 @@ pub fn serialize_vault_parts(header: &VaultHeader, payload: &[u8]) -> Result<Vec
 }
 
 fn validate_header(header: &VaultHeader) -> Result<(), VaultError> {
-    if header.format != VAULT_FORMAT_VERSION {
+    if !(VAULT_MIN_FORMAT_VERSION..=VAULT_FORMAT_VERSION).contains(&header.format) {
         return Err(VaultError::UnsupportedVersion);
+    }
+    match header.format {
+        1 if !header.slot_digest.is_empty() => return Err(VaultError::BadHeader),
+        2 if header.slot_digest.len() != 64 => return Err(VaultError::BadHeader),
+        _ => {}
     }
     if header.kdf_slots.is_empty() {
         return Err(VaultError::NoSlots);
@@ -173,6 +178,7 @@ mod tests {
             vault_id: Uuid::parse_str("0e7d5f4a-5f4a-4f5a-9f4a-5f4a5f4a5f4a").unwrap(),
             created_at: "2026-10-20T12:00:00Z".to_string(),
             cipher: CipherSuite::XChaCha20Poly1305,
+            slot_digest: String::new(),
             kdf_slots: vec![KdfSlot {
                 id: Uuid::parse_str("1a2b3c4d-5e6f-4a5b-8c9d-0e1f2a3b4c5d").unwrap(),
                 kind: KdfSlotKind::Passphrase,

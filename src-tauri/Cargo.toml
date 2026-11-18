@@ -82,3 +82,7 @@ objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSResponder",
 objc2-foundation = { version = "0.3.2", features = ["NSData", "NSString", "NSError"] }
 
 [dev-dependencies]
+# `test` brings `tauri::test::{mock_builder, get_ipc_response}` so the command
+# layer can be driven on `MockRuntime`. Kept out of `[dependencies]` on purpose:
+# the feature must not reach the release build.
+tauri = { version = "2.12", features = ["test"] }

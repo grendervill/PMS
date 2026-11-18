@@ -8,6 +8,7 @@ use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use super::error::VaultError;
@@ -223,6 +224,23 @@ where
     Ok(buf)
 }
 
+/// Like [`seal_document_after`], but for plaintext that is already serialized.
+///
+/// Used when a header change forces the payload to be re-sealed (format upgrade,
+/// `rewrap`): the JSON is copied once into the envelope and encrypted in place.
+pub fn seal_plaintext_after(
+    prefix: &[u8],
+    vault_key: &[u8; 32],
+    cipher: CipherSuite,
+    aad: &[u8],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, VaultError> {
+    seal_document_after(prefix, vault_key, cipher, aad, plaintext.len(), |buffer| {
+        buffer.extend_from_slice(plaintext);
+        Ok(())
+    })
+}
+
 pub fn seal_payload(
     vault_key: &[u8; 32],
     cipher: CipherSuite,
@@ -317,6 +335,30 @@ pub fn open_payload(
     Ok(plaintext)
 }
 
+/// SHA-256 over the identity of every unlock slot, in a stable order.
+///
+/// The payload AAD covers it from format 2 on, so removing or replacing a slot
+/// without the vault key makes the payload undecryptable instead of merely
+/// "the wrong error message".
+pub fn slot_digest(header: &VaultHeader) -> String {
+    let mut slots: Vec<(Uuid, u8)> = header
+        .kdf_slots
+        .iter()
+        .map(|slot| (slot.id, slot.kind.id()))
+        .collect();
+    slots.sort_unstable();
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"PMS-SLOTSET-v1");
+    hasher.update(header.vault_id.as_bytes());
+    hasher.update((slots.len() as u32).to_le_bytes());
+    for (id, kind) in slots {
+        hasher.update(id.as_bytes());
+        hasher.update([kind]);
+    }
+    hex::encode(hasher.finalize())
+}
+
 pub fn header_core_aad(header: &VaultHeader) -> Vec<u8> {
     let mut aad = Vec::with_capacity(64 + header.created_at.len());
     aad.extend_from_slice(b"PMS-CORE-v1");
@@ -325,6 +367,10 @@ pub fn header_core_aad(header: &VaultHeader) -> Vec<u8> {
     aad.push(header.cipher.id());
     aad.extend_from_slice(&(header.created_at.len() as u32).to_le_bytes());
     aad.extend_from_slice(header.created_at.as_bytes());
+    if header.format >= 2 {
+        aad.extend_from_slice(b"PMS-SLOTSET-v1");
+        aad.extend_from_slice(header.slot_digest.as_bytes());
+    }
     aad
 }
 
@@ -663,6 +709,7 @@ mod tests {
             created_at: "2026-10-20T12:00:00Z".to_string(),
             cipher: CipherSuite::XChaCha20Poly1305,
             kdf_slots: vec![sample_slot()],
+            slot_digest: String::new(),
         }
     }
 

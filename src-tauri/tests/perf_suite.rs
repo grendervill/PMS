@@ -374,21 +374,6 @@ fn fat_document(vault_id: Uuid, payload_bytes: usize) -> VaultData {
     data
 }
 
-/// `header_core_aad` from `core/crypto.rs` is `pub` but is not re-exported by
-/// `pms_lib::testing`, so the test rebuilds the AAD from the public header
-/// fields. If that formula drifts, `open_payload` fails and the scenario panics
-/// with an explicit message — the check is self-verifying.
-fn header_aad(header: &VaultHeader) -> Vec<u8> {
-    let mut aad = Vec::with_capacity(64 + header.created_at.len());
-    aad.extend_from_slice(b"PMS-CORE-v1");
-    aad.extend_from_slice(&header.format.to_le_bytes());
-    aad.extend_from_slice(header.vault_id.as_bytes());
-    aad.push(header.cipher.id());
-    aad.extend_from_slice(&(header.created_at.len() as u32).to_le_bytes());
-    aad.extend_from_slice(header.created_at.as_bytes());
-    aad
-}
-
 /// `ATTACHMENT_HEADER_LEN` is not re-exported either: derive it from an empty
 /// attachment (`header + tag`) once, and assert the derivation is consistent.
 fn attachment_header_len(vault_id: Uuid) -> usize {
@@ -701,7 +686,7 @@ fn opening(header: &VaultHeader) {
         });
         let probe = parse_vault_file(&file).expect("a sealed document must parse");
         let cipher = probe.header.cipher;
-        let aad = header_aad(&probe.header);
+        let aad = pms_lib::testing::header_core_aad(&probe.header);
         drop(probe);
 
         let measurement = measure(3, || {

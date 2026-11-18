@@ -15,7 +15,8 @@ pub mod testing {
         MAX_ATTACHMENT_BYTES,
     };
     pub use crate::core::crypto::{
-        open_payload, seal_document_after, seal_payload, KdfProfile, UnlockSecretInput,
+        header_core_aad, open_payload, seal_document_after, seal_payload, slot_digest, KdfProfile,
+        UnlockSecretInput,
     };
     pub use crate::core::generator::{
         generate_passphrase, generate_password, LoginOptions, PassphraseOptions, PasswordOptions,
@@ -38,9 +39,15 @@ pub mod testing {
 
 use commands::AppState;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let builder = tauri::Builder::default()
+/// Everything the app is made of except `run` and the command list: plugins,
+/// managed state and the setup hook.
+///
+/// Split out of [`run`] so `tests/commands_smoke.rs` can build the very same
+/// app on `tauri::test::MockRuntime` and push real IPC requests through the
+/// command wrappers instead of a JavaScript mock. The command list lives in
+/// [`configure_mock`] (see the note there about `AppHandle`).
+pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init());
@@ -53,35 +60,88 @@ pub fn run() {
         .plugin(tauri_plugin_android_fs::init())
         .plugin(tauri_plugin_biometric::init());
 
-    builder
-        .manage(AppState::default())
-        .setup(|app| {
-            // Load the filesystem grants the user approved earlier and remember
-            // where to store new ones. Without this the vault folder would have
-            // to be re-picked on every launch.
-            let handle = app.handle();
-            let state: tauri::State<'_, AppState> = handle.state();
-            // Only the cache directory is granted (archives are staged there).
-            // The app data directory is *not* granted: it holds the grant store
-            // and the biometric blob, both written by Rust directly.
-            let cache = handle.path().app_cache_dir().ok();
-            if let Some(dir) = cache.as_deref() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let store = handle
-                .path()
-                .app_config_dir()
-                .ok()
-                .map(|dir| dir.join("fs-scope.json"));
-            let always = cache.into_iter().collect();
-            state.fs_scope.attach(store, always);
-            if let Ok(dir) = handle.path().app_data_dir() {
-                let _ = std::fs::create_dir_all(&dir);
-                commands::set_data_dir(dir.clone());
-                state.attempts.attach(Some(dir.join("unlock-state.json")));
-            }
-            Ok(())
-        })
+    builder.manage(AppState::default()).setup(|app| {
+        // Load the filesystem grants the user approved earlier and remember
+        // where to store new ones. Without this the vault folder would have
+        // to be re-picked on every launch.
+        let handle = app.handle();
+        let state: tauri::State<'_, AppState> = handle.state();
+        // Only the cache directory is granted (archives are staged there).
+        // The app data directory is *not* granted: it holds the grant store
+        // and the biometric blob, both written by Rust directly.
+        let cache = handle.path().app_cache_dir().ok();
+        if let Some(dir) = cache.as_deref() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let store = handle
+            .path()
+            .app_config_dir()
+            .ok()
+            .map(|dir| dir.join("fs-scope.json"));
+        let always = cache.into_iter().collect();
+        state.fs_scope.attach(store, always);
+        if let Ok(dir) = handle.path().app_data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            commands::set_data_dir(dir.clone());
+            state.attempts.attach(Some(dir.join("unlock-state.json")));
+        }
+        Ok(())
+    })
+}
+
+/// The command list that also works on a runtime other than wry.
+///
+/// `#[tauri::command]` expands an `app: AppHandle` parameter to
+/// `AppHandle<Wry>` — the default type argument — so the generated wrapper only
+/// implements `CommandArg<'_, Wry>` and cannot be registered on
+/// `tauri::test::MockRuntime`. Commands that take an `AppHandle` therefore stay
+/// out of this list; everything else is registered here verbatim, so
+/// `tests/commands_smoke.rs` drives the real wrappers (argument names included)
+/// on the mock runtime. `commands_smoke::mock_list_is_complete` keeps this list
+/// and the one in [`run`] from drifting apart.
+#[doc(hidden)]
+pub fn configure_mock<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    configure(builder).invoke_handler(tauri::generate_handler![
+        commands::vault::vault_inspect,
+        commands::vault::vault_remember_folder,
+        commands::vault::keyfile_kind,
+        commands::vault::vault_lock,
+        commands::generator::generate_password,
+        commands::generator::generate_login,
+        commands::generator::generate_passphrase,
+        commands::generator::generate_pin,
+        commands::generator::generate_pronounceable,
+        commands::generator::generator_entropy,
+        commands::generator::generator_wordlist,
+        commands::generator::generator_clear_wordlist,
+        commands::totp::totp_inspect,
+        commands::totp::totp_code,
+        commands::ssh::ssh_generate,
+        commands::ssh::ssh_formats,
+        commands::ssh::ssh_install,
+        commands::ssh::ssh_check,
+        commands::share::share_encode,
+        commands::share::share_decode,
+        commands::import::import_parse,
+        commands::transfer::transfer_receive_stop,
+        commands::transfer::transfer_scan,
+        commands::transfer::transfer_install,
+        commands::storage::storage_read_file,
+        commands::storage::storage_write_atomic,
+        commands::storage::storage_exists,
+        commands::storage::storage_mkdir,
+        commands::storage::storage_stat,
+        commands::storage::storage_list_dir,
+        commands::storage::storage_remove_file,
+        commands::storage::storage_remove_dir,
+        commands::favicon::favicon_fetch,
+        commands::breach::password_breach_count,
+    ])
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    configure(tauri::Builder::default())
         .invoke_handler(tauri::generate_handler![
             commands::vault::vault_inspect,
             commands::vault::vault_remember_folder,

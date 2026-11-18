@@ -4,7 +4,8 @@ use zeroize::Zeroizing;
 
 use super::crypto::{
     canonical_secret, derive_kek, generate_salt, header_core_aad, kdf_params, open_payload,
-    seal_document_after, slot_aad, unwrap_vault_key, wrap_vault_key, KdfProfile, UnlockSecretInput,
+    seal_document_after, seal_plaintext_after, slot_aad, slot_digest, unwrap_vault_key,
+    wrap_vault_key, KdfProfile, UnlockSecretInput,
 };
 use super::error::VaultError;
 use super::models::{
@@ -70,20 +71,37 @@ pub fn create_vault(
     config: &CreateVaultConfig,
     secret: &UnlockSecretInput,
 ) -> Result<(Vec<u8>, VaultSession, VaultData), VaultError> {
+    create_vault_with_format(config, secret, VAULT_FORMAT_VERSION)
+}
+
+/// Creates a vault with an explicit format version.
+///
+/// Only used to build a version 1 file in tests: it goes through the same code
+/// path as a real vault of that version (slots and payload bound to the version
+/// 1 AAD), which is what a user upgrading from 0.3.x has on disk.
+pub fn create_vault_with_format(
+    config: &CreateVaultConfig,
+    secret: &UnlockSecretInput,
+    format: u16,
+) -> Result<(Vec<u8>, VaultSession, VaultData), VaultError> {
     let timestamp = now();
     let vault_id = Uuid::new_v4();
     let vault_key = Zeroizing::new(generate_salt());
 
     let mut header = VaultHeader {
-        format: VAULT_FORMAT_VERSION,
+        format,
         vault_id,
         created_at: timestamp.clone(),
         cipher: config.cipher,
         kdf_slots: Vec::new(),
+        slot_digest: String::new(),
     };
     let template = kdf_params(config.kdf_profile, generate_salt());
     let slot = make_slot(&header, secret.kind(), secret, &template, &vault_key)?;
     header.kdf_slots.push(slot);
+    if format >= 2 {
+        header.slot_digest = slot_digest(&header);
+    }
 
     let data = empty_vault_data(&config.name, vault_id, &timestamp);
     let (file, plaintext_len) = seal_document(&header, &vault_key, &data, 0)?;
@@ -149,6 +167,11 @@ fn unlock_parsed(
     let data: VaultData = serde_json::from_slice(&plaintext).map_err(|_| VaultError::Serde)?;
     if data.id != parsed.header.vault_id {
         return Err(VaultError::VaultIdMismatch);
+    }
+    // The AAD already covers the digest; recomputing gives a clear error instead
+    // of a generic decryption failure if a slot was removed or replaced.
+    if parsed.header.format >= 2 && parsed.header.slot_digest != slot_digest(&parsed.header) {
+        return Err(VaultError::BadHeader);
     }
 
     let plaintext_len = plaintext.len();
@@ -247,15 +270,13 @@ pub fn rewrap_vault(
         .kdf
         .clone();
     let kind = new_secret.kind();
-    let new_slot = make_slot(
-        &session.header,
-        kind,
-        new_secret,
-        &template,
-        &session.vault_key,
-    )?;
-
+    // The slot is wrapped against the header it will live in, so the format has
+    // to be the current one before the slot AAD is computed (a version 1 vault
+    // is upgraded here).
     let mut header = session.header.clone();
+    header.format = VAULT_FORMAT_VERSION;
+    let new_slot = make_slot(&header, kind, new_secret, &template, &session.vault_key)?;
+
     if keep_existing {
         if let Some(existing) = header.kdf_slots.iter_mut().find(|slot| slot.kind == kind) {
             *existing = new_slot;
@@ -270,10 +291,7 @@ pub fn rewrap_vault(
         return Err(VaultError::NoSlots);
     }
 
-    let file = serialize_file(&header, payload)?;
-    session.header = header;
-    session.generation = session.generation.wrapping_add(1);
-    Ok(file)
+    reseal_for_header(session, payload, header)
 }
 
 pub fn remove_slot(
@@ -292,10 +310,53 @@ pub fn remove_slot(
         return Err(VaultError::LastUnlockMethod);
     }
 
-    let file = serialize_file(&header, payload)?;
+    reseal_for_header(session, payload, header)
+}
+
+/// Re-seals the payload under a new header.
+///
+/// Changing the slot set changes the payload AAD, so the ciphertext from the old
+/// file cannot be reused: the payload is decrypted with the session key and
+/// sealed again. This is also where a format 1 vault is upgraded to format 2.
+fn reseal_for_header(
+    session: &mut VaultSession,
+    payload: &[u8],
+    mut header: VaultHeader,
+) -> Result<Vec<u8>, VaultError> {
+    let plaintext = Zeroizing::new(open_payload(
+        &session.vault_key,
+        session.header.cipher,
+        &header_core_aad(&session.header),
+        payload,
+    )?);
+
+    header.format = VAULT_FORMAT_VERSION;
+    header.slot_digest = slot_digest(&header);
+    let header_json = serde_json::to_vec(&header).map_err(|_| VaultError::Serde)?;
+
+    let mut prefix = Vec::with_capacity(vault_file::FIXED_HEADER_LEN + header_json.len());
+    prefix.resize(vault_file::FIXED_HEADER_LEN, 0);
+    prefix.extend_from_slice(&header_json);
+
+    let mut bytes = seal_plaintext_after(
+        &prefix,
+        &session.vault_key,
+        header.cipher,
+        &header_core_aad(&header),
+        &plaintext,
+    )?;
+    let payload_len = bytes.len() - prefix.len();
+    if payload_len > vault_file::MAX_PAYLOAD_LEN {
+        return Err(VaultError::BadPayload);
+    }
+    bytes[0..5].copy_from_slice(vault_file::MAGIC);
+    bytes[5..9].copy_from_slice(&(header_json.len() as u32).to_le_bytes());
+    bytes[9..17].copy_from_slice(&(payload_len as u64).to_le_bytes());
+
     session.header = header;
+    session.plaintext_len = plaintext.len();
     session.generation = session.generation.wrapping_add(1);
-    Ok(file)
+    Ok(bytes)
 }
 
 fn now() -> String {
@@ -379,6 +440,19 @@ mod tests {
 
     /// The sealed payload of a saved file, which `rewrap`/`remove_slot` take as
     /// an argument now that the session no longer keeps a copy.
+    /// Assembles a vault file without validation, so a test can present a
+    /// header that `serialize_vault_parts` would refuse.
+    fn raw_file(header: &VaultHeader, payload: &[u8]) -> Vec<u8> {
+        let header_json = serde_json::to_vec(header).unwrap();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(vault_file::MAGIC);
+        bytes.extend_from_slice(&(header_json.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&header_json);
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
     fn payload_of(file: &[u8]) -> Vec<u8> {
         parse_vault_file(file).unwrap().payload
     }
@@ -607,23 +681,87 @@ mod tests {
     }
 
     #[test]
-    fn rewrap_changes_passphrase_without_reencrypting_payload() {
+    fn rewrap_changes_passphrase_and_keeps_the_content() {
         let (_, mut session, mut data) =
             create_vault(&config("Личное"), &passphrase("old pass")).unwrap();
         data.entries.push(sample_entry("GitHub"));
         let saved = save_vault(&mut session, &data).unwrap();
-        let original_payload = parse_vault_file(&saved).unwrap().payload;
 
         let new_pass = passphrase("new pass");
         let rewrapped = rewrap_vault(&mut session, &payload_of(&saved), &new_pass, true).unwrap();
         let rewritten = parse_vault_file(&rewrapped).unwrap();
 
-        assert_eq!(rewritten.payload, original_payload);
+        // The payload is re-sealed (its AAD covers the new slot set), so the
+        // bytes differ — but the document must be byte-identical.
+        assert_ne!(rewritten.payload, parse_vault_file(&saved).unwrap().payload);
         assert!(matches!(
             unlock_vault(&rewrapped, &passphrase("old pass")),
             Err(VaultError::InvalidCredentials)
         ));
         let (_, unlocked) = unlock_vault(&rewrapped, &new_pass).unwrap();
+        assert_eq!(unlocked, data);
+    }
+
+    #[test]
+    fn format_two_authenticates_the_slot_set() {
+        let (file, session, data) =
+            create_vault(&config("V2"), &passphrase("correct horse")).unwrap();
+        let parsed = parse_vault_file(&file).unwrap();
+        assert_eq!(parsed.header.format, 2);
+        assert_eq!(parsed.header.slot_digest.len(), 64);
+        assert_eq!(parsed.header.slot_digest, slot_digest(&parsed.header));
+
+        // Dropping the digest, or a slot, must make the file unreadable: the
+        // digest is part of the payload AAD.
+        let mut without_digest = parsed.header.clone();
+        without_digest.slot_digest = String::new();
+        let tampered = raw_file(&without_digest, &parsed.payload);
+        assert!(unlock_vault(&tampered, &passphrase("correct horse")).is_err());
+
+        let mut without_slot = parsed.header.clone();
+        without_slot.kdf_slots.clear();
+        without_slot.slot_digest = slot_digest(&without_slot);
+        let tampered = raw_file(&without_slot, &parsed.payload);
+        assert!(unlock_vault(&tampered, &passphrase("correct horse")).is_err());
+
+        // Same slots, different ids: the digest changes, so the payload no longer
+        // opens — a replaced slot cannot ride along unnoticed.
+        let mut replaced = parsed.header.clone();
+        let first = replaced.kdf_slots.first_mut().unwrap();
+        first.id = Uuid::new_v4();
+        replaced.slot_digest = slot_digest(&replaced);
+        let tampered = raw_file(&replaced, &parsed.payload);
+        assert!(unlock_vault(&tampered, &passphrase("correct horse")).is_err());
+
+        let (_, unlocked) = unlock_vault(&file, &passphrase("correct horse")).unwrap();
+        assert_eq!(unlocked, data);
+        assert_eq!(session.header.slot_digest.len(), 64);
+    }
+
+    #[test]
+    fn a_format_one_vault_still_opens_and_is_upgraded_by_rewrap() {
+        let (legacy_file, mut legacy_session, data) =
+            create_vault_with_format(&config("V1"), &passphrase("old pass"), 1).unwrap();
+        let legacy_header = parse_vault_file(&legacy_file).unwrap().header;
+        assert_eq!(legacy_header.format, 1);
+        assert!(legacy_header.slot_digest.is_empty());
+
+        let (_, unlocked) = unlock_vault(&legacy_file, &passphrase("old pass")).unwrap();
+        assert_eq!(unlocked, data);
+
+        // The first save or rewrap moves the file to the current format.
+        let upgraded = rewrap_vault(
+            &mut legacy_session,
+            &payload_of(&legacy_file),
+            &passphrase("new pass"),
+            true,
+        )
+        .unwrap();
+        let upgraded_header = parse_vault_file(&upgraded).unwrap().header;
+        assert_eq!(upgraded_header.format, 2);
+        assert_eq!(upgraded_header.slot_digest.len(), 64);
+        assert_eq!(upgraded_header.slot_digest, slot_digest(&upgraded_header));
+        let (_, unlocked) = unlock_vault(&upgraded, &passphrase("new pass")).unwrap();
         assert_eq!(unlocked, data);
     }
 
@@ -637,7 +775,8 @@ mod tests {
         assert_eq!(session.header.kdf_slots.len(), 2);
 
         let new_pass = passphrase("new pass");
-        let only_pass = rewrap_vault(&mut session, &payload_of(&saved), &new_pass, false).unwrap();
+        let only_pass =
+            rewrap_vault(&mut session, &payload_of(&with_keyfile), &new_pass, false).unwrap();
         assert_eq!(session.header.kdf_slots.len(), 1);
         assert!(matches!(
             unlock_vault(&only_pass, &keyfile_secret),

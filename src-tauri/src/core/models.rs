@@ -2,7 +2,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-pub const VAULT_FORMAT_VERSION: u16 = 1;
+/// Current format. Version 2 authenticates the set of unlock slots (see
+/// `slot_digest`); version 1 files still open and are upgraded on the next
+/// rewrap.
+pub const VAULT_FORMAT_VERSION: u16 = 2;
+/// Oldest format this build can read.
+pub const VAULT_MIN_FORMAT_VERSION: u16 = 1;
 pub const ENTRY_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +86,10 @@ pub struct VaultHeader {
     pub created_at: String,
     pub cipher: CipherSuite,
     pub kdf_slots: Vec<KdfSlot>,
+    /// SHA-256 over the unlock slots, authenticated as part of the payload AAD
+    /// (format >= 2). Empty for format 1 files.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slot_digest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -160,7 +169,7 @@ pub struct TotpConfig {
 
 /// What a site accepts for its password. Zero or `false` means "unset", so an
 /// empty policy carries no information and is not written to the vault file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordPolicy {
     /// 0 = not set.
@@ -180,20 +189,6 @@ pub struct PasswordPolicy {
     /// Characters the site rejects.
     #[serde(default)]
     pub forbidden_chars: String,
-}
-
-impl Default for PasswordPolicy {
-    fn default() -> Self {
-        Self {
-            min_length: 0,
-            max_length: 0,
-            require_lowercase: false,
-            require_uppercase: false,
-            require_digits: false,
-            require_symbols: false,
-            forbidden_chars: String::new(),
-        }
-    }
 }
 
 impl PasswordPolicy {
