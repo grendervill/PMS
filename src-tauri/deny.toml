@@ -14,7 +14,6 @@ ignore = [
   # family to 0.14/0.10 with a new pkcs8; the exposed operations here are local
   # key generation and DER encoding, not remote timing oracles.
   "RUSTSEC-2026-0387",
-  "RUSTSEC-2026-0385",
 ]
 
 [bans]

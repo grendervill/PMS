@@ -53,7 +53,8 @@ $ pnpm audit --prod    → No known vulnerabilities found
 |---|---|---|
 | `quick-xml` 0.41.0 + 0.42.0 | — (обе версии патчены) | две версии в дереве: наша 0.41 и 0.42 у `keepass`. Дедуп невозможен без перехода `keepass`; `deny.toml` держит `multiple-versions = "warn"` |
 | `rsa` 0.9.10 | RUSTSEC-2023-0071 (Marvin) | ignore с обоснованием: только генерация и DER-сериализация, расшифровки чужого шифротекста нет |
-| `crypto-bigint` 0.5.5, `ctutils` 0.4.3 | RUSTSEC-2026-0387 / 0385 (constant-time) | ignore с обоснованием; переход требует p256/p384/p521 0.14 + rsa 0.10 + pkcs8 0.11 одним шагом |
+| `ctutils` | ~~0.4.3~~ **0.4.8** | **исправлено**: `cargo update -p ctutils` поднял до патченной версии, ignore снят |
+| `crypto-bigint` 0.5.5 | RUSTSEC-2026-0387 (constant-time) | ignore с обоснованием: патч только в 0.7.x, что требует p256/p384/p521 0.14 + rsa 0.10 + pkcs8 0.11, а `ssh-key 0.6.7` держит rsa 0.9 |
 | `chrono`, `zbus*`, `proc-macro-error`, `glib` | unmaintained / unsound | транзитивные (tauri/gtk), обновляются вместе с tauri; на Linux принято |
 
 Проверено по коду: в `Cargo.lock` нет `git`-зависимостей, `openssl`/`native-tls` запрещены в `deny.toml` (TLS только `rustls`).

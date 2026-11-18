@@ -3,12 +3,13 @@
 # Ignored advisories must match `deny.toml` and carry a reason:
 #  * RUSTSEC-2023-0071 (rsa Marvin) — the `rsa` crate is used for key
 #    generation and DER serialization only; nothing decrypts attacker input.
-#  * RUSTSEC-2026-0387 / 0385 (crypto-bigint, ctutils) — constant-time issues
-#    in the RustCrypto curve stack; same reasoning, and upgrading requires
-#    moving p256/p384/p521/rsa to the 0.14/0.10 generation in one step.
+#  * RUSTSEC-2026-0387 (crypto-bigint 0.5.5) — constant-time issues in the
+#    RustCrypto curve stack. Only 0.7.x is patched, which needs
+#    p256/p384/p521 0.14 + rsa 0.10 + pkcs8 0.11 in one step; `ssh-key 0.6.7`
+#    still pins rsa 0.9, so the chain cannot move yet.
+#  (ctutils was upgraded to 0.4.8, so RUSTSEC-2026-0385 no longer applies.)
 [advisories]
 ignore = [
   "RUSTSEC-2023-0071",
   "RUSTSEC-2026-0387",
-  "RUSTSEC-2026-0385",
 ]
