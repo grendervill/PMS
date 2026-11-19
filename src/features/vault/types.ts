@@ -218,3 +218,15 @@ export function defaultVaultSettings(): VaultSettings {
     maxAttachmentMb: 50,
   };
 }
+
+/** Политика проверки сертификата сервера (см. `core::remote::TlsPolicy`). */
+export type TlsPolicy =
+  | { kind: "system" }
+  | { kind: "pin"; spkiSha256: string }
+  | { kind: "insecure" };
+
+/** Адрес сервера и политика TLS: ровно то, что нужно Rust для подключения. */
+export type RemoteProfile = {
+  baseUrl: string;
+  tls: TlsPolicy;
+};

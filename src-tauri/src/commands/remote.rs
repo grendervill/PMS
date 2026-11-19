@@ -590,6 +590,54 @@ pub async fn remote_delete_account(
     delete_account(&state, parse_account(&account_id)?, &secret).await
 }
 
+pub(crate) const CACHE_ROOT: &str = "remote";
+
+/// Каталог кэша одного профиля. Создаётся при первом обращении.
+///
+/// `profile_id` приходит из рендерера, поэтому проверяется строго: слэши и `..`
+/// увели бы каталог за пределы `app_data/remote`.
+pub fn cache_dir(profile_id: &str) -> ApiResult<PathBuf> {
+    if !is_profile_id(profile_id) {
+        return Err(ApiError::new(
+            "bad_profile_id",
+            "идентификатор профиля: латиница, цифры и дефис",
+        ));
+    }
+    let app_data = crate::commands::app_data_dir()
+        .ok_or_else(|| RemoteError::Storage("каталог приложения ещё не известен".to_string()).as_api_error())?;
+
+    let dir = app_data.join(CACHE_ROOT).join(profile_id);
+    for sub in [dir.clone(), dir.join("attachments"), dir.join("backups")] {
+        std::fs::create_dir_all(&sub)
+            .map_err(|error| ApiError::new("storage", error.to_string()))?;
+    }
+    Ok(dir)
+}
+
+pub fn cache_clear(profile_id: &str) -> ApiResult<()> {
+    let dir = cache_dir(profile_id)?;
+    std::fs::remove_dir_all(&dir).map_err(|error| ApiError::new("storage", error.to_string()))?;
+    Ok(())
+}
+
+fn is_profile_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+#[tauri::command]
+pub fn remote_cache_dir(profile_id: String) -> ApiResult<String> {
+    Ok(cache_dir(&profile_id)?.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn remote_cache_clear(profile_id: String) -> ApiResult<()> {
+    cache_clear(&profile_id)
+}
+
 fn parse_account(value: &str) -> ApiResult<AccountId> {
     AccountId::from_hex(value)
         .ok_or_else(|| ApiError::new("bad_account_id", "account_id должен быть 32 hex-символа"))

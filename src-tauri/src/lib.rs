@@ -28,6 +28,38 @@ pub mod testing {
     };
     pub use crate::core::pms_archive::{export as archive_export, import as archive_import};
     pub use crate::core::remote::{self, tls as remote_tls, RemoteError, RemoteProfile, TlsPolicy};
+    pub use crate::commands::remote as remote_cache;
+    pub use crate::commands::set_data_dir;
+    pub use crate::commands::fs_scope;
+
+    /// Хелпер для тестов границ доступа: скоуп с постоянным корнем.
+    pub mod fs_scope_probe {
+        use std::path::{Path, PathBuf};
+
+        use crate::commands::fs_scope::{Access, FsScope};
+
+        pub struct Probe(FsScope);
+
+        impl Probe {
+            pub fn resolve(&self, path: &str, write: bool) -> Result<PathBuf, crate::commands::ApiError> {
+                self.0.resolve(
+                    path,
+                    if write { Access::Write } else { Access::Read },
+                )
+            }
+        }
+
+        pub fn scope_with_always(roots: &[PathBuf]) -> Probe {
+            let scope = FsScope::default();
+            scope.attach(None, roots.to_vec());
+            Probe(scope)
+        }
+
+        #[allow(dead_code)]
+        pub fn is_dir(path: &Path) -> bool {
+            path.is_dir()
+        }
+    }
     pub use crate::core::share;
     pub use crate::core::totp;
     pub use crate::core::vault::{
@@ -74,18 +106,25 @@ pub fn configure<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
         if let Some(dir) = cache.as_deref() {
             let _ = std::fs::create_dir_all(dir);
         }
+
+        // Кэш серверного хранилища живёт в app_data, но открыт ровно один его
+        // подкаталог: рядом лежат хранилище грантов и биометрический блоб.
+        let mut always: Vec<std::path::PathBuf> = cache.into_iter().collect();
+        if let Ok(dir) = handle.path().app_data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            let remote_cache = dir.join(commands::remote::CACHE_ROOT);
+            let _ = std::fs::create_dir_all(&remote_cache);
+            always.push(remote_cache);
+            commands::set_data_dir(dir.clone());
+            state.attempts.attach(Some(dir.join("unlock-state.json")));
+        }
+
         let store = handle
             .path()
             .app_config_dir()
             .ok()
             .map(|dir| dir.join("fs-scope.json"));
-        let always = cache.into_iter().collect();
         state.fs_scope.attach(store, always);
-        if let Ok(dir) = handle.path().app_data_dir() {
-            let _ = std::fs::create_dir_all(&dir);
-            commands::set_data_dir(dir.clone());
-            state.attempts.attach(Some(dir.join("unlock-state.json")));
-        }
         Ok(())
     })
 }
@@ -154,6 +193,8 @@ pub fn configure_mock<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::B
         commands::remote::remote_download_blob,
         commands::remote::remote_delete_blob,
         commands::remote::remote_delete_account,
+        commands::remote::remote_cache_dir,
+        commands::remote::remote_cache_clear,
     ])
 }
 
@@ -237,6 +278,10 @@ pub fn run() {
             commands::remote::remote_download_blob,
             commands::remote::remote_delete_blob,
             commands::remote::remote_delete_account,
+            commands::remote::remote_cache_dir,
+            commands::remote::remote_cache_clear,
+        commands::remote::remote_cache_dir,
+        commands::remote::remote_cache_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");
