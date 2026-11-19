@@ -3,10 +3,14 @@ import { desktopStorage } from "@/lib/storage/desktop";
 import { remoteStorage } from "@/lib/storage/remote";
 import { isAndroidPlatform } from "@/lib/platform";
 import type { VaultStorage } from "@/lib/storage/types";
-import type { StorageMode } from "@/features/storage/mode";
+import { getMode, type StorageMode } from "@/lib/storage/mode";
 
+/**
+ * Хранилище текущего режима. Серверный режим — та же папка, но это кэш
+ * приложения, поэтому все пути к нему приходят из Rust.
+ */
 export function getStorage(): VaultStorage {
-  return isAndroidPlatform() ? androidStorage : desktopStorage;
+  return storageFor(getMode() ?? "local");
 }
 
 /**
@@ -15,9 +19,10 @@ export function getStorage(): VaultStorage {
  */
 export function storageFor(mode: StorageMode): VaultStorage {
   if (mode === "remote") return remoteStorage;
-  return getStorage();
+  return isAndroidPlatform() ? androidStorage : desktopStorage;
 }
 
 export * from "@/lib/storage/types";
+export * from "@/lib/storage/mode";
 export { remoteStorage } from "@/lib/storage/remote";
 export * from "@/lib/storage/recent";

@@ -13,7 +13,7 @@ function formatDate(value: string) {
   return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 }
 
-export function WelcomeScreen() {
+export function WelcomeScreen({ onChangeStorage }: { onChangeStorage?: () => void } = {}) {
   const recent = useVaultStore((state) => state.recent);
   const busy = useVaultStore((state) => state.busy);
   const error = useVaultStore((state) => state.error);
@@ -197,6 +197,16 @@ export function WelcomeScreen() {
               Пароль-фраза не хранится в программе. Если потерять все способы входа,
               восстановить данные будет невозможно.
             </p>
+
+            {onChangeStorage ? (
+              <button
+                type="button"
+                onClick={onChangeStorage}
+                className="mt-3 text-[11px] text-[var(--muted)] underline decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:text-[var(--text-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Сменить хранилище
+              </button>
+            ) : null}
           </div>
         </section>
       </div>

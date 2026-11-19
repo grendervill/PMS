@@ -6,6 +6,12 @@ import type { Page } from "@playwright/test";
  * this harness tests the UI flows and command wiring.
  */
 export type MockTauriOptions = {
+  /**
+   * Режим хранения, который «уже выбран» до первого экрана. Остальные сценарии
+   * проверяют локальный режим и не должны попадать на экран выбора.
+   * `null` — как на свежей установке.
+   */
+  storageMode?: "local" | "remote" | null;
   /** Seeds the fresh vault with generated entries (perf measurements). */
   seedEntries?: number;
   /**
@@ -16,16 +22,25 @@ export type MockTauriOptions = {
 };
 
 /** The values the init script receives; must be structured-cloneable. */
-type MockTauriInit = { seedEntries: number; seedExtraEntries: Record<string, unknown>[] };
+type MockTauriInit = {
+  seedEntries: number;
+  seedExtraEntries: Record<string, unknown>[];
+  storageMode: string | null;
+};
 
 export async function installMockTauri(page: Page, options: MockTauriOptions = {}) {
+  const storageMode = options.storageMode === undefined ? "local" : options.storageMode;
   const init: MockTauriInit = {
     seedEntries: options.seedEntries ?? 0,
     seedExtraEntries: options.seedExtraEntries ?? [],
+    storageMode: options.storageMode === undefined ? "local" : options.storageMode,
   };
   await page.addInitScript((payload: MockTauriInit) => {
     const seedEntries = payload.seedEntries;
     const seedExtraEntries = payload.seedExtraEntries;
+    if (payload.storageMode) {
+      window.localStorage.setItem("pms.storageMode.v1", payload.storageMode);
+    }
     const state: {
       vault: null | {
         data: Record<string, unknown>;
@@ -587,6 +602,41 @@ export async function installMockTauri(page: Page, options: MockTauriOptions = {
           state.session = "session-e2e";
           return { sessionId: state.session, data: clone(vault.data) };
         }
+        // --- Серверный режим -------------------------------------------------
+        case "remote_probe":
+          return { protocol: 1, spkiSha256: "ab".repeat(32) };
+        case "remote_fingerprint":
+          return "ab".repeat(32);
+        case "remote_cache_dir":
+          return `/tmp/pms-cache/${String(args.profileId)}`;
+        case "remote_cache_clear":
+          return null;
+        case "remote_login":
+        case "remote_register":
+        case "remote_refresh":
+          return {
+            accountId: "ab".repeat(16),
+            deviceId: "01".repeat(16),
+            expiresAt: "2030-01-01T00:00:00Z",
+            vault: null,
+          };
+        case "remote_logout":
+          return true;
+        case "remote_status":
+          return [];
+        case "remote_vault_meta":
+          return null;
+        case "remote_usage":
+          return {
+            used: 0,
+            quota: 1_073_741_824,
+            vaultBytes: 0,
+            blobsBytes: 0,
+            blobCount: 0,
+          };
+        case "remote_list_blobs":
+          return [];
+
         default:
           throw { code: "unknown_command", message: command };
       }

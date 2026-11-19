@@ -1,6 +1,6 @@
 //! Каталог кэша серверного хранилища и границы его доступа.
 
-use pms_lib::testing::{remote_cache, fs_scope_probe};
+use pms_lib::testing::{fs_scope_probe, remote_cache};
 
 #[test]
 fn cache_dir_has_layout_and_is_stable() {
@@ -34,7 +34,14 @@ fn only_the_cache_subtree_is_granted() {
 
     let scope = fs_scope_probe::scope_with_always(&[app_data.join("remote")]);
 
-    assert!(scope.resolve(&app_data.join("remote/profile-1/pms.vault").to_string_lossy(), true).is_ok());
+    assert!(scope
+        .resolve(
+            &app_data
+                .join("remote/profile-1/pms.vault")
+                .to_string_lossy(),
+            true
+        )
+        .is_ok());
     assert!(
         scope
             .resolve(&app_data.join("fs-scope.json").to_string_lossy(), false)

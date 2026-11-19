@@ -603,8 +603,9 @@ pub fn cache_dir(profile_id: &str) -> ApiResult<PathBuf> {
             "идентификатор профиля: латиница, цифры и дефис",
         ));
     }
-    let app_data = crate::commands::app_data_dir()
-        .ok_or_else(|| RemoteError::Storage("каталог приложения ещё не известен".to_string()).as_api_error())?;
+    let app_data = crate::commands::app_data_dir().ok_or_else(|| {
+        RemoteError::Storage("каталог приложения ещё не известен".to_string()).as_api_error()
+    })?;
 
     let dir = app_data.join(CACHE_ROOT).join(profile_id);
     for sub in [dir.clone(), dir.join("attachments"), dir.join("backups")] {

@@ -3,6 +3,9 @@ import { fromBase64, toBase64 } from "@/lib/base64";
 import { invokeRawBytes, toBytes } from "@/lib/ipc";
 import { isAndroidPlatform } from "@/lib/platform";
 import type {
+  RemoteProfile,
+  ServerVaultMeta,
+  ServerUsage,
   KdfProfile,
   UnlockSecret,
   VaultData,
@@ -235,6 +238,14 @@ export type SshPermissionStatus = {
 };
 
 export type SshKeyDraft = Omit<SshKey, "id" | "createdAt" | "updatedAt">;
+
+export type ServerProbe = { protocol: number; spkiSha256: string };
+export type ServerLogin = {
+  accountId: string;
+  deviceId: string;
+  expiresAt: string;
+  vault: ServerVaultMeta | null;
+};
 
 export const vaultApi = {
   /**
@@ -513,6 +524,68 @@ export const vaultApi = {
       destination,
       replaceCurrent,
     });
+  },
+
+  // --- Серверный режим -----------------------------------------------------
+
+  async remoteProbe(profile: RemoteProfile): Promise<ServerProbe> {
+    return call<ServerProbe>("remote_probe", { profile });
+  },
+
+  async remoteFingerprint(baseUrl: string): Promise<string> {
+    return call<string>("remote_fingerprint", { baseUrl });
+  },
+
+  async remoteLogin(profile: RemoteProfile, secret: UnlockSecret): Promise<ServerLogin> {
+    return call<ServerLogin>("remote_login", { profile, secret });
+  },
+
+  async remoteRegister(
+    profile: RemoteProfile,
+    secret: UnlockSecret,
+    vaultFolder?: string,
+  ): Promise<ServerLogin> {
+    return call<ServerLogin>("remote_register", { profile, secret, vaultFolder });
+  },
+
+  async remoteRefresh(accountId: string): Promise<ServerLogin> {
+    return call<ServerLogin>("remote_refresh", { accountId });
+  },
+
+  async remoteLogout(accountId: string): Promise<boolean> {
+    return call<boolean>("remote_logout", { accountId });
+  },
+
+  async remoteCacheDir(profileId: string): Promise<string> {
+    return call<string>("remote_cache_dir", { profileId });
+  },
+
+  async remoteCacheClear(profileId: string): Promise<void> {
+    await call<void>("remote_cache_clear", { profileId });
+  },
+
+  async remoteVaultMeta(accountId: string): Promise<ServerVaultMeta | null> {
+    return call<ServerVaultMeta | null>("remote_vault_meta", { accountId });
+  },
+
+  async remotePullVault(accountId: string, folder: string): Promise<ServerVaultMeta> {
+    return call<ServerVaultMeta>("remote_pull_vault", { accountId, folder });
+  },
+
+  async remotePushVault(
+    accountId: string,
+    folder: string,
+    expectedVersion: number | null,
+  ): Promise<ServerVaultMeta> {
+    return call<ServerVaultMeta>("remote_push_vault", {
+      accountId,
+      folder,
+      expectedVersion,
+    });
+  },
+
+  async remoteUsage(accountId: string): Promise<ServerUsage> {
+    return call<ServerUsage>("remote_usage", { accountId });
   },
 };
 export { fromBase64, toBase64 };

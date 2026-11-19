@@ -47,6 +47,8 @@ export type VaultStateData = {
 
 export type VaultActions = {
   init: () => Promise<void>;
+  /** Запуск в серверном режиме: открывает кэш, а не последний локальный сейф. */
+  initFromRemote: (cacheDir: string) => Promise<boolean>;
   createVault: (input: CreateVaultInput) => Promise<boolean>;
   openVault: (path: string) => Promise<boolean>;
   unlock: (secret: UnlockSecret) => Promise<boolean>;
@@ -144,6 +146,12 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       const first = recent[0];
       if (first) await get().openVault(first.path);
     }
+  },
+
+  async initFromRemote(cacheDir) {
+    if (get().initialized) return false;
+    set({ initialized: true, recent: listRecent() });
+    return get().openVault(cacheDir);
   },
 
   async createVault(input) {

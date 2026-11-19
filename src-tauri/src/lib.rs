@@ -10,6 +10,9 @@ use tauri::Manager;
 /// crate's public API.
 #[doc(hidden)]
 pub mod testing {
+    pub use crate::commands::fs_scope;
+    pub use crate::commands::remote as remote_cache;
+    pub use crate::commands::set_data_dir;
     pub use crate::core::attachments::{
         open_attachment, seal_attachment, seal_attachment_in_place, ATTACHMENT_HEADER_LEN,
         MAX_ATTACHMENT_BYTES,
@@ -28,9 +31,6 @@ pub mod testing {
     };
     pub use crate::core::pms_archive::{export as archive_export, import as archive_import};
     pub use crate::core::remote::{self, tls as remote_tls, RemoteError, RemoteProfile, TlsPolicy};
-    pub use crate::commands::remote as remote_cache;
-    pub use crate::commands::set_data_dir;
-    pub use crate::commands::fs_scope;
 
     /// Хелпер для тестов границ доступа: скоуп с постоянным корнем.
     pub mod fs_scope_probe {
@@ -41,11 +41,13 @@ pub mod testing {
         pub struct Probe(FsScope);
 
         impl Probe {
-            pub fn resolve(&self, path: &str, write: bool) -> Result<PathBuf, crate::commands::ApiError> {
-                self.0.resolve(
-                    path,
-                    if write { Access::Write } else { Access::Read },
-                )
+            pub fn resolve(
+                &self,
+                path: &str,
+                write: bool,
+            ) -> Result<PathBuf, crate::commands::ApiError> {
+                self.0
+                    .resolve(path, if write { Access::Write } else { Access::Read })
             }
         }
 
@@ -280,8 +282,6 @@ pub fn run() {
             commands::remote::remote_delete_account,
             commands::remote::remote_cache_dir,
             commands::remote::remote_cache_clear,
-        commands::remote::remote_cache_dir,
-        commands::remote::remote_cache_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PMS");

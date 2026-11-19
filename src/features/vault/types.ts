@@ -230,3 +230,20 @@ export type RemoteProfile = {
   baseUrl: string;
   tls: TlsPolicy;
 };
+
+/** Метаданные сейфа на сервере (см. `pms_proto::dto::VaultMeta`). */
+export type ServerVaultMeta = {
+  version: number;
+  size: number;
+  digest: string;
+  updatedAt: string;
+};
+
+/** Занятое место на сервере (см. `pms_proto::dto::Usage`). */
+export type ServerUsage = {
+  used: number;
+  quota: number;
+  vaultBytes: number;
+  blobsBytes: number;
+  blobCount: number;
+};
