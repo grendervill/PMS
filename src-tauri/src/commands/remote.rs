@@ -79,6 +79,16 @@ impl RemoteRegistry {
             .ok_or_else(|| RemoteError::Unauthorized.as_api_error())
     }
 
+    /// Семя любой активной сессии: биометрия сохраняет его вместе с ключом
+    /// сейфа, чтобы потом поднять сессию без пароль-фразы.
+    pub fn any_seed(&self) -> Option<Zeroizing<[u8; 32]>> {
+        let sessions = self.sessions.lock().expect("remote registry poisoned");
+        sessions
+            .values()
+            .map(|session| Zeroizing::new(*session.auth_seed))
+            .next()
+    }
+
     /// Обнуляет семена identity-ключей: после блокировки сейфа сессию нельзя
     /// продлить без мастер-ключа.
     pub fn clear_seeds(&self) {
@@ -146,11 +156,10 @@ pub struct LoginInfo {
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn probe(profile: &RemoteProfile) -> ApiResult<ProbeInfo> {
-    let client = RemoteClient::new(profile).map_err(to_api)?;
-    let probe = client.probe().await.map_err(to_api)?;
-
-    // У http-сервера сертификата нет: пустой отпечаток означает «пин не нужен»,
-    // иначе локальный сервер нельзя было бы даже проверить.
+    // Доверие по первому подключению: у https-сервера сначала снимаем отпечаток
+    // (соединение без проверки цепочки), затем проверяем тот же сервер уже с
+    // пином. Иначе к серверу со своим сертификатом нельзя подключиться вообще:
+    // системные корни его не знают, а пина ещё нет.
     let spki_sha256 = if profile.base_url.trim().starts_with("https://") {
         crate::core::remote::tls::fetch_spki_sha256(&profile.base_url)
             .await
@@ -158,6 +167,20 @@ pub(crate) async fn probe(profile: &RemoteProfile) -> ApiResult<ProbeInfo> {
     } else {
         String::new()
     };
+
+    let checked = if spki_sha256.is_empty() {
+        profile.clone()
+    } else {
+        RemoteProfile {
+            base_url: profile.base_url.clone(),
+            tls: crate::core::remote::TlsPolicy::Pin {
+                spki_sha256: spki_sha256.clone(),
+            },
+        }
+    };
+
+    let client = RemoteClient::new(&checked).map_err(to_api)?;
+    let probe = client.probe().await.map_err(to_api)?;
 
     Ok(ProbeInfo {
         protocol: probe.protocol,
@@ -177,10 +200,19 @@ pub(crate) async fn login(
     secret: &UnlockSecretInput,
 ) -> ApiResult<LoginInfo> {
     let identity = identity_from_secret(secret).map_err(to_api)?;
+    login_with_identity(state, profile, &identity).await
+}
+
+/// Вход ключом, который уже есть в памяти (после биометрии или продления).
+pub(crate) async fn login_with_identity(
+    state: &AppState,
+    profile: &RemoteProfile,
+    identity: &Identity,
+) -> ApiResult<LoginInfo> {
     let device = device_id().map_err(to_api)?;
     let client = RemoteClient::new(profile).map_err(to_api)?;
     let session = client
-        .login(&identity, DeviceId::new(device))
+        .login(identity, DeviceId::new(device))
         .await
         .map_err(to_api)?;
 
@@ -191,7 +223,7 @@ pub(crate) async fn login(
     Ok(store_session(
         state,
         profile.clone(),
-        &identity,
+        identity,
         session,
         vault,
     ))
@@ -472,6 +504,29 @@ pub async fn remote_login(
 ) -> ApiResult<LoginInfo> {
     let secret = UnlockSecretInput::try_from(secret)?;
     login(&state, &profile, &secret).await
+}
+
+/// Вход в серверный режим после биометрической разблокировки.
+#[tauri::command]
+pub async fn remote_login_biometric(
+    profile: RemoteProfile,
+    state: State<'_, AppState>,
+) -> ApiResult<LoginInfo> {
+    let seed = {
+        let mut stored = state
+            .biometric_seed
+            .lock()
+            .expect("biometric seed poisoned");
+        stored.take()
+    };
+    let Some(seed) = seed else {
+        return Err(ApiError::new(
+            "biometric_seed_missing",
+            "Биометрия не дала ключ сервера — введите пароль-фразу один раз",
+        ));
+    };
+    let identity = crate::core::remote::identity::identity_from_seed(&seed);
+    login_with_identity(&state, &profile, &identity).await
 }
 
 #[tauri::command]
@@ -797,6 +852,41 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn biometric_seed_logs_in_without_the_master_key() {
+        let fixture = fixture("").await;
+        let identity =
+            crate::core::remote::identity::identity_from_secret(&passphrase("мастер-ключ"))
+                .unwrap();
+
+        register(
+            &fixture.state,
+            &fixture.profile,
+            &passphrase("мастер-ключ"),
+            None,
+        )
+        .await
+        .unwrap();
+        // Выходим, чтобы проверить именно путь «семя из биометрии».
+        let account = AccountId::from_public_key(&identity.public);
+        logout(&fixture.state, account).unwrap();
+
+        {
+            let mut stored = fixture.state.biometric_seed.lock().unwrap();
+            *stored = Some(Zeroizing::new(*identity.secret));
+        }
+
+        let info = login_with_identity(
+            &fixture.state,
+            &fixture.profile,
+            &crate::core::remote::identity::identity_from_seed(&identity.secret),
+        )
+        .await
+        .unwrap();
+        assert_eq!(info.account_id, account.to_string());
+        assert!(vault_meta(&fixture.state, account).await.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn login_without_registration_reports_not_found() {
         let fixture = fixture("").await;
         let error = login(&fixture.state, &fixture.profile, &passphrase("никого нет"))
@@ -822,6 +912,23 @@ mod tests {
         };
         let error = probe(&profile).await.unwrap_err();
         assert_eq!(error.code, "remote_unreachable");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn probe_pins_a_self_signed_server_without_prior_trust() {
+        let fixture = fixture("").await;
+
+        // Политика профиля — системные корни: самоподписанный сертификат они не
+        // знают. Проверка всё равно должна пройти и вернуть отпечаток.
+        let info = probe(&RemoteProfile {
+            base_url: fixture.base_url.clone(),
+            tls: crate::core::remote::TlsPolicy::System,
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(info.protocol, 1);
+        assert_eq!(info.spki_sha256.len(), 64);
     }
 
     #[tokio::test(flavor = "multi_thread")]

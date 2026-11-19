@@ -103,6 +103,28 @@ describe("sync controller", () => {
     sync.stop();
   });
 
+  it("pauses the timer in the background and syncs on return", async () => {
+    const engine = engineStub({ kind: "idle" });
+    const sync = startSync(deps(engine, []));
+    const setVisibility = (value: "visible" | "hidden") => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => value,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+
+    setVisibility("hidden");
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    expect(engine.sync).not.toHaveBeenCalled();
+
+    setVisibility("visible");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.sync).toHaveBeenCalledOnce();
+
+    sync.stop();
+  });
+
   it("does not start a second sync while one is running", async () => {
     let resolve!: (value: Awaited<ReturnType<SyncEngine["sync"]>>) => void;
     const engine = engineStub({ kind: "idle" });
