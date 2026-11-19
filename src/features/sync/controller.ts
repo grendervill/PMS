@@ -82,12 +82,38 @@ export function startSync(options: Options): SyncController {
   const onFocus = () => {
     void run();
   };
-  const period = setInterval(() => {
-    void run();
-  }, PERIOD_MS);
+
+  // В фоне (свёрнутое приложение, погашенный экран телефона) таймер не нужен:
+  // будильник разбудит устройство зря. Синхронизируемся при возврате.
+  let period: ReturnType<typeof setInterval> | null = null;
+  const startPeriod = () => {
+    if (period === null) {
+      period = setInterval(() => {
+        void run();
+      }, PERIOD_MS);
+    }
+  };
+  const stopPeriod = () => {
+    if (period !== null) clearInterval(period);
+    period = null;
+  };
+  startPeriod();
+
+  const onVisibility = () => {
+    if (typeof document === "undefined") return;
+    if (document.visibilityState === "visible") {
+      startPeriod();
+      void run();
+    } else {
+      stopPeriod();
+    }
+  };
 
   if (typeof window !== "undefined") {
     window.addEventListener("focus", onFocus);
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", onVisibility);
   }
 
   return {
@@ -129,9 +155,12 @@ export function startSync(options: Options): SyncController {
     stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
-      clearInterval(period);
+      stopPeriod();
       if (typeof window !== "undefined") {
         window.removeEventListener("focus", onFocus);
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibility);
       }
     },
   };

@@ -6,11 +6,17 @@ import { importVaultArchive } from "@/lib/storage/archive";
 import { CreateVaultWizard } from "@/features/vault/CreateVaultWizard";
 import { errorText } from "@/features/vault/errors";
 import { useVaultStore } from "@/features/vault/store";
+import { useSyncStore } from "@/features/sync/store";
 
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
+/** Имя серверного профиля для визарда (пусто в локальном режиме). */
+function useSyncProfileName(): string | undefined {
+  return useSyncStore((state) => state.profile?.name);
 }
 
 export function WelcomeScreen({ onChangeStorage }: { onChangeStorage?: () => void } = {}) {
@@ -19,12 +25,19 @@ export function WelcomeScreen({ onChangeStorage }: { onChangeStorage?: () => voi
   const error = useVaultStore((state) => state.error);
   const openVault = useVaultStore((state) => state.openVault);
   const clearError = useVaultStore((state) => state.clearError);
+  const remoteTarget = useVaultStore((state) => state.remoteTarget);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
   if (wizardOpen) {
-    return <CreateVaultWizard onClose={() => setWizardOpen(false)} />;
+    return (
+      <CreateVaultWizard
+        onClose={() => setWizardOpen(false)}
+        folderOverride={remoteTarget ?? undefined}
+        folderLabel={useSyncProfileName()}
+      />
+    );
   }
 
   const openExisting = async () => {

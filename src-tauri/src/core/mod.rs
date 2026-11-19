@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod attachments;
+pub mod biometric_payload;
 pub mod crypto;
 pub mod error;
 pub mod generator;

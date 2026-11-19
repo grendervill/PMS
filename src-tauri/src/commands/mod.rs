@@ -42,6 +42,9 @@ pub struct AppState {
     pub attempts: UnlockGuard,
     /// Активные сессии серверного режима: токены живут только здесь.
     pub remote: RemoteRegistry,
+    /// Семя identity-ключа, прочитанное биометрией: до блокировки позволяет
+    /// поднять серверную сессию без пароль-фразы.
+    pub biometric_seed: std::sync::Mutex<Option<zeroize::Zeroizing<[u8; 32]>>>,
 }
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();

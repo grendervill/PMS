@@ -43,6 +43,8 @@ export type VaultStateData = {
   data: VaultData | null;
   recent: RecentVault[];
   error: VaultErrorInfo | null;
+  /** Каталог кэша серверного профиля: сюда создаётся сейф в серверном режиме. */
+  remoteTarget: string | null;
 };
 
 export type VaultActions = {
@@ -94,6 +96,7 @@ export const initialVaultState: VaultStateData = {
   data: null,
   recent: [],
   error: null,
+  remoteTarget: null,
 };
 
 function toErrorInfo(error: unknown): VaultErrorInfo {
@@ -159,8 +162,14 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
   },
 
   async initFromRemote(cacheDir) {
-    if (get().initialized) return false;
-    set({ initialized: true, recent: listRecent() });
+    set({ initialized: true, recent: [], remoteTarget: cacheDir });
+
+    // Пустой аккаунт на сервере — это не ошибка: сейф ещё не создан.
+    const exists = await getStorage().vaultExists(cacheDir).catch(() => false);
+    if (!exists) {
+      set({ status: "welcome", vaultPath: null, publicInfo: null, data: null, error: null });
+      return false;
+    }
     return get().openVault(cacheDir);
   },
 
@@ -197,6 +206,9 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       const info = await vaultApi.inspect(file);
       await storage.writeVault(input.folder, file);
       await rememberVaultFolder(input.folder);
+      if (get().remoteTarget) set({ vaultPath: input.folder });
+      // В серверном режиме созданный сейф сразу уезжает на сервер.
+      savedListener?.();
       const recent = addRecent(recentEntry(input.folder, created.data.name, created.data.id));
 
       set({

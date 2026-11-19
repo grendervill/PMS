@@ -31,16 +31,37 @@ import {
 } from "@/features/vault/wizard";
 import { cn } from "@/lib/cn";
 
-const steps = ["Папка", "Защита", "Проверка"];
+const LOCAL_STEPS = ["Папка", "Защита", "Проверка"];
+const REMOTE_STEPS = ["Сервер", "Защита", "Проверка"];
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} Б`;
   return `${(bytes / 1024).toFixed(1)} КБ`;
 }
 
-export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
-  const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<WizardDraft>(defaultWizardDraft);
+export function CreateVaultWizard({
+  onClose,
+  folderOverride,
+  folderLabel,
+}: {
+  onClose: () => void;
+  /** Серверный режим: папка не выбирается, сейф живёт в кэше профиля. */
+  folderOverride?: string;
+  /** Человеческое имя сервера для шага проверки. */
+  folderLabel?: string;
+}) {
+  const [step, setStep] = useState(folderOverride ? 1 : 0);
+  const [draft, setDraft] = useState<WizardDraft>(() =>
+    folderOverride
+      ? {
+          ...defaultWizardDraft,
+          folder: folderOverride,
+          // Название в серверном режиме не спрашиваем: папку не выбираем.
+          name: folderLabel ?? "Серверное хранилище",
+        }
+      : defaultWizardDraft,
+  );
+  const steps = folderOverride ? REMOTE_STEPS : LOCAL_STEPS;
   const [errors, setErrors] = useState<WizardErrors>({});
   const [strength, setStrength] = useState<PasswordStrength | null>(null);
   const [readingKeyfile, setReadingKeyfile] = useState(false);
@@ -142,6 +163,10 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
   };
 
   const back = () => {
+    if (folderOverride && step === 1) {
+      onClose();
+      return;
+    }
     if (step === 0) {
       onClose();
     } else {
@@ -187,7 +212,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
             className="flex h-9 items-center gap-2 rounded-[var(--radius-sm)] px-2 text-[12.5px] text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text)] disabled:opacity-50"
           >
             <ArrowLeft size={15} />
-            {step === 0 ? "Назад" : "К шагу назад"}
+            {step === 0 || (folderOverride && step === 1) ? "Отменить" : "К шагу назад"}
           </button>
           <div className="flex items-center gap-2 text-[12px] text-[var(--muted)]">
             <Lock size={14} className="text-[var(--accent-soft)]" />
@@ -469,7 +494,10 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
 
               <div className="mt-6 divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)]">
                 {[
-                  ["Папка", draft.folder ? getStorage().displayName(draft.folder) : ""],
+                  [
+                    folderOverride ? "Сервер" : "Папка",
+                    folderOverride ? (folderLabel ?? "Свой сервер") : draft.folder ? getStorage().displayName(draft.folder) : "",
+                  ],
                   ["Название", draft.name.trim()],
                   [
                     "Способы входа",
@@ -515,7 +543,7 @@ export function CreateVaultWizard({ onClose }: { onClose: () => void }) {
 
           <div className="mt-7 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-5">
             <Button variant="ghost" onClick={back} disabled={busy}>
-              {step === 0 ? "Отменить" : "Назад"}
+              {step === 0 || (folderOverride && step === 1) ? "Отменить" : "Назад"}
             </Button>
             {step < 2 ? (
               <Button onClick={next} disabled={busy}>

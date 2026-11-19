@@ -52,14 +52,18 @@ pub async fn biometric_enroll(
     let (vault_id, key) = state.sessions.with(session_id, |session| {
         Ok((session.vault_id(), *session.vault_key()))
     })?;
+    // Семя есть, только если серверный режим уже входил: тогда биометрия
+    // разблокирует и сейф, и серверную сессию.
+    let seed = state.remote.any_seed();
+    let payload = crate::core::biometric_payload::encode(&key, seed.as_deref());
 
     #[cfg(target_os = "macos")]
     {
-        imp::enroll(vault_id, &key)
+        imp::enroll(vault_id, &payload)
     }
     #[cfg(target_os = "android")]
     {
-        android::enroll(&app, vault_id, &key)
+        android::enroll(&app, vault_id, &payload)
     }
     #[cfg(not(any(target_os = "macos", target_os = "android")))]
     {
@@ -121,17 +125,26 @@ pub async fn biometric_unlock(
     state.attempts.check(vault_id)?;
 
     #[cfg(target_os = "macos")]
-    let key = imp::read(vault_id)?;
+    let payload_bytes = imp::read(vault_id)?;
     #[cfg(target_os = "android")]
-    let key = android::authenticate_and_read(&app, vault_id)?;
+    let payload_bytes = android::authenticate_and_read(&app, vault_id)?;
     #[cfg(not(any(target_os = "macos", target_os = "android")))]
-    let key: [u8; 32] = {
+    let payload_bytes: Vec<u8> = {
         let _ = (app, vault_id);
         return Err(ApiError::new(
             "biometric_unavailable",
             "Биометрия на этом устройстве недоступна",
         ));
     };
+
+    let payload = crate::core::biometric_payload::decode(&payload_bytes)
+        .ok_or_else(|| ApiError::new("biometric_failed", "Повреждён ключ биометрии"))?;
+    let key = *payload.vault_key;
+    if let Some(seed) = payload.auth_seed {
+        if let Ok(mut stored) = state.biometric_seed.lock() {
+            *stored = Some(seed);
+        }
+    }
 
     let (session, data) = match unlock_vault_with_key(&file, &key) {
         Ok(result) => {
@@ -258,8 +271,8 @@ mod imp {
     /// Returns `Ok(false)` when the data-protection keychain is unavailable
     /// (unsigned build, no device passcode): the caller then falls back to the
     /// generic password item used by earlier versions.
-    pub fn store(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<bool> {
-        match protected::store(vault_id, key) {
+    pub fn store(vault_id: Uuid, payload: &[u8]) -> ApiResult<bool> {
+        match protected::store(vault_id, payload) {
             Ok(()) => {
                 // Remove the unprotected copy left by older versions, otherwise
                 // the access control would be pointless.
@@ -269,7 +282,7 @@ mod imp {
             }
             Err(_) => {
                 let options = PasswordOptions::new_generic_password(SERVICE, &account(vault_id));
-                let secret = Zeroizing::new(key.to_vec());
+                let secret = Zeroizing::new(payload.to_vec());
                 set_generic_password_options(&secret, options).map_err(map_keychain_error)?;
                 mark_protected(vault_id, false);
                 Ok(false)
@@ -277,7 +290,7 @@ mod imp {
         }
     }
 
-    pub fn enroll(vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
+    pub fn enroll(vault_id: Uuid, payload: &[u8]) -> ApiResult<()> {
         if !available() {
             return Err(ApiError::new(
                 "biometric_unavailable",
@@ -287,7 +300,7 @@ mod imp {
         // User presence before storing: adding a keychain item does not prompt
         // by itself.
         evaluate()?;
-        store(vault_id, key).map(|_| ())
+        store(vault_id, payload).map(|_| ())
     }
 
     pub fn disable(vault_id: Uuid) -> ApiResult<()> {
@@ -302,9 +315,9 @@ mod imp {
 
     /// Reads the vault key. A protected item makes the *system* ask for
     /// authentication; the legacy item still needs the explicit prompt.
-    pub fn read(vault_id: Uuid) -> ApiResult<[u8; 32]> {
+    pub fn read(vault_id: Uuid) -> ApiResult<Vec<u8>> {
         match protected::read(vault_id) {
-            Ok(value) => into_key(value),
+            Ok(value) => Ok(value),
             Err(protected::ReadError::NotFound) | Err(protected::ReadError::Unsupported) => {
                 evaluate()?;
                 let value = Zeroizing::new(
@@ -314,7 +327,7 @@ mod imp {
                     ))
                     .map_err(map_keychain_error)?,
                 );
-                into_key(value.to_vec())
+                Ok(value.to_vec())
             }
             Err(protected::ReadError::Denied(code)) => Err(map_la_error(code)),
             Err(protected::ReadError::Other(code)) => Err(ApiError::new(
@@ -322,16 +335,6 @@ mod imp {
                 format!("Не удалось прочитать сохранённый ключ ({code})"),
             )),
         }
-    }
-
-    fn into_key(value: Vec<u8>) -> ApiResult<[u8; 32]> {
-        let value = Zeroizing::new(value);
-        value.as_slice().try_into().map_err(|_| {
-            ApiError::new(
-                "biometric_key_missing",
-                "Сохранённый ключ биометрии повреждён",
-            )
-        })
     }
 
     /// Whether the key for this vault lives behind an access control object.
@@ -460,14 +463,14 @@ mod imp {
             query
         }
 
-        pub fn store(vault_id: uuid::Uuid, key: &[u8; 32]) -> Result<(), OSStatus> {
+        pub fn store(vault_id: uuid::Uuid, payload: &[u8]) -> Result<(), OSStatus> {
             let control = access_control().ok_or(-50)?;
             let _ = delete(vault_id);
 
             let mut attributes = base_query(vault_id);
             attributes.add(
                 &cf(unsafe { kSecValueData }),
-                &CFData::from_buffer(key).as_CFType(),
+                &CFData::from_buffer(payload).as_CFType(),
             );
             attributes.add(&cf(unsafe { kSecAttrAccessControl }), &control.as_CFType());
 
@@ -572,7 +575,8 @@ mod imp {
             )
             .unwrap();
             let vault_id = session.vault_id();
-            let protected = store(vault_id, session.vault_key()).unwrap();
+            let payload = crate::core::biometric_payload::encode(session.vault_key(), None);
+            let protected = store(vault_id, &payload).unwrap();
             println!("keychain item is access controlled: {protected}");
             assert!(
                 protected,
@@ -580,8 +584,9 @@ mod imp {
             );
             assert!(is_protected(vault_id));
 
-            let key = read(vault_id).unwrap();
-            let (_, unlocked) = unlock_vault_with_key(&file, &key).unwrap();
+            let decoded = crate::core::biometric_payload::decode(&read(vault_id).unwrap())
+                .expect("нагрузка разбирается");
+            let (_, unlocked) = unlock_vault_with_key(&file, &decoded.vault_key).unwrap();
             assert_eq!(unlocked, data);
 
             disable(vault_id).unwrap();
@@ -656,8 +661,8 @@ mod android {
             .unwrap_or(false)
     }
 
-    pub fn enroll(app: &AppHandle, vault_id: Uuid, key: &[u8; 32]) -> ApiResult<()> {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(key);
+    pub fn enroll(app: &AppHandle, vault_id: Uuid, payload: &[u8]) -> ApiResult<()> {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
         let decrypted = app
             .biometric()
             .biometric_cipher(
@@ -683,7 +688,7 @@ mod android {
         Ok(())
     }
 
-    pub fn authenticate_and_read(app: &AppHandle, vault_id: Uuid) -> ApiResult<[u8; 32]> {
+    pub fn authenticate_and_read(app: &AppHandle, vault_id: Uuid) -> ApiResult<Vec<u8>> {
         let path = key_path(app, vault_id)?;
         let encrypted = fs::read_to_string(path).map_err(|_| {
             ApiError::new(
@@ -701,11 +706,8 @@ mod android {
                 },
             )
             .map_err(map_error)?;
-        let bytes = base64::engine::general_purpose::STANDARD
+        base64::engine::general_purpose::STANDARD
             .decode(decrypted.data)
-            .map_err(|_| ApiError::new("biometric_failed", "Повреждён ключ биометрии"))?;
-        bytes
-            .try_into()
             .map_err(|_| ApiError::new("biometric_failed", "Повреждён ключ биометрии"))
     }
 }

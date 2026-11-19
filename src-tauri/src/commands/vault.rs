@@ -438,6 +438,9 @@ pub fn vault_lock(session_id: Uuid, state: State<'_, AppState>) -> ApiResult<()>
     // Семя identity-ключа не должно переживать блокировку сейфа: иначе серверную
     // сессию можно продлевать без мастер-ключа сколько угодно.
     state.remote.clear_seeds();
+    if let Ok(mut stored) = state.biometric_seed.lock() {
+        *stored = None;
+    }
     Ok(())
 }
 
