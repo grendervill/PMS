@@ -4,9 +4,9 @@
 
 **Goal:** Сервер поднимается одной командой `docker compose up -d` на чистом VPS: образ собирается из репозитория, данные и сертификаты живут в томах, обновление — смена тега и `docker compose up -d`.
 
-**Architecture:** Multi-stage образ: сборка в `rust:1-slim` (нужен `cmake` для `aws-lc-rs`, `libsqlite3` не нужен — `rusqlite` собирается bundled), рантайм — `debian:bookworm-slim` с `ca-certificates` и `tzdata` и непривилегированным пользователем. `pms-server` остаётся **единственным**, кто терминирует TLS: сертификаты монтируются в `/etc/pms`, `tls.required = true` сохраняется. Certbot — отдельный контейнер-сайдкар, который кладёт сертификаты в общий том и перезапускает сервер по хуку. Compose описывает только то, что нужно одному VPS: ресурсы, healthcheck, ротацию логов, бэкап-скрипт.
+**Architecture:** Multi-stage образ: сборка в `rust:1-slim` (нужен `cmake` для `aws-lc-rs`, `libsqlite3` не нужен — `rusqlite` собирается bundled), рантайм — `debian:bookworm-slim` с `ca-certificates` и `tzdata` и непривилегированным пользователем. **Сертификат выбирается здесь, при развёртывании** (пожелание пользователя, §18.2 спеки): либо `caddy` терминирует TLS и сам получает/продлевает Let's Encrypt, либо сервер выпускает самоподписанный сертификат на 10 лет, который продлевает cron. Compose описывает только то, что нужно одному VPS: ресурсы, healthcheck, ротацию логов, бэкап-скрипт.
 
-**Tech Stack:** Docker Engine 27+, Docker Compose v2, BuildKit (multi-arch `linux/amd64` + `linux/arm64`), certbot, healthcheck через `curl /v1/healthz`, cron/systemd-timer для бэкапа.
+**Tech Stack:** Docker Engine 27+, Docker Compose v2, BuildKit (multi-arch `linux/amd64` + `linux/arm64`), Caddy 2 (ACME, автопродление), `openssl` в деплой-скрипте (самоподписанный на 10 лет), cron для продления самоподписанного и для бэкапа, healthcheck через `curl /v1/healthz`.
 
 **Spec:** `docs/superpowers/specs/2026-11-18-server-sync-design.md` (§8 хранилище, §11 TLS, §12 пределы)
 **Предыдущие планы:** `...-01-server.md` … `...-05-android.md`
@@ -20,7 +20,10 @@
 - Квота по умолчанию 1 ГиБ на аккаунт; лимит памяти контейнера — `256M` (замер прототипа: 18 МиБ RSS в простое).
 - Образ не содержит мастер-ключей и не умеет их принимать: сервер видит только шифротекст.
 - Никаких секретов в compose-файле: пароли почты ACME и токен регистрации — через `.env`, который в `.gitignore`.
-- ACME не встраивается в `pms-server` (§11): сертификаты выпускает certbot или ставятся вручную.
+- ACME не встраивается в `pms-server` (§11): сертификаты выпускает Caddy (Let's Encrypt) или деплой-скрипт (самоподписанный на 10 лет с SAN).
+- Два режима TLS, оба поддерживаются и оба с автопродлением: `acme` (Caddy) и `self-signed` (скрипт + cron). Выбор — переменная в `.env`; в обоих случаях клиент проверяет сервер по отпечатку.
+- В режиме `acme` TLS терминирует Caddy, а `pms-server` слушает только внутреннюю сеть compose (`tls.required = false`, порт не публикуется). Это ослабление fail-closed, поэтому оно явно записано в README и в конфиге, и не является умолчанием.
+- В режиме `self-signed` можно оставить TLS на самом `pms-server` (`tls.required = true`, сертификат в томе) — это вариант по умолчанию для домашней сети.
 
 ## Review Focus
 
@@ -44,7 +47,17 @@
 - [ ] **Step 3:** Проверить multi-arch: `docker buildx build --platform linux/amd64,linux/arm64` доходит до конца (ARM-таргеты нужны ультрабюджетным VPS).
 - [ ] **Step 4:** Commit.
 
-### Task 2: Compose-файл
+### Task 2: Сертификат при развёртывании (два режима)
+
+**Files:** Create `deploy/docker/cert-self-signed.sh`, `deploy/docker/Caddyfile`, `deploy/docker/renew-self-signed.sh`; Modify `deploy/docker/compose.yaml`, `.env.example`.
+
+- [ ] **Step 1:** `cert-self-signed.sh`: `openssl req -x509 -newkey rsa:3072 -sha256 -days 3650` с обязательным `subjectAltName` из `PMS_DOMAIN`/`PMS_IP`, права 640 на ключ, владелец — `pms`.
+- [ ] **Step 2:** `acme`-профиль: Caddyfile с `tls { ... }` и reverse_proxy на `pms-server:8443`; продление — встроенное у Caddy, cron не нужен.
+- [ ] **Step 3:** `renew-self-signed.sh` + cron: перевыпуск за 30 дней до истечения, рестарт `pms-server` только при успешном перевыпуске (иначе сервер остаётся на старом рабочем сертификате).
+- [ ] **Step 4:** Проверить оба режима: `docker compose --profile acme up -d` (или `staging`-ACME) и `PMS_TLS=self-signed docker compose up -d`; в обоих `curl` получает `healthz`, `openssl x509 -dates` показывает ожидаемый срок.
+- [ ] **Step 5:** Commit.
+
+### Task 3: Compose-файл
 
 **Files:** Create `deploy/docker/compose.yaml`, `deploy/docker/server.toml`, `deploy/docker/.env.example`.
 
@@ -57,7 +70,7 @@
 - [ ] **Step 3:** Проверить отказ: без сертификата в томе контейнер уходит в `Restarting` с понятным логом; `docker compose ps` это показывает.
 - [ ] **Step 4:** Commit.
 
-### Task 3: Данные, бэкап и обновление
+### Task 4: Данные, бэкап и обновление
 
 **Files:** Create `deploy/docker/backup.sh`, `deploy/docker/compose.backup.yaml`, `deploy/docker/README.md`; Modify `deploy/README.md` (ссылка на compose-вариант).
 
@@ -69,7 +82,7 @@
 - [ ] **Step 4:** Проверить квоты из контейнера: `docker compose exec pms-server pms-server quota-set --config /etc/pms/server.toml --account <hex> --bytes …`.
 - [ ] **Step 5:** Commit.
 
-### Task 4: Проверка на чистой VM
+### Task 5: Проверка на чистой VM
 
 **Files:** (вне репозитория) тестовая VM `192.168.1.233`.
 
@@ -80,4 +93,4 @@
 
 ## Self-Review
 
-Reverse proxy с ACME (Caddy) как альтернатива certbot описан в README, но не входит в compose: `pms-server` в таком варианте обязан работать с `tls.required = false`, а это ослабляет fail-closed — выбор оставлен деплойменту, а не умолчанию. Мониторинг и алерты (Prometheus, uptime) вне плана: одна VM, healthcheck + journal достаточно.
+Оба режима TLS входят в план, потому что пользователь просил оба и оба с автопродлением. Цена режима `acme` — TLS терминирует Caddy, значит внутри compose `pms-server` работает без TLS; это записано в README рядом с конфигом, и порт наружу публикует только Caddy. Мониторинг и алерты (Prometheus, uptime) вне плана: одна VM, healthcheck и journal достаточно. Мониторинг и алерты (Prometheus, uptime) вне плана: одна VM, healthcheck + journal достаточно.
