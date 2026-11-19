@@ -13,8 +13,28 @@ import { ServerProfileForm } from "@/features/storage/ServerProfileForm";
 import { saveProfile, setActiveProfile, type ServerProfile } from "@/features/storage/profiles";
 import { startupTarget } from "@/features/storage/startup";
 import { clearMode, remoteStorage, setMode } from "@/lib/storage";
+import { useSyncStore } from "@/features/sync/store";
+import { ConflictDialog } from "@/features/sync/ConflictDialog";
 
 type Flow = "boot" | "choose" | "server" | "ready";
+
+/** Диалог конфликта живёт на уровне приложения: он нужен на любом экране. */
+function SyncConflictMount() {
+  const status = useSyncStore((state) => state.status);
+  const resolveKeepMine = useSyncStore((state) => state.resolveKeepMine);
+  const resolveTakeTheirs = useSyncStore((state) => state.resolveTakeTheirs);
+
+  if (status.kind !== "conflict") return null;
+  return (
+    <ConflictDialog
+      open
+      remoteVersion={status.remoteVersion}
+      onKeepMine={() => void resolveKeepMine()}
+      onTakeTheirs={() => void resolveTakeTheirs()}
+      onLater={() => useSyncStore.setState({ status: { kind: "dirty" } })}
+    />
+  );
+}
 
 export default function App() {
   const status = useVaultStore((state) => state.status);
@@ -52,6 +72,7 @@ export default function App() {
         // Офлайн — не ошибка запуска.
       }
       await useVaultStore.getState().initFromRemote(cacheDir);
+      useSyncStore.getState().start(target.profile, cacheDir);
       setFlow("ready");
     } catch (error) {
       setBootError(errorText(error));
@@ -80,10 +101,12 @@ export default function App() {
       // Первый вход без сейфа или без сети: кэш пуст, это не ошибка.
     }
     await useVaultStore.getState().initFromRemote(cacheDir);
+    useSyncStore.getState().start(profile, cacheDir);
     setFlow("ready");
   };
 
   const changeStorage = () => {
+    useSyncStore.getState().stop();
     clearMode();
     setActiveProfile(null);
     useVaultStore.setState({ status: "welcome", initialized: false });
@@ -113,7 +136,10 @@ export default function App() {
             onCancel={() => setFlow("choose")}
           />
         ) : status === "unlocked" ? (
-          <AppShell />
+          <>
+            <AppShell />
+            <SyncConflictMount />
+          </>
         ) : status === "welcome" ? (
           <WelcomeScreen onChangeStorage={changeStorage} />
         ) : (

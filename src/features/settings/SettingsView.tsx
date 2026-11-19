@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/toast-context";
 import { ImportWizard } from "@/features/import/ImportWizard";
+import { ServerSectionContainer } from "@/features/settings/ServerSectionContainer";
 import {
   cleanupBackups,
   createManualBackup,
@@ -849,6 +850,8 @@ export function SettingsView() {
           </div>
         </section>
       </div>
+
+      <ServerSectionContainer />
 
       {importOpen ? <ImportWizard onClose={() => setImportOpen(false)} /> : null}
     </div>

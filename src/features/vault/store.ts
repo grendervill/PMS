@@ -133,6 +133,16 @@ function recentEntry(path: string, name: string, vaultId: string): RecentVault {
   };
 }
 
+/**
+ * Хук «сейф сохранён»: синхронизация подписывается на него, чтобы не тянуть
+ * сетевой код в стор сейфа.
+ */
+let savedListener: (() => void) | null = null;
+
+export function setVaultSavedListener(listener: (() => void) | null): void {
+  savedListener = listener;
+}
+
 export const useVaultStore = create<VaultStore>((set, get) => ({
   ...initialVaultState,
 
@@ -372,6 +382,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
         await vaultApi.saveTo(sessionId, vaultPath, data);
       }
       set({ data, busy: false, error: null });
+      savedListener?.();
       return true;
     } catch (error) {
       set({ busy: false, error: toErrorInfo(error) });
