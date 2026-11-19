@@ -6,6 +6,7 @@ import type {
   RemoteProfile,
   ServerVaultMeta,
   ServerUsage,
+  ServerBlob,
   KdfProfile,
   UnlockSecret,
   VaultData,
@@ -582,6 +583,34 @@ export const vaultApi = {
       folder,
       expectedVersion,
     });
+  },
+
+  async remoteListBlobs(accountId: string): Promise<ServerBlob[]> {
+    return call<ServerBlob[]>("remote_list_blobs", { accountId });
+  },
+
+  async remoteUploadBlob(
+    accountId: string,
+    blobId: string,
+    path: string,
+  ): Promise<ServerBlob> {
+    return call<ServerBlob>("remote_upload_blob", { accountId, blobId, path });
+  },
+
+  async remoteDownloadBlob(
+    accountId: string,
+    blobId: string,
+    dest: string,
+  ): Promise<ServerBlob> {
+    return call<ServerBlob>("remote_download_blob", { accountId, blobId, dest });
+  },
+
+  async remoteDeleteBlob(accountId: string, blobId: string): Promise<boolean> {
+    return call<boolean>("remote_delete_blob", { accountId, blobId });
+  },
+
+  async remoteDeleteAccount(accountId: string, secret: UnlockSecret): Promise<void> {
+    await call<void>("remote_delete_account", { accountId, secret });
   },
 
   async remoteUsage(accountId: string): Promise<ServerUsage> {

@@ -5,12 +5,12 @@ import type { VaultStorage } from "@/lib/storage";
 function memoryStorage(): VaultStorage {
   const files = new Map<string, Uint8Array>();
   return {
-    readFile: async (path) => {
+    readFile: async (path: string) => {
       const found = files.get(path);
       if (!found) throw { code: "storage", message: "нет файла" };
       return found;
     },
-    saveFile: async (path, bytes) => {
+    saveFile: async (path: string, bytes: Uint8Array) => {
       files.set(path, bytes);
     },
     vaultExists: async () => false,

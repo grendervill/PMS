@@ -247,3 +247,12 @@ export type ServerUsage = {
   blobsBytes: number;
   blobCount: number;
 };
+
+/** Блоб на сервере (см. `pms_proto::dto::BlobInfo`). */
+export type ServerBlob = {
+  blobId: string;
+  size: number;
+  digest: string;
+  createdAt: string;
+  lastUsedAt: string;
+};
