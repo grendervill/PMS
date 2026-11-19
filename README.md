@@ -96,6 +96,8 @@ Bluetooth-обнаружение также требует отдельного 
 - планы: `docs/superpowers/plans/2026-11-18-server-sync-0*.md`
 - развёртывание вручную: `deploy/README.md`
 - Docker Compose: запланирован, `docs/superpowers/plans/2026-11-18-server-sync-06-docker.md`
+- Мастер настройки сервера (SSL-сертификат, генерация самоподписанного на 10 лет):
+  запланирован, `docs/superpowers/plans/2026-11-19-server-setup-wizard.md`
 - сборка: `cargo build --profile server -p pms-server`
 
 ## Сборки для всех платформ
