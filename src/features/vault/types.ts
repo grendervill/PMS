@@ -218,3 +218,32 @@ export function defaultVaultSettings(): VaultSettings {
     maxAttachmentMb: 50,
   };
 }
+
+/** Политика проверки сертификата сервера (см. `core::remote::TlsPolicy`). */
+export type TlsPolicy =
+  | { kind: "system" }
+  | { kind: "pin"; spkiSha256: string }
+  | { kind: "insecure" };
+
+/** Адрес сервера и политика TLS: ровно то, что нужно Rust для подключения. */
+export type RemoteProfile = {
+  baseUrl: string;
+  tls: TlsPolicy;
+};
+
+/** Метаданные сейфа на сервере (см. `pms_proto::dto::VaultMeta`). */
+export type ServerVaultMeta = {
+  version: number;
+  size: number;
+  digest: string;
+  updatedAt: string;
+};
+
+/** Занятое место на сервере (см. `pms_proto::dto::Usage`). */
+export type ServerUsage = {
+  used: number;
+  quota: number;
+  vaultBytes: number;
+  blobsBytes: number;
+  blobCount: number;
+};

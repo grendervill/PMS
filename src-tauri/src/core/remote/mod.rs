@@ -31,6 +31,7 @@ pub enum TlsPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoteProfile {
     pub base_url: String,
     pub tls: TlsPolicy,
