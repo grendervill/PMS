@@ -14,11 +14,14 @@ use super::RemoteError;
 
 pub const DEVICE_FILE: &str = "remote-device.json";
 
-/// Выводит ключ аккаунта из того же секрета, что открывает сейф.
-pub fn identity_from_secret(secret: &UnlockSecretInput) -> Result<Identity, RemoteError> {
+/// Выводит ключ аккаунта из мастер-ключа и логина на сервере.
+pub fn identity_from_secret(
+    secret: &UnlockSecretInput,
+    login: &str,
+) -> Result<Identity, RemoteError> {
     let canonical = canonical_secret(secret)
         .map_err(|error| RemoteError::BadRequest(format!("мастер-ключ не принят: {error}")))?;
-    derive_identity_checked(&canonical, &IdentityKdf::V1)
+    derive_identity_checked(&canonical, login, &IdentityKdf::V1)
         .map_err(|error| RemoteError::BadRequest(error.to_string()))
 }
 
@@ -87,25 +90,34 @@ mod tests {
     }
 
     #[test]
-    fn identity_is_derived_from_the_master_secret() {
+    fn identity_is_derived_from_the_master_secret_and_login() {
         let secret = UnlockSecretInput::Passphrase {
             value: "correct horse battery".to_string(),
         };
-        let first = identity_from_secret(&secret).unwrap();
-        let second = identity_from_secret(&UnlockSecretInput::Passphrase {
-            value: "correct horse battery".to_string(),
-        })
-        .unwrap();
-        let other = identity_from_secret(&UnlockSecretInput::Passphrase {
-            value: "another phrase".to_string(),
-        })
+        let first = identity_from_secret(&secret, "alice").unwrap();
+        let second = identity_from_secret(&secret, "alice").unwrap();
+        let other = identity_from_secret(&secret, "bob").unwrap();
+        let other_phrase = identity_from_secret(
+            &UnlockSecretInput::Passphrase {
+                value: "another phrase".to_string(),
+            },
+            "alice",
+        )
         .unwrap();
 
         assert_eq!(first.public, second.public);
-        assert_ne!(first.public, other.public);
-        assert!(identity_from_secret(&UnlockSecretInput::Passphrase {
-            value: String::new()
-        })
+        assert_ne!(first.public, other.public, "логин входит в вывод ключа");
+        assert_ne!(first.public, other_phrase.public);
+        assert!(identity_from_secret(
+            &UnlockSecretInput::Passphrase {
+                value: String::new()
+            },
+            "alice",
+        )
         .is_err());
+        assert!(
+            identity_from_secret(&secret, "a").is_err(),
+            "логин проверяется"
+        );
     }
 }

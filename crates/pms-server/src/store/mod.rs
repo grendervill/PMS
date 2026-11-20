@@ -24,6 +24,8 @@ pub use paths::is_blob_id;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountRecord {
     pub account_id: AccountId,
+    /// Логин на этом сервере. `None` у аккаунтов прототипа без логина.
+    pub login: Option<String>,
     pub public_key: [u8; 32],
     pub quota_bytes: u64,
     pub used_bytes: u64,
@@ -85,6 +87,7 @@ impl Store {
         account: AccountId,
         public_key: [u8; 32],
         quota_bytes: u64,
+        login: &str,
     ) -> Result<bool, StoreError> {
         let directory = paths::account_dir(&self.root, account);
         create_private_dir(&directory)?;
@@ -95,18 +98,43 @@ impl Store {
             .db()?
             .execute(
                 "INSERT INTO accounts (account_id, public_key, quota_bytes, used_bytes, \
-                 vault_version, vault_digest, vault_size, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, 0, 0, '', 0, ?4, ?4) \
+                 vault_version, vault_digest, vault_size, created_at, updated_at, login) \
+                 VALUES (?1, ?2, ?3, 0, 0, '', 0, ?4, ?4, ?5) \
                  ON CONFLICT(account_id) DO NOTHING",
                 rusqlite::params![
                     account.to_string(),
                     public_key.to_vec(),
                     quota_bytes as i64,
-                    now
+                    now,
+                    login
                 ],
             )
             .map_err(db_error)?;
         Ok(inserted == 1)
+    }
+
+    /// Ищет аккаунт по логину (без учёта регистра: логин нормализован при записи).
+    pub fn account_by_login(&self, login: &str) -> Result<Option<AccountRecord>, StoreError> {
+        let account = {
+            let connection = self.db()?;
+            let mut statement = connection
+                .prepare("SELECT account_id FROM accounts WHERE login = ?1")
+                .map_err(db_error)?;
+            let mut rows = statement
+                .query(rusqlite::params![login.to_ascii_lowercase()])
+                .map_err(db_error)?;
+            match rows.next().map_err(db_error)? {
+                Some(row) => {
+                    let hex: String = row.get(0).map_err(db_error)?;
+                    AccountId::from_hex(&hex)
+                }
+                None => None,
+            }
+        };
+        match account {
+            Some(account) => self.account(account),
+            None => Ok(None),
+        }
     }
 
     pub fn account(&self, account: AccountId) -> Result<Option<AccountRecord>, StoreError> {
@@ -114,7 +142,7 @@ impl Store {
         let mut statement = connection
             .prepare(
                 "SELECT account_id, public_key, quota_bytes, used_bytes, vault_version, \
-                 vault_digest, vault_size, updated_at FROM accounts WHERE account_id = ?1",
+                 vault_digest, vault_size, updated_at, login FROM accounts WHERE account_id = ?1",
             )
             .map_err(db_error)?;
         let mut rows = statement
@@ -281,6 +309,7 @@ fn read_account(row: &rusqlite::Row<'_>, account: AccountId) -> Result<AccountRe
 
     Ok(AccountRecord {
         account_id: account,
+        login: row.get(8).map_err(db_error)?,
         public_key: key,
         quota_bytes: row.get::<_, i64>(2).map_err(db_error)? as u64,
         used_bytes: row.get::<_, i64>(3).map_err(db_error)? as u64,

@@ -27,12 +27,16 @@ async fn fixture() -> Fixture {
     let profile = RemoteProfile {
         base_url: server.base_url.clone(),
         tls: TlsPolicy::Pin { spki_sha256: pin },
+        login: "alice".to_string(),
     };
     let client = RemoteClient::new(&profile).unwrap();
-    let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
+    let identity = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
     let device = DeviceId::new([4u8; 16]);
-    client.register(&identity, device, None).await.unwrap();
-    let login = client.login(&identity, device).await.unwrap();
+    client
+        .register(&identity, device, "alice", None)
+        .await
+        .unwrap();
+    let login = client.login(&identity, device, "alice").await.unwrap();
 
     Fixture {
         server,
@@ -174,8 +178,8 @@ async fn push_from_missing_file_is_a_storage_error() {
 #[tokio::test]
 async fn identity_of_the_same_secret_reaches_the_same_account() {
     let fixture = fixture().await;
-    let same = identity_from_secret(&secret("мастер-ключ")).unwrap();
-    let other = identity_from_secret(&secret("другой ключ")).unwrap();
+    let same = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
+    let other = identity_from_secret(&secret("другой ключ"), "bob").unwrap();
     assert_eq!(
         pms_proto::identity::AccountId::from_public_key(&same.public),
         pms_proto::identity::AccountId::from_public_key(&fixture.identity.public)

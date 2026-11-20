@@ -13,7 +13,9 @@ fn account_dir_is_private_and_sharded() {
     let store = Store::open(dir.path(), 1024).unwrap();
     let account = AccountId::new([0xab; 16]);
 
-    assert!(store.create_account(account, [1u8; 32], 1024).unwrap());
+    assert!(store
+        .create_account(account, [1u8; 32], 1024, "alice")
+        .unwrap());
 
     let path = paths::account_dir(dir.path(), account);
     assert!(path.ends_with("ab/abababababababababababababababab"));
@@ -28,8 +30,12 @@ fn create_account_twice_reports_conflict() {
     let store = Store::open(dir.path(), 1024).unwrap();
     let account = AccountId::new([7u8; 16]);
 
-    assert!(store.create_account(account, [2u8; 32], 1024).unwrap());
-    assert!(!store.create_account(account, [2u8; 32], 1024).unwrap());
+    assert!(store
+        .create_account(account, [2u8; 32], 1024, "bob")
+        .unwrap());
+    assert!(!store
+        .create_account(account, [2u8; 32], 1024, "bob")
+        .unwrap());
 }
 
 #[test]
@@ -39,7 +45,9 @@ fn account_record_round_trips() {
     let account = AccountId::new([9u8; 16]);
 
     assert_eq!(store.account(account).unwrap(), None);
-    store.create_account(account, [3u8; 32], 4096).unwrap();
+    store
+        .create_account(account, [3u8; 32], 4096, "carol")
+        .unwrap();
 
     let record = store.account(account).unwrap().unwrap();
     assert_eq!(record.account_id, account);
@@ -55,7 +63,9 @@ fn reopen_recounts_used_bytes_from_disk() {
     let account = AccountId::new([4u8; 16]);
     {
         let store = Store::open(dir.path(), 4096).unwrap();
-        store.create_account(account, [4u8; 32], 4096).unwrap();
+        store
+            .create_account(account, [4u8; 32], 4096, "dave")
+            .unwrap();
     }
 
     std::fs::write(paths::vault_path(dir.path(), account), vec![0u8; 100]).unwrap();

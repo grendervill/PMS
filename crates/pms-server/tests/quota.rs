@@ -17,7 +17,9 @@ async fn quota_counts_vault_and_blobs_together() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path(), 1_000).unwrap();
     let account = AccountId::new([0x31; 16]);
-    store.create_account(account, [1u8; 32], 1_000).unwrap();
+    store
+        .create_account(account, [1u8; 32], 1_000, "alice")
+        .unwrap();
 
     let vault = vec![1u8; 400];
     store
@@ -67,7 +69,9 @@ async fn parallel_blob_uploads_cannot_exceed_quota() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path(), 1_000).unwrap());
     let account = AccountId::new([0x32; 16]);
-    store.create_account(account, [1u8; 32], 1_000).unwrap();
+    store
+        .create_account(account, [1u8; 32], 1_000, "alice")
+        .unwrap();
 
     let mut handles = Vec::new();
     for index in 0..8u8 {

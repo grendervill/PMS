@@ -15,6 +15,7 @@ pub const HEADER_PUBLIC_KEY: &str = "x-pms-public-key";
 pub const HEADER_DEVICE: &str = "x-pms-device-id";
 pub const HEADER_SIGNATURE: &str = "x-pms-signature";
 pub const HEADER_DIGEST: &str = "x-pms-digest";
+pub const HEADER_LOGIN: &str = "x-pms-login";
 pub const HEADER_VAULT_VERSION: &str = "x-pms-vault-version";
 
 pub struct RemoteClient {
@@ -116,8 +117,11 @@ impl RemoteClient {
         &self,
         identity: &Identity,
         device: DeviceId,
+        login: &str,
         vault: Option<&std::path::Path>,
     ) -> Result<Registration, RemoteError> {
+        let login = pms_proto::identity::normalize_login(login)
+            .ok_or_else(|| RemoteError::BadRequest("недопустимый логин".to_string()))?;
         let account = AccountId::from_public_key(&identity.public);
         let digest = match vault {
             Some(path) => crate::core::remote::blobs::digest_of_file(path).await?,
@@ -148,6 +152,7 @@ impl RemoteClient {
             .header(HEADER_ACCOUNT, account.to_string())
             .header(HEADER_PUBLIC_KEY, hex::encode(identity.public))
             .header(HEADER_DEVICE, device.to_string())
+            .header(HEADER_LOGIN, &login)
             .header(HEADER_SIGNATURE, hex::encode(signature))
             .header(reqwest::header::CONTENT_LENGTH, length)
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
@@ -157,10 +162,10 @@ impl RemoteClient {
             .map_err(unreachable)?;
 
         if response.status() == reqwest::StatusCode::CONFLICT {
-            let login = self.login(identity, device).await?;
+            let session = self.login(identity, device, &login).await?;
             return Ok(Registration {
                 created: false,
-                login,
+                login: session,
                 vault: None,
             });
         }
@@ -170,23 +175,30 @@ impl RemoteClient {
         // Сервер отвечает метаданными загруженного сейфа: второй запрос не нужен.
         let meta: VaultMeta = response.json().await.map_err(unreachable)?;
 
-        let login = self.login(identity, device).await?;
+        let session = self.login(identity, device, &login).await?;
         Ok(Registration {
             created: true,
-            login,
+            login: session,
             vault: Some(meta),
         })
     }
 
-    pub async fn login(&self, identity: &Identity, device: DeviceId) -> Result<Login, RemoteError> {
+    pub async fn login(
+        &self,
+        identity: &Identity,
+        device: DeviceId,
+        login: &str,
+    ) -> Result<Login, RemoteError> {
         let account = AccountId::from_public_key(&identity.public);
+        let login = pms_proto::identity::normalize_login(login)
+            .ok_or_else(|| RemoteError::BadRequest("недопустимый логин".to_string()))?;
 
         let response = self
             .http
             .post(self.endpoint("/v1/auth/challenge")?)
             .header(HEADER_PROTOCOL, PROTOCOL_VERSION.to_string())
             .json(&ChallengeRequest {
-                account_id: account.to_string(),
+                login: login.clone(),
                 device_id: device.to_string(),
             })
             .send()
@@ -196,6 +208,14 @@ impl RemoteClient {
             return Err(error_from_response(response).await);
         }
         let challenge: ChallengeResponse = response.json().await.map_err(unreachable)?;
+
+        // Сервер нашёл аккаунт по логину. Если он не совпал с выведенным из
+        // логина и мастер-ключа — это другой пользователь или чужой сервер.
+        if challenge.account_id != account.to_string() {
+            return Err(RemoteError::BadRequest(
+                "логин на сервере принадлежит другому ключу".to_string(),
+            ));
+        }
 
         let nonce = decode_nonce(&challenge.nonce)?;
         let signature = sign_challenge(identity, &account, &device, &nonce);

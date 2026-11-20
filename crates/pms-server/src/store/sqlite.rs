@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     vault_version INTEGER NOT NULL DEFAULT 0,
     vault_digest TEXT NOT NULL DEFAULT '',
     vault_size INTEGER NOT NULL DEFAULT 0,
+    login TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_auth_at TEXT
@@ -56,5 +57,24 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.busy_timeout(std::time::Duration::from_millis(1000))?;
     connection.execute_batch(SCHEMA)?;
+    migrate(&connection)?;
     Ok(connection)
+}
+
+/// Миграции поверх уже существующего индекса.
+///
+/// `CREATE TABLE IF NOT EXISTS` не добавляет колонки в старую базу, поэтому
+/// новые поля появляются здесь, а не в схеме.
+fn migrate(connection: &Connection) -> rusqlite::Result<()> {
+    let has_login: bool = connection
+        .prepare("SELECT 1 FROM pragma_table_info('accounts') WHERE name = 'login'")?
+        .exists([])?;
+    if !has_login {
+        connection.execute("ALTER TABLE accounts ADD COLUMN login TEXT", [])?;
+    }
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS accounts_by_login ON accounts(login)",
+        [],
+    )?;
+    Ok(())
 }

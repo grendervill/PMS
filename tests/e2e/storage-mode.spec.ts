@@ -39,6 +39,7 @@ test("server profile form shows the key fingerprint before login", async ({ page
   await expect(page.getByRole("button", { name: /Войти/ })).toBeDisabled();
   await page.screenshot({ path: "test-results/storage-mode-server.png", fullPage: true });
 
+  await page.getByLabel("Логин на сервере").fill("alice");
   await page.getByLabel("Пароль-фраза").fill("correct horse");
   await page.getByRole("button", { name: /Войти/ }).click();
 
@@ -47,6 +48,7 @@ test("server profile form shows the key fingerprint before login", async ({ page
     .toBe("remote");
   const profiles = await page.evaluate(() => localStorage.getItem("pms.profiles.v1"));
   expect(profiles).toContain("https://pms.home:8443");
+  expect(profiles).toContain("\"login\":\"alice\"");
 });
 
 test("switching storage returns to the chooser", async ({ page }) => {

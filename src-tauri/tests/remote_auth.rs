@@ -13,6 +13,7 @@ fn profile(server: &TestServer, pin: &str) -> RemoteProfile {
         tls: TlsPolicy::Pin {
             spki_sha256: pin.to_string(),
         },
+        login: "alice".to_string(),
     }
 }
 
@@ -35,14 +36,14 @@ async fn register_then_login_gives_a_working_session() {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
-    let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
+    let identity = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
 
     let dir = tempfile::tempdir().unwrap();
     let vault = dir.path().join("pms.vault");
     std::fs::write(&vault, b"sealed vault").unwrap();
 
     let registration = client
-        .register(&identity, device(), Some(&vault))
+        .register(&identity, device(), "alice", Some(&vault))
         .await
         .unwrap();
     assert!(registration.created);
@@ -50,7 +51,7 @@ async fn register_then_login_gives_a_working_session() {
     assert_eq!(meta.version, 1);
     assert_eq!(meta.size, 12);
 
-    let login = client.login(&identity, device()).await.unwrap();
+    let login = client.login(&identity, device(), "alice").await.unwrap();
     assert!(!login.token.expose().is_empty());
 
     let remote = client.vault_meta(login.token.expose()).await.unwrap();
@@ -62,18 +63,18 @@ async fn second_device_logs_in_and_sees_the_same_vault() {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
-    let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
+    let identity = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
 
     let dir = tempfile::tempdir().unwrap();
     let vault = dir.path().join("pms.vault");
     std::fs::write(&vault, b"sealed vault").unwrap();
     client
-        .register(&identity, DeviceId::new([1u8; 16]), Some(&vault))
+        .register(&identity, DeviceId::new([1u8; 16]), "alice", Some(&vault))
         .await
         .unwrap();
 
     let phone = client
-        .login(&identity, DeviceId::new([2u8; 16]))
+        .login(&identity, DeviceId::new([2u8; 16]), "alice")
         .await
         .unwrap();
     let meta = client.vault_meta(phone.token.expose()).await.unwrap();
@@ -85,13 +86,19 @@ async fn registering_twice_falls_back_to_login() {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
-    let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
+    let identity = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
 
-    let first = client.register(&identity, device(), None).await.unwrap();
+    let first = client
+        .register(&identity, device(), "alice", None)
+        .await
+        .unwrap();
     assert!(first.created);
     assert!(!first.login.token.expose().is_empty());
 
-    let second = client.register(&identity, device(), None).await.unwrap();
+    let second = client
+        .register(&identity, device(), "alice", None)
+        .await
+        .unwrap();
     assert!(!second.created, "второй раз аккаунт не создаётся заново");
     assert!(!second.login.token.expose().is_empty());
 
@@ -107,10 +114,14 @@ async fn unknown_account_cannot_log_in() {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
-    let stranger = identity_from_secret(&secret("другая пароль-фраза")).unwrap();
+    let stranger = identity_from_secret(&secret("другая пароль-фраза"), "alice").unwrap();
 
-    let error = client.login(&stranger, device()).await.unwrap_err();
-    assert_eq!(error.code(), "remote_not_found", "{error}");
+    let error = client
+        .login(&stranger, device(), "stranger")
+        .await
+        .unwrap_err();
+    // Неизвестный логин выглядит как неверный пароль: без подсказок.
+    assert_eq!(error.code(), "remote_unauthorized", "{error}");
 }
 
 #[tokio::test]
@@ -128,10 +139,13 @@ async fn vault_meta_is_none_before_the_first_push() {
     let server = TestServer::spawn("").await;
     let pin = server.pin().await;
     let client = RemoteClient::new(&profile(&server, &pin)).unwrap();
-    let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
+    let identity = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
 
-    client.register(&identity, device(), None).await.unwrap();
-    let login = client.login(&identity, device()).await.unwrap();
+    client
+        .register(&identity, device(), "alice", None)
+        .await
+        .unwrap();
+    let login = client.login(&identity, device(), "alice").await.unwrap();
 
     assert!(client
         .vault_meta(login.token.expose())
@@ -145,6 +159,7 @@ async fn unreachable_server_is_reported_as_unreachable() {
     let profile = RemoteProfile {
         base_url: "https://127.0.0.1:1".to_string(),
         tls: TlsPolicy::Insecure,
+        login: "alice".to_string(),
     };
     let client = RemoteClient::new(&profile).unwrap();
 
@@ -158,6 +173,7 @@ async fn tls_failure_is_reported_as_tls() {
     let client = RemoteClient::new(&RemoteProfile {
         base_url: server.base_url.clone(),
         tls: TlsPolicy::System,
+        login: "alice".to_string(),
     })
     .unwrap();
 

@@ -41,6 +41,9 @@ describe("ServerProfileForm", () => {
     expect(screen.getByText(/не подтверждён публичным CA/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Войти/ })).toBeDisabled();
 
+    fireEvent.change(screen.getByLabelText(/Логин на сервере/), {
+      target: { value: "alice" },
+    });
     fireEvent.change(screen.getByLabelText(/Пароль-фраза/), {
       target: { value: "correct horse" },
     });
@@ -80,6 +83,9 @@ describe("ServerProfileForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /Проверить сервер/ }));
     await screen.findByText(/Отпечаток ключа/);
 
+    fireEvent.change(screen.getByLabelText(/Логин на сервере/), {
+      target: { value: "alice" },
+    });
     fireEvent.change(screen.getByLabelText(/Пароль-фраза/), {
       target: { value: "correct horse" },
     });
@@ -87,9 +93,10 @@ describe("ServerProfileForm", () => {
 
     await waitFor(() => expect(onConnected).toHaveBeenCalledOnce());
     const [profile] = onConnected.mock.calls[0] as unknown as [
-      { baseUrl: string; accountId: string; tls: { kind: string } },
+      { baseUrl: string; accountId: string; login: string; tls: { kind: string } },
     ];
     expect(profile.baseUrl).toBe("https://pms.home:8443");
+    expect(profile.login).toBe("alice");
     expect(profile.accountId).toBe("ab".repeat(16));
     expect(profile.tls.kind).toBe("pin");
   });

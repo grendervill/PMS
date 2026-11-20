@@ -9,6 +9,7 @@ const profile = {
   name: "Домашний",
   baseUrl: "https://pms.home:8443",
   accountId: "ab".repeat(16),
+  login: "alice",
   tls: { kind: "pin" as const, spkiSha256: "cd".repeat(32) },
   lastLoginAt: "2026-11-19T10:00:00.000Z",
 };

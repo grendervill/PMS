@@ -20,7 +20,7 @@ struct Account {
 }
 
 async fn registered(server: &TestServer, vault: &[u8]) -> Account {
-    let identity = derive_identity(b"master-passphrase", &IdentityKdf::FAST_FOR_TESTS);
+    let identity = derive_identity(b"master-passphrase", "alice", &IdentityKdf::FAST_FOR_TESTS);
     let account = AccountId::from_public_key(&identity.public);
     let device = DeviceId::new([8u8; 16]);
     let digest = *blake3::hash(vault).as_bytes();
@@ -32,6 +32,7 @@ async fn registered(server: &TestServer, vault: &[u8]) -> Account {
         .header("x-pms-protocol", "1")
         .header("x-pms-account-id", account.to_string())
         .header("x-pms-public-key", hex::encode(identity.public))
+        .header("x-pms-login", "alice")
         .header("x-pms-device-id", device.to_string())
         .header("x-pms-signature", hex::encode(signature))
         .body(vault.to_vec())
@@ -45,7 +46,7 @@ async fn registered(server: &TestServer, vault: &[u8]) -> Account {
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.to_string(),
+            login: "alice".to_string(),
             device_id: device.to_string(),
         })
         .send()

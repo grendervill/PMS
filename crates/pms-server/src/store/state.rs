@@ -176,7 +176,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path(), 1024).unwrap();
         let account = AccountId::new([0x61; 16]);
-        store.create_account(account, [1u8; 32], 1024).unwrap();
+        store
+            .create_account(account, [1u8; 32], 1024, "alice")
+            .unwrap();
 
         for index in 0..200u8 {
             let mut nonce = [0u8; 32];
