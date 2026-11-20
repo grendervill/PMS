@@ -38,7 +38,7 @@ async fn live_server_round_trip() {
     assert_eq!(probe.protocol, 1);
 
     let identity =
-        identity_from_secret(&UnlockSecretInput::Passphrase { value: phrase }, "alice").unwrap();
+        identity_from_secret(&UnlockSecretInput::Passphrase { value: phrase }, &login).unwrap();
     let device = DeviceId::new([0xAB; 16]);
 
     let vault = std::env::temp_dir().join("pms-live-test.vault");
