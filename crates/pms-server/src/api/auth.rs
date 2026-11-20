@@ -179,6 +179,7 @@ pub async fn register(
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
         .ok_or_else(|| ApiError::new(ErrorCode::Internal, "хеш тела не посчитался"))?;
     if !verify_register(&public_key, &account, &device, &digest, &signature) {
+        tracing::warn!(%account, login = %login, "подпись регистрации не подошла");
         return Err(ApiError::new(
             ErrorCode::Unauthorized,
             "подпись регистрации не подходит",
