@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
@@ -35,6 +36,10 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
   const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
   const [busy, setBusy] = useState<"login" | "register" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Сертификат сменился: без подтверждения руками дальше не идём. */
+  const [certChanged, setCertChanged] = useState<{ previous: string; next: string } | null>(
+    null,
+  );
 
   const url = baseUrl.trim();
   const loginOk = /^[a-z0-9][a-z0-9._-]{2,63}$/.test(login.trim().toLowerCase());
@@ -50,6 +55,18 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
     };
     try {
       const result = await vaultApi.remoteProbe(profile);
+
+      const pinned = initial?.tls.kind === "pin" ? initial.tls.spkiSha256 : null;
+      if (pinned && result.spkiSha256 && pinned !== result.spkiSha256) {
+        setCertChanged({ previous: pinned, next: result.spkiSha256 });
+        setProbe({
+          kind: "ready",
+          fingerprint: result.spkiSha256,
+          tls: { kind: "pin", spkiSha256: result.spkiSha256 },
+        });
+        return;
+      }
+
       setProbe({
         kind: "ready",
         fingerprint: result.spkiSha256,
@@ -97,6 +114,7 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
   };
 
   const fingerprint = probe.kind === "ready" ? probe.fingerprint : "";
+  const blockedByCert = certChanged !== null;
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[var(--bg)] text-[var(--text)]">
@@ -237,7 +255,9 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
               size="md"
               className="h-10 px-4"
               onClick={() => void connect("login")}
-              disabled={probe.kind !== "ready" || !passphrase || !loginOk || busy !== null}
+              disabled={
+                probe.kind !== "ready" || !passphrase || !loginOk || blockedByCert || busy !== null
+              }
             >
               {busy === "login" ? <Loader2 size={15} className="animate-spin" /> : null}
               Войти
@@ -247,7 +267,9 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
               variant="secondary"
               className="h-10 px-4"
               onClick={() => void connect("register")}
-              disabled={probe.kind !== "ready" || !passphrase || !loginOk || busy !== null}
+              disabled={
+                probe.kind !== "ready" || !passphrase || !loginOk || blockedByCert || busy !== null
+              }
             >
               Создать аккаунт
             </Button>
@@ -259,6 +281,43 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
           </p>
         </div>
       </div>
+
+      <Modal
+        open={blockedByCert}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCertChanged(null);
+            setProbe({ kind: "idle" });
+          }
+        }}
+        title="Сертификат сервера изменился"
+        description="Раньше этот адрес отвечал другим ключом. Так бывает при перевыпуске сертификата — и так выглядит подмена сервера."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCertChanged(null);
+                setProbe({ kind: "idle" });
+              }}
+            >
+              Отмена
+            </Button>
+            <Button onClick={() => setCertChanged(null)}>Подтвердить новый</Button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 text-[12.5px] leading-relaxed text-[var(--text-soft)]">
+          <div>
+            <p className="text-[11px] text-[var(--muted)]">Был сохранён</p>
+            <p className="pms-mono mt-1 break-all text-[11.5px]">{grouped(certChanged?.previous ?? "")}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-[var(--muted)]">Сейчас на сервере</p>
+            <p className="pms-mono mt-1 break-all text-[11.5px]">{grouped(certChanged?.next ?? "")}</p>
+          </div>
+        </div>
+      </Modal>
     </main>
   );
 }

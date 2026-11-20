@@ -9,7 +9,7 @@ import { useVaultStore } from "@/features/vault/store";
 import { WelcomeScreen } from "@/features/vault/WelcomeScreen";
 import { UnlockScreen } from "@/features/vault/UnlockScreen";
 import { StorageModeScreen } from "@/features/storage/StorageModeScreen";
-import { ServerProfileForm } from "@/features/storage/ServerProfileForm";
+import { ServerConnectFlow } from "@/features/storage/ServerConnectFlow";
 import { saveProfile, setActiveProfile, type ServerProfile } from "@/features/storage/profiles";
 import { startupTarget } from "@/features/storage/startup";
 import { clearMode, remoteStorage, setMode } from "@/lib/storage";
@@ -64,6 +64,20 @@ export default function App() {
       const cacheDir = await vaultApi.remoteCacheDir(target.profile.id);
       // Пробуем подтянуть свежую версию, но без сети работаем с кэшем.
       try {
+        const probe = await vaultApi.remoteProbe({
+          baseUrl: target.profile.baseUrl,
+          tls: target.profile.tls,
+          login: target.profile.login,
+        });
+        const pinned =
+          target.profile.tls.kind === "pin" ? target.profile.tls.spkiSha256 : null;
+        if (pinned && probe.spkiSha256 && pinned !== probe.spkiSha256) {
+          setBootError(
+            "Сертификат сервера изменился — подключитесь заново и подтвердите новый отпечаток.",
+          );
+          setFlow("server");
+          return;
+        }
         const meta = await vaultApi.remoteVaultMeta(target.profile.accountId);
         if (meta && !(await remoteStorage.vaultExists(cacheDir))) {
           await vaultApi.remotePullVault(target.profile.accountId, cacheDir);
@@ -131,7 +145,7 @@ export default function App() {
             ) : null}
           </>
         ) : flow === "server" ? (
-          <ServerProfileForm
+          <ServerConnectFlow
             onConnected={(profile, cacheDir) => void connected(profile, cacheDir)}
             onCancel={() => setFlow("choose")}
           />

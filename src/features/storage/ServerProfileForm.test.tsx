@@ -101,3 +101,37 @@ describe("ServerProfileForm", () => {
     expect(profile.tls.kind).toBe("pin");
   });
 });
+
+describe("certificate change", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  const existing = {
+    id: "p-1",
+    name: "pms.home",
+    baseUrl: "https://pms.home:8443",
+    accountId: "ab".repeat(16),
+    login: "alice",
+    tls: { kind: "pin" as const, spkiSha256: "00".repeat(32) },
+    lastLoginAt: "2026-11-19T10:00:00.000Z",
+  };
+
+  it("stops when the server presents a different key", async () => {
+    api.remoteProbe.mockResolvedValue({ protocol: 1, spkiSha256: "11".repeat(32) });
+    render(
+      <ServerProfileForm initial={existing} onConnected={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Проверить сервер/ }));
+
+    expect(await screen.findByText("Сертификат сервера изменился")).toBeInTheDocument();
+    // Диалог держит фокус: дальше не пускаем, пока не подтвердят или не отменят.
+    expect(screen.getByRole("button", { name: /Подтвердить новый/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Отмена/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Войти/ })).toBeDisabled());
+    expect(api.remoteLogin).not.toHaveBeenCalled();
+  });
+});
