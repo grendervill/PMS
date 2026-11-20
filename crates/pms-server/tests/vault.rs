@@ -11,7 +11,9 @@ fn setup() -> (tempfile::TempDir, Arc<Store>, AccountId) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path(), 1_000_000).unwrap());
     let account = AccountId::new([0x11; 16]);
-    store.create_account(account, [1u8; 32], 1_000_000).unwrap();
+    store
+        .create_account(account, [1u8; 32], 1_000_000, "alice")
+        .unwrap();
     (dir, store, account)
 }
 

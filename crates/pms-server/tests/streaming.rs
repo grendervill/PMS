@@ -68,7 +68,7 @@ async fn large_uploads_are_streamed_not_buffered() {
     let store = Store::open(dir.path(), 64 * 1024 * 1024).unwrap();
     let account = AccountId::new([0x51; 16]);
     store
-        .create_account(account, [1u8; 32], 64 * 1024 * 1024)
+        .create_account(account, [1u8; 32], 64 * 1024 * 1024, "alice")
         .unwrap();
 
     MAX_ALLOC.store(0, Ordering::Relaxed);
@@ -124,7 +124,7 @@ async fn blob_uploads_use_a_fixed_buffer() {
     let store = Store::open(dir.path(), 64 * 1024 * 1024).unwrap();
     let account = AccountId::new([0x52; 16]);
     store
-        .create_account(account, [1u8; 32], 64 * 1024 * 1024)
+        .create_account(account, [1u8; 32], 64 * 1024 * 1024, "alice")
         .unwrap();
 
     let mut hasher = blake3::Hasher::new();

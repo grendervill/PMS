@@ -39,7 +39,8 @@ pub struct BlobInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChallengeRequest {
-    pub account_id: String,
+    /// Логин на этом сервере: по нему сервер находит аккаунт.
+    pub login: String,
     pub device_id: String,
 }
 
@@ -49,6 +50,8 @@ pub struct ChallengeResponse {
     /// 32 байта, hex. Одноразовый.
     pub nonce: String,
     pub expires_at: String,
+    /// Аккаунт, к которому относится логин: клиент сверяет его со своим.
+    pub account_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

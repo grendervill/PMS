@@ -63,7 +63,9 @@ export function ServerSection({
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <p className="text-[13px] font-medium text-[var(--text-soft)]">{profile.name}</p>
-            <p className="pms-mono mt-0.5 text-[10.5px] text-[var(--muted)]">{profile.baseUrl}</p>
+            <p className="pms-mono mt-0.5 text-[10.5px] text-[var(--muted)]">
+              {profile.login} · {profile.baseUrl}
+            </p>
           </div>
           <p className={`text-[11.5px] ${tone.tone}`}>{tone.text}</p>
         </div>

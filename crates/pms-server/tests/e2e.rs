@@ -85,7 +85,7 @@ async fn two_devices_sync_same_vault() {
     assert_eq!(response.status(), 200);
 }
 
-/// Второе устройство не может пройти вход с чужим ключом.
+/// Чужой мастер-ключ не может войти в аккаунт под чужим логином.
 #[tokio::test]
 async fn another_master_key_cannot_join_the_account() {
     let server = TestServer::start("").await;
@@ -93,23 +93,65 @@ async fn another_master_key_cannot_join_the_account() {
 
     let intruder = pms_proto::identity::derive_identity(
         b"different passphrase",
+        "alice",
         &pms_proto::identity::IdentityKdf::FAST_FOR_TESTS,
     );
-    let account = pms_proto::identity::AccountId::from_public_key(&intruder.public);
     let device = pms_proto::identity::DeviceId::new([3u8; 16]);
 
+    // Логин существует, поэтому challenge выдаётся — но подпись чужим ключом
+    // не сойдётся с ключом аккаунта.
     let response = server
         .client
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.to_string(),
+            login: "alice".to_string(),
             device_id: device.to_string(),
         })
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), 404, "чужого аккаунта не существует");
+    assert_eq!(response.status(), 200);
+    let challenge: pms_proto::dto::ChallengeResponse = response.json().await.unwrap();
 
-    let _ = intruder;
+    let mut nonce = [0u8; 32];
+    nonce.copy_from_slice(&hex::decode(&challenge.nonce).unwrap());
+    let account = pms_proto::identity::AccountId::from_public_key(&intruder.public);
+    let signature = pms_proto::identity::sign_challenge(&intruder, &account, &device, &nonce);
+
+    let verify = server
+        .client
+        .post(server.url("/v1/auth/verify"))
+        .header("x-pms-protocol", "1")
+        .json(&pms_proto::dto::VerifyRequest {
+            account_id: account.to_string(),
+            device_id: device.to_string(),
+            nonce: challenge.nonce,
+            signature: hex::encode(signature),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(verify.status(), 401, "чужой ключ не должен проходить");
+}
+
+/// Неизвестный логин отвечает так же, как неверный пароль: без подсказок.
+#[tokio::test]
+async fn unknown_login_looks_like_a_wrong_password() {
+    let server = TestServer::start("").await;
+    let response = server
+        .client
+        .post(server.url("/v1/auth/challenge"))
+        .header("x-pms-protocol", "1")
+        .json(&ChallengeRequest {
+            login: "nobody-here".to_string(),
+            device_id: "00112233445566778899aabbccddeeff".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["code"], "unauthorized");
 }

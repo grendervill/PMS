@@ -271,6 +271,7 @@ mod tests {
         RemoteProfile {
             base_url: url.to_string(),
             tls,
+            login: "alice".to_string(),
         }
     }
 

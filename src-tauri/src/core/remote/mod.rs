@@ -35,6 +35,10 @@ pub enum TlsPolicy {
 pub struct RemoteProfile {
     pub base_url: String,
     pub tls: TlsPolicy,
+    /// Логин на этом сервере. Вместе с мастер-ключом определяет аккаунт:
+    /// один ключ с разными логинами — разные пользователи.
+    #[serde(default)]
+    pub login: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

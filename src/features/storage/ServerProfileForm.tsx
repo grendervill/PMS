@@ -29,6 +29,7 @@ function grouped(fingerprint: string): string {
 
 export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
+  const [login, setLogin] = useState(initial?.login ?? "");
   const [allowHttp, setAllowHttp] = useState(initial?.tls.kind === "insecure");
   const [passphrase, setPassphrase] = useState("");
   const [probe, setProbe] = useState<ProbeState>({ kind: "idle" });
@@ -36,6 +37,7 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const url = baseUrl.trim();
+  const loginOk = /^[a-z0-9][a-z0-9._-]{2,63}$/.test(login.trim().toLowerCase());
 
   const check = async () => {
     if (!url) return;
@@ -44,6 +46,7 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
     const profile: RemoteProfile = {
       baseUrl: url,
       tls: allowHttp ? { kind: "insecure" } : { kind: "system" },
+      login: login.trim().toLowerCase(),
     };
     try {
       const result = await vaultApi.remoteProbe(profile);
@@ -61,7 +64,11 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
     if (probe.kind !== "ready") return;
     setBusy(mode);
     setError(null);
-    const profile: RemoteProfile = { baseUrl: url, tls: probe.tls };
+    const profile: RemoteProfile = {
+      baseUrl: url,
+      tls: probe.tls,
+      login: login.trim().toLowerCase(),
+    };
 
     try {
       const secret = { kind: "passphrase" as const, value: passphrase };
@@ -76,6 +83,7 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
         name: new URL(url).host,
         baseUrl: url,
         accountId: session.accountId,
+        login: login.trim().toLowerCase(),
         tls: probe.tls,
         lastLoginAt: new Date().toISOString(),
       };
@@ -183,6 +191,26 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
           ) : null}
 
           <Field
+            label="Логин на сервере"
+            htmlFor="server-login"
+            hint="3–64 символа: латиница, цифры, точка, дефис, подчёркивание"
+            error={
+              login.length > 0 && !loginOk
+                ? "Логин: 3–64 символа, латиница, цифры, точка, дефис, подчёркивание"
+                : undefined
+            }
+          >
+            <Input
+              id="server-login"
+              value={login}
+              onChange={(event) => setLogin(event.target.value)}
+              placeholder="alice"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+          </Field>
+
+          <Field
             label="Пароль-фраза"
             htmlFor="server-passphrase"
             hint="Тот же мастер-ключ, что открывает сейф"
@@ -209,7 +237,7 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
               size="md"
               className="h-10 px-4"
               onClick={() => void connect("login")}
-              disabled={probe.kind !== "ready" || !passphrase || busy !== null}
+              disabled={probe.kind !== "ready" || !passphrase || !loginOk || busy !== null}
             >
               {busy === "login" ? <Loader2 size={15} className="animate-spin" /> : null}
               Войти
@@ -219,7 +247,7 @@ export function ServerProfileForm({ onConnected, onCancel, initial }: Props) {
               variant="secondary"
               className="h-10 px-4"
               onClick={() => void connect("register")}
-              disabled={probe.kind !== "ready" || !passphrase || busy !== null}
+              disabled={probe.kind !== "ready" || !passphrase || !loginOk || busy !== null}
             >
               Создать аккаунт
             </Button>

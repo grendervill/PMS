@@ -22,12 +22,16 @@ async fn fixture(extra: &str) -> Fixture {
     let profile = RemoteProfile {
         base_url: server.base_url.clone(),
         tls: TlsPolicy::Pin { spki_sha256: pin },
+        login: "alice".to_string(),
     };
     let client = RemoteClient::new(&profile).unwrap();
-    let identity = identity_from_secret(&secret("мастер-ключ")).unwrap();
+    let identity = identity_from_secret(&secret("мастер-ключ"), "alice").unwrap();
     let device = DeviceId::new([5u8; 16]);
-    client.register(&identity, device, None).await.unwrap();
-    let login = client.login(&identity, device).await.unwrap();
+    client
+        .register(&identity, device, "alice", None)
+        .await
+        .unwrap();
+    let login = client.login(&identity, device, "alice").await.unwrap();
 
     Fixture {
         server,

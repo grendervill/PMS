@@ -10,12 +10,13 @@ use axum::{Json, Router};
 use pms_proto::dto::{
     ChallengeRequest, ChallengeResponse, VaultMeta, VerifyRequest, VerifyResponse,
 };
-use pms_proto::identity::{verify_register, AccountId, DeviceId};
+use pms_proto::identity::{normalize_login, verify_register, AccountId, DeviceId};
 use pms_proto::ErrorCode;
 
 use super::{
     body_reader, content_length, header, hex_array, now_rfc3339, ApiError, AppState,
-    HEADER_ACCOUNT, HEADER_DEVICE, HEADER_PUBLIC_KEY, HEADER_REGISTRATION_TOKEN, HEADER_SIGNATURE,
+    HEADER_ACCOUNT, HEADER_DEVICE, HEADER_LOGIN, HEADER_PUBLIC_KEY, HEADER_REGISTRATION_TOKEN,
+    HEADER_SIGNATURE,
 };
 use crate::store::vault::ExpectedVersion;
 
@@ -36,24 +37,27 @@ pub async fn challenge(
     State(state): State<AppState>,
     Json(request): Json<ChallengeRequest>,
 ) -> Result<Json<ChallengeResponse>, ApiError> {
-    let account = AccountId::from_hex(&request.account_id)
-        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "account_id не hex"))?;
+    let login = normalize_login(&request.login)
+        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "недопустимый логин"))?;
     let device = DeviceId::from_hex(&request.device_id)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "device_id не hex"))?;
 
-    state.auth.rate_limiter().check(&account.to_string())?;
+    state.auth.rate_limiter().check(&login)?;
 
-    if state.store.account(account)?.is_none() {
+    let Some(record) = state.store.account_by_login(&login)? else {
+        tracing::info!(login = %login, "challenge: логин не найден");
+        // Неизвестный логин и неверный пароль отвечают одинаково по форме.
         return Err(ApiError::new(
-            ErrorCode::NotFound,
-            "аккаунта нет — сначала регистрация",
+            ErrorCode::Unauthorized,
+            "неверный логин или пароль",
         ));
-    }
+    };
 
-    let challenge = state.auth.issue_challenge(account, device)?;
+    let challenge = state.auth.issue_challenge(record.account_id, device)?;
     Ok(Json(ChallengeResponse {
         nonce: hex::encode(challenge.nonce),
         expires_at: unix_to_rfc3339(challenge.expires_at),
+        account_id: record.account_id.to_string(),
     }))
 }
 
@@ -68,10 +72,11 @@ pub async fn verify(
 
     state.auth.rate_limiter().check(&account.to_string())?;
 
-    let record = state
-        .store
-        .account(account)?
-        .ok_or_else(|| ApiError::new(ErrorCode::NotFound, "аккаунта нет"))?;
+    // Неизвестный аккаунт и неверная подпись неразличимы для клиента.
+    let record = state.store.account(account)?.ok_or_else(|| {
+        tracing::info!(%account, "verify: аккаунт не найден");
+        ApiError::new(ErrorCode::Unauthorized, "неверный логин или пароль")
+    })?;
 
     let nonce: [u8; 32] = hex_array_of(&request.nonce, "nonce")?;
     let signature: [u8; 64] = hex_array_of(&request.signature, "signature")?;
@@ -144,6 +149,8 @@ pub async fn register(
     let device = DeviceId::from_hex(header(&headers, HEADER_DEVICE)?)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "device_id не hex"))?;
     let signature: [u8; 64] = hex_array(&headers, HEADER_SIGNATURE)?;
+    let login = normalize_login(header(&headers, HEADER_LOGIN)?)
+        .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "недопустимый логин"))?;
 
     if AccountId::from_public_key(&public_key) != account {
         return Err(ApiError::new(
@@ -173,18 +180,34 @@ pub async fn register(
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
         .ok_or_else(|| ApiError::new(ErrorCode::Internal, "хеш тела не посчитался"))?;
     if !verify_register(&public_key, &account, &device, &digest, &signature) {
+        tracing::warn!(%account, login = %login, "подпись регистрации не подошла");
         return Err(ApiError::new(
             ErrorCode::Unauthorized,
             "подпись регистрации не подходит",
         ));
     }
 
-    if !state.store.create_account(account, public_key, quota)? {
+    if state.store.account_by_login(&login)?.is_some() {
+        return Err(ApiError::new(ErrorCode::LoginTaken, "этот логин уже занят"));
+    }
+
+    let created = state
+        .store
+        .create_account(account, public_key, quota, &login)
+        .map_err(|error| match error {
+            crate::store::StoreError::Db(message) if message.contains("UNIQUE") => {
+                ApiError::new(ErrorCode::LoginTaken, "этот логин уже занят")
+            }
+            other => other.into(),
+        })?;
+    if !created {
+        tracing::info!(%account, login = %login, "регистрация: аккаунт уже существует");
         return Err(ApiError::new(
             ErrorCode::Conflict,
             "аккаунт уже существует — выполните вход",
         ));
     }
+    tracing::info!(%account, login = %login, "аккаунт создан");
 
     let meta = if staged.is_empty() {
         VaultMeta {

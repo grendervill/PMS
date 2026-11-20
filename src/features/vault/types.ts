@@ -229,6 +229,8 @@ export type TlsPolicy =
 export type RemoteProfile = {
   baseUrl: string;
   tls: TlsPolicy;
+  /** Логин на сервере: вместе с мастер-ключом определяет аккаунт. */
+  login: string;
 };
 
 /** Метаданные сейфа на сервере (см. `pms_proto::dto::VaultMeta`). */

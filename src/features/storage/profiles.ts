@@ -10,6 +10,8 @@ export type ServerProfile = {
   name: string;
   baseUrl: string;
   accountId: string;
+  /** Логин на этом сервере; хранится, чтобы не спрашивать каждый раз. */
+  login: string;
   tls: TlsPolicy;
   lastLoginAt: string;
 };
@@ -37,6 +39,7 @@ export function isServerProfile(value: unknown): value is ServerProfile {
     typeof item.name === "string" &&
     typeof item.baseUrl === "string" &&
     typeof item.accountId === "string" &&
+    typeof item.login === "string" &&
     typeof item.lastLoginAt === "string" &&
     isTlsPolicy(item.tls)
   );
@@ -94,5 +97,5 @@ export function activeProfile(): ServerProfile | null {
 
 /** Профиль для Rust: адрес и политика TLS, без имени и аккаунта. */
 export function toRemoteProfile(profile: ServerProfile): RemoteProfile {
-  return { baseUrl: profile.baseUrl, tls: profile.tls };
+  return { baseUrl: profile.baseUrl, tls: profile.tls, login: profile.login };
 }

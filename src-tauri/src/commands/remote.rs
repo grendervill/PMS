@@ -176,6 +176,7 @@ pub(crate) async fn probe(profile: &RemoteProfile) -> ApiResult<ProbeInfo> {
             tls: crate::core::remote::TlsPolicy::Pin {
                 spki_sha256: spki_sha256.clone(),
             },
+            login: profile.login.clone(),
         }
     };
 
@@ -199,7 +200,7 @@ pub(crate) async fn login(
     profile: &RemoteProfile,
     secret: &UnlockSecretInput,
 ) -> ApiResult<LoginInfo> {
-    let identity = identity_from_secret(secret).map_err(to_api)?;
+    let identity = identity_from_secret(secret, &profile.login).map_err(to_api)?;
     login_with_identity(state, profile, &identity).await
 }
 
@@ -212,7 +213,7 @@ pub(crate) async fn login_with_identity(
     let device = device_id().map_err(to_api)?;
     let client = RemoteClient::new(profile).map_err(to_api)?;
     let session = client
-        .login(identity, DeviceId::new(device))
+        .login(identity, DeviceId::new(device), &profile.login)
         .await
         .map_err(to_api)?;
 
@@ -235,9 +236,15 @@ pub(crate) async fn register(
     secret: &UnlockSecretInput,
     vault_folder: Option<PathBuf>,
 ) -> ApiResult<LoginInfo> {
-    let identity = identity_from_secret(secret).map_err(to_api)?;
+    let identity = identity_from_secret(secret, &profile.login).map_err(to_api)?;
     let device = device_id().map_err(to_api)?;
     let client = RemoteClient::new(profile).map_err(to_api)?;
+    if pms_proto::identity::normalize_login(&profile.login).is_none() {
+        return Err(ApiError::new(
+            "bad_login",
+            "логин: 3–64 символа, латиница, цифры, точка, дефис, подчёркивание",
+        ));
+    }
 
     let vault = match &vault_folder {
         Some(folder) => {
@@ -254,7 +261,12 @@ pub(crate) async fn register(
     };
 
     let registration = client
-        .register(&identity, DeviceId::new(device), vault.as_deref())
+        .register(
+            &identity,
+            DeviceId::new(device),
+            &profile.login,
+            vault.as_deref(),
+        )
         .await
         .map_err(to_api)?;
 
@@ -405,7 +417,8 @@ pub(crate) async fn delete_account(
     secret: &UnlockSecretInput,
 ) -> ApiResult<()> {
     let (client, token) = client_for(state, account)?;
-    let identity = identity_from_secret(secret).map_err(to_api)?;
+    let profile = state.remote.profile(account)?;
+    let identity = identity_from_secret(secret, &profile.login).map_err(to_api)?;
     let device = state.remote.device(account)?;
 
     client
@@ -436,7 +449,10 @@ pub(crate) async fn refresh(state: &AppState, account: AccountId) -> ApiResult<L
 
     let identity = crate::core::remote::identity::identity_from_seed(&seed);
     let client = RemoteClient::new(&profile).map_err(to_api)?;
-    let session = client.login(&identity, device).await.map_err(to_api)?;
+    let session = client
+        .login(&identity, device, &profile.login)
+        .await
+        .map_err(to_api)?;
     let vault = client
         .vault_meta(session.token.expose())
         .await
@@ -739,6 +755,7 @@ mod tests {
         let profile = RemoteProfile {
             base_url: base_url.clone(),
             tls: crate::core::remote::TlsPolicy::Pin { spki_sha256: pin },
+            login: "alice".to_string(),
         };
 
         let state = AppState::default();
@@ -854,9 +871,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn biometric_seed_logs_in_without_the_master_key() {
         let fixture = fixture("").await;
-        let identity =
-            crate::core::remote::identity::identity_from_secret(&passphrase("мастер-ключ"))
-                .unwrap();
+        let identity = crate::core::remote::identity::identity_from_secret(
+            &passphrase("мастер-ключ"),
+            "alice",
+        )
+        .unwrap();
 
         register(
             &fixture.state,
@@ -887,12 +906,13 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn login_without_registration_reports_not_found() {
+    async fn login_without_registration_looks_like_a_wrong_password() {
         let fixture = fixture("").await;
         let error = login(&fixture.state, &fixture.profile, &passphrase("никого нет"))
             .await
             .unwrap_err();
-        assert_eq!(error.code, "remote_not_found");
+        // Неизвестный логин и неверный пароль неразличимы — так и задумано.
+        assert_eq!(error.code, "remote_unauthorized");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -909,6 +929,7 @@ mod tests {
         let profile = RemoteProfile {
             base_url: "https://127.0.0.1:1".to_string(),
             tls: crate::core::remote::TlsPolicy::Insecure,
+            login: "alice".to_string(),
         };
         let error = probe(&profile).await.unwrap_err();
         assert_eq!(error.code, "remote_unreachable");
@@ -923,6 +944,7 @@ mod tests {
         let info = probe(&RemoteProfile {
             base_url: fixture.base_url.clone(),
             tls: crate::core::remote::TlsPolicy::System,
+            login: "alice".to_string(),
         })
         .await
         .unwrap();
@@ -945,6 +967,7 @@ mod tests {
         let profile = RemoteProfile {
             base_url: format!("http://{}", server.addr()),
             tls: crate::core::remote::TlsPolicy::Insecure,
+            login: "alice".to_string(),
         };
 
         let info = probe(&profile).await.unwrap();

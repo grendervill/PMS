@@ -24,6 +24,7 @@ pub const HEADER_PROTOCOL: &str = "x-pms-protocol";
 pub const HEADER_ACCOUNT: &str = "x-pms-account-id";
 pub const HEADER_PUBLIC_KEY: &str = "x-pms-public-key";
 pub const HEADER_DEVICE: &str = "x-pms-device-id";
+pub const HEADER_LOGIN: &str = "x-pms-login";
 pub const HEADER_SIGNATURE: &str = "x-pms-signature";
 pub const HEADER_DIGEST: &str = "x-pms-digest";
 pub const HEADER_REGISTRATION_TOKEN: &str = "x-pms-registration-token";
@@ -254,6 +255,7 @@ fn status_of(code: ErrorCode) -> axum::http::StatusCode {
         ErrorCode::QuotaExceeded | ErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
         ErrorCode::VaultMissing => StatusCode::NOT_FOUND,
+        ErrorCode::LoginTaken => StatusCode::CONFLICT,
         ErrorCode::DigestMismatch => StatusCode::BAD_REQUEST,
         ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         ErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,

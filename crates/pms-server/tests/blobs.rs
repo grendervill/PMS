@@ -8,7 +8,9 @@ fn setup(quota: u64) -> (tempfile::TempDir, Store, AccountId) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path(), quota).unwrap();
     let account = AccountId::new([0x21; 16]);
-    store.create_account(account, [1u8; 32], quota).unwrap();
+    store
+        .create_account(account, [1u8; 32], quota, "alice")
+        .unwrap();
     (dir, store, account)
 }
 

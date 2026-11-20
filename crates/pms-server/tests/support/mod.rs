@@ -71,7 +71,7 @@ pub async fn register_account(
         derive_identity, sign_challenge, sign_register, AccountId, DeviceId, IdentityKdf,
     };
 
-    let identity = derive_identity(secret, &IdentityKdf::FAST_FOR_TESTS);
+    let identity = derive_identity(secret, "alice", &IdentityKdf::FAST_FOR_TESTS);
     let account = AccountId::from_public_key(&identity.public);
     let device = DeviceId::new([device_seed; 16]);
 
@@ -83,6 +83,7 @@ pub async fn register_account(
         .header("x-pms-protocol", "1")
         .header("x-pms-account-id", account.to_string())
         .header("x-pms-public-key", hex::encode(identity.public))
+        .header("x-pms-login", "alice")
         .header("x-pms-device-id", device.to_string())
         .header("x-pms-signature", hex::encode(signature))
         .body(vault.to_vec())
@@ -96,7 +97,7 @@ pub async fn register_account(
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.to_string(),
+            login: "alice".to_string(),
             device_id: device.to_string(),
         })
         .send()
@@ -137,7 +138,7 @@ impl SignedClient {
             derive_identity, sign_challenge, AccountId, DeviceId, IdentityKdf,
         };
 
-        let identity = derive_identity(secret, &IdentityKdf::FAST_FOR_TESTS);
+        let identity = derive_identity(secret, "alice", &IdentityKdf::FAST_FOR_TESTS);
         let account = AccountId::from_public_key(&identity.public);
         let device = DeviceId::new([device_seed; 16]);
 
@@ -146,7 +147,7 @@ impl SignedClient {
             .post(server.url("/v1/auth/challenge"))
             .header("x-pms-protocol", "1")
             .json(&ChallengeRequest {
-                account_id: account.to_string(),
+                login: "alice".to_string(),
                 device_id: device.to_string(),
             })
             .send()

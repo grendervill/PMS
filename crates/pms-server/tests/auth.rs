@@ -19,10 +19,10 @@ struct Fixture {
 fn setup() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path(), 1_000_000).unwrap());
-    let identity = derive_identity(b"master-passphrase", &IdentityKdf::FAST_FOR_TESTS);
+    let identity = derive_identity(b"master-passphrase", "alice", &IdentityKdf::FAST_FOR_TESTS);
     let account = AccountId::from_public_key(&identity.public);
     store
-        .create_account(account, identity.public, 1_000_000)
+        .create_account(account, identity.public, 1_000_000, "alice")
         .unwrap();
 
     let auth = Auth::new(
@@ -177,7 +177,7 @@ async fn expired_nonce_is_rejected() {
 #[tokio::test]
 async fn attacker_key_cannot_authenticate_account() {
     let fixture = setup();
-    let attacker = derive_identity(b"other-passphrase", &IdentityKdf::FAST_FOR_TESTS);
+    let attacker = derive_identity(b"other-passphrase", "alice", &IdentityKdf::FAST_FOR_TESTS);
 
     let challenge = fixture
         .auth

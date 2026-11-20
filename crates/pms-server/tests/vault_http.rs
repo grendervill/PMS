@@ -18,7 +18,7 @@ struct Account {
 
 impl Account {
     fn new() -> Self {
-        let identity = derive_identity(b"master-passphrase", &IdentityKdf::FAST_FOR_TESTS);
+        let identity = derive_identity(b"master-passphrase", "alice", &IdentityKdf::FAST_FOR_TESTS);
         Self {
             account: AccountId::from_public_key(&identity.public),
             identity,
@@ -44,6 +44,7 @@ async fn register(
         .header("x-pms-protocol", "1")
         .header("x-pms-account-id", account.to_string())
         .header("x-pms-public-key", hex::encode(identity.public))
+        .header("x-pms-login", "alice")
         .header("x-pms-device-id", device.to_string())
         .header("x-pms-signature", hex::encode(signature))
         .body(vault.to_vec())
@@ -66,7 +67,7 @@ async fn login(
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.to_string(),
+            login: "alice".to_string(),
             device_id: device.to_string(),
         })
         .send()
@@ -124,7 +125,7 @@ async fn challenge_then_verify_yields_working_token() {
 }
 
 #[tokio::test]
-async fn challenge_for_unknown_account_is_404() {
+async fn challenge_for_unknown_account_is_unauthorized() {
     let server = TestServer::start("").await;
     let account = Account::new();
 
@@ -133,14 +134,15 @@ async fn challenge_for_unknown_account_is_404() {
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.account.to_string(),
+            login: "alice".to_string(),
             device_id: account.device.to_string(),
         })
         .send()
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 404);
+    // Неизвестный логин неотличим от неверного пароля: без перечисления.
+    assert_eq!(response.status(), 401);
 }
 
 #[tokio::test]
@@ -346,7 +348,7 @@ async fn replayed_nonce_is_rejected_over_http() {
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.account.to_string(),
+            login: "alice".to_string(),
             device_id: account.device.to_string(),
         })
         .send()
@@ -410,7 +412,7 @@ async fn zero_nonce_and_bad_signature_are_not_server_errors() {
         .post(server.url("/v1/auth/challenge"))
         .header("x-pms-protocol", "1")
         .json(&ChallengeRequest {
-            account_id: account.account.to_string(),
+            login: "alice".to_string(),
             device_id: account.device.to_string(),
         })
         .send()

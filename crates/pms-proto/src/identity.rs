@@ -57,37 +57,61 @@ impl std::fmt::Debug for Identity {
     }
 }
 
-/// Соль identity-ключа — детерминированная функция мастер-ключа.
+/// Допустимый логин: 3–64 символа, латиница в нижнем регистре, цифры, точка,
+/// дефис и подчёркивание. Логин — часть соли identity-ключа, поэтому менять его
+/// правила после релиза нельзя.
+pub fn normalize_login(value: &str) -> Option<String> {
+    let login = value.trim().to_ascii_lowercase();
+    let valid = (3..=64).contains(&login.len())
+        && login.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'_')
+        })
+        && !login.starts_with('.')
+        && !login.starts_with('-');
+    valid.then_some(login)
+}
+
+pub const LOGIN_MIN_LEN: usize = 3;
+pub const LOGIN_MAX_LEN: usize = 64;
+
+/// Соль identity-ключа — детерминированная функция мастер-ключа и логина.
 ///
 /// Публичная соль не ослабляет модель: параметры KDF и завёрнутый ключ сейфа и
 /// так лежат открытым текстом в заголовке файла, поэтому офлайн-перебор
 /// мастер-ключа возможен и без сервера.
-pub fn identity_salt(canonical_secret: &[u8]) -> [u8; 32] {
+pub fn identity_salt(canonical_secret: &[u8], login: &str) -> [u8; 32] {
     let hkdf = Hkdf::<Sha256>::new(None, canonical_secret);
+    let mut info = Vec::with_capacity(SALT_INFO.len() + 1 + login.len());
+    info.extend_from_slice(SALT_INFO);
+    info.push(0);
+    info.extend_from_slice(login.as_bytes());
+
     let mut salt = [0u8; 32];
-    hkdf.expand(SALT_INFO, &mut salt)
+    hkdf.expand(&info, &mut salt)
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     salt
 }
 
 /// Полный вывод: `IK = Argon2id(secret, salt)`, `AUTH = HKDF(IK, "ed25519-seed")`.
-pub fn derive_identity(canonical_secret: &[u8], kdf: &IdentityKdf) -> Identity {
-    derive_identity_checked(canonical_secret, kdf)
+pub fn derive_identity(canonical_secret: &[u8], login: &str, kdf: &IdentityKdf) -> Identity {
+    derive_identity_checked(canonical_secret, login, kdf)
         .expect("identity KDF parameters are out of range")
 }
 
 /// То же, но с ошибкой вместо паники — для проверки конфигурации.
 pub fn derive_identity_checked(
     canonical_secret: &[u8],
+    login: &str,
     kdf: &IdentityKdf,
 ) -> Result<Identity, IdentityError> {
     if canonical_secret.is_empty() {
         return Err(IdentityError::EmptySecret);
     }
+    let login = normalize_login(login).ok_or(IdentityError::BadLogin)?;
 
     let params =
         Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32)).map_err(|_| IdentityError::BadKdfParams)?;
-    let salt = identity_salt(canonical_secret);
+    let salt = identity_salt(canonical_secret, &login);
     let mut identity_key = Zeroizing::new([0u8; 32]);
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
         .hash_password_into(canonical_secret, &salt, identity_key.as_mut())
@@ -334,6 +358,8 @@ pub enum IdentityError {
     BadKdfParams,
     #[error("не удалось вывести identity-ключ")]
     Kdf,
+    #[error("недопустимый логин: 3–64 символа, латиница, цифры, точка, дефис, подчёркивание")]
+    BadLogin,
 }
 
 #[cfg(test)]
@@ -343,30 +369,63 @@ mod tests {
     #[test]
     fn same_secret_same_identity_and_salt_differs_from_other_secret() {
         let kdf = IdentityKdf::FAST_FOR_TESTS;
-        let a = derive_identity(b"correct horse", &kdf);
-        let b = derive_identity(b"correct horse", &kdf);
-        let c = derive_identity(b"correct horse!", &kdf);
+        let a = derive_identity(b"correct horse", "alice", &kdf);
+        let b = derive_identity(b"correct horse", "alice", &kdf);
+        let c = derive_identity(b"correct horse!", "alice", &kdf);
 
         assert_eq!(a.public, b.public);
         assert_ne!(a.public, c.public);
         assert_ne!(
-            identity_salt(b"correct horse"),
-            identity_salt(b"correct horse!")
+            identity_salt(b"correct horse", "alice"),
+            identity_salt(b"correct horse!", "alice")
         );
     }
 
     #[test]
+    fn login_changes_the_identity() {
+        let kdf = IdentityKdf::FAST_FOR_TESTS;
+        let alice = derive_identity(b"same phrase", "alice", &kdf);
+        let bob = derive_identity(b"same phrase", "bob", &kdf);
+        assert_ne!(
+            alice.public, bob.public,
+            "один мастер-ключ с разными логинами — разные пользователи"
+        );
+        assert_ne!(
+            identity_salt(b"same phrase", "alice"),
+            identity_salt(b"same phrase", "bob")
+        );
+    }
+
+    #[test]
+    fn logins_are_normalized_and_validated() {
+        assert_eq!(normalize_login("  Alice ").as_deref(), Some("alice"));
+        assert_eq!(normalize_login("a.b_c-d1").as_deref(), Some("a.b_c-d1"));
+        for bad in [
+            "ab",
+            "",
+            "  ",
+            "алиса",
+            "a b",
+            "-alice",
+            ".alice",
+            &"a".repeat(65),
+        ] {
+            assert!(normalize_login(bad).is_none(), "приняли {bad:?}");
+        }
+    }
+
+    #[test]
     fn identity_v1_is_pinned() {
-        let identity = derive_identity(b"pms-test-vector", &IdentityKdf::FAST_FOR_TESTS);
+        let identity = derive_identity(b"pms-test-vector", "vector", &IdentityKdf::FAST_FOR_TESTS);
         assert_eq!(
             hex::encode(identity.public),
-            "820416881aff3da70678aa88f12af5bf44dde6e7b4f76497182d9b38b33fc3f8"
+            "d5811d595363e244464288956be76dc7229f05df145a89a709e5b2a378552429"
         );
     }
 
     #[test]
     fn signature_binds_account_device_and_nonce() {
-        let identity = derive_identity(b"secret", &IdentityKdf::FAST_FOR_TESTS);
+        let identity = derive_identity(b"secret", "alice", &IdentityKdf::FAST_FOR_TESTS);
         let account = AccountId::from_public_key(&identity.public);
         let device = DeviceId::new([7u8; 16]);
         let nonce = [9u8; 32];
@@ -414,7 +473,7 @@ mod tests {
 
     #[test]
     fn register_signature_binds_account_device_and_vault_digest() {
-        let identity = derive_identity(b"secret", &IdentityKdf::FAST_FOR_TESTS);
+        let identity = derive_identity(b"secret", "alice", &IdentityKdf::FAST_FOR_TESTS);
         let account = AccountId::from_public_key(&identity.public);
         let device = DeviceId::new([1u8; 16]);
         let digest = *blake3::hash(b"vault-bytes").as_bytes();
@@ -447,7 +506,7 @@ mod tests {
 
     #[test]
     fn account_delete_signature_binds_account_and_device() {
-        let identity = derive_identity(b"secret", &IdentityKdf::FAST_FOR_TESTS);
+        let identity = derive_identity(b"secret", "alice", &IdentityKdf::FAST_FOR_TESTS);
         let account = AccountId::from_public_key(&identity.public);
         let device = DeviceId::new([4u8; 16]);
         let signature = sign_account_delete(&identity, &account, &device);
@@ -480,8 +539,12 @@ mod tests {
     #[test]
     fn empty_secret_is_refused() {
         assert_eq!(
-            derive_identity_checked(b"", &IdentityKdf::FAST_FOR_TESTS).unwrap_err(),
+            derive_identity_checked(b"", "alice", &IdentityKdf::FAST_FOR_TESTS).unwrap_err(),
             IdentityError::EmptySecret
+        );
+        assert_eq!(
+            derive_identity_checked(b"secret", "a", &IdentityKdf::FAST_FOR_TESTS).unwrap_err(),
+            IdentityError::BadLogin
         );
     }
 }
