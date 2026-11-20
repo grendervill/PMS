@@ -45,6 +45,7 @@ pub async fn challenge(
     state.auth.rate_limiter().check(&login)?;
 
     let Some(record) = state.store.account_by_login(&login)? else {
+        tracing::info!(login = %login, "challenge: логин не найден");
         // Неизвестный логин и неверный пароль отвечают одинаково по форме.
         return Err(ApiError::new(
             ErrorCode::Unauthorized,
@@ -72,10 +73,10 @@ pub async fn verify(
     state.auth.rate_limiter().check(&account.to_string())?;
 
     // Неизвестный аккаунт и неверная подпись неразличимы для клиента.
-    let record = state
-        .store
-        .account(account)?
-        .ok_or_else(|| ApiError::new(ErrorCode::Unauthorized, "неверный логин или пароль"))?;
+    let record = state.store.account(account)?.ok_or_else(|| {
+        tracing::info!(%account, "verify: аккаунт не найден");
+        ApiError::new(ErrorCode::Unauthorized, "неверный логин или пароль")
+    })?;
 
     let nonce: [u8; 32] = hex_array_of(&request.nonce, "nonce")?;
     let signature: [u8; 64] = hex_array_of(&request.signature, "signature")?;
@@ -200,11 +201,13 @@ pub async fn register(
             other => other.into(),
         })?;
     if !created {
+        tracing::info!(%account, login = %login, "регистрация: аккаунт уже существует");
         return Err(ApiError::new(
             ErrorCode::Conflict,
             "аккаунт уже существует — выполните вход",
         ));
     }
+    tracing::info!(%account, login = %login, "аккаунт создан");
 
     let meta = if staged.is_empty() {
         VaultMeta {

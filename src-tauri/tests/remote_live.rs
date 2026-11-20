@@ -46,7 +46,7 @@ async fn live_server_round_trip() {
     let registration = client
         .register(&identity, device, &login, Some(&vault))
         .await
-        .unwrap_or_else(|error| panic!("регистрация: {error}"));
+        .unwrap_or_else(|error| panic!("регистрация: {error:?}"));
     let _ = std::fs::remove_file(&vault);
     println!(
         "аккаунт {}: создан сейчас: {}",
