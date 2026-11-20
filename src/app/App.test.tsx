@@ -23,10 +23,15 @@ describe("App", () => {
     expect(localStorage.getItem("pms.storageMode.v1")).toBe("local");
   });
 
-  it("opens the server profile form when the server is chosen", () => {
+  it("opens the server flow and lets the setup step be skipped", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Подключить сервер/ }));
 
-    expect(screen.getByText("Подключение к серверу")).toBeInTheDocument();
+    expect(screen.getByText("Серверное хранилище")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Подключиться/ }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Подключение к серверу" })).toBeInTheDocument(),
+    );
   });
 });

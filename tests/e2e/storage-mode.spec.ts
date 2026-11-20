@@ -30,7 +30,14 @@ test("asks for the storage mode once and remembers it", async ({ page }) => {
 test("server profile form shows the key fingerprint before login", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Подключить сервер/ }).click();
+  await expect(page.getByRole("heading", { name: "Серверное хранилище" })).toBeVisible();
+  await page.screenshot({ path: "test-results/server-connect.png", fullPage: true });
 
+  await page.getByRole("button", { name: /Показать развёртывание/ }).click();
+  await expect(page.getByRole("heading", { name: "Развёртывание сервера" })).toBeVisible();
+  await page.screenshot({ path: "test-results/server-setup.png", fullPage: true });
+
+  await page.getByRole("button", { name: /Сервер готов — подключиться/ }).click();
   await expect(page.getByRole("heading", { name: "Подключение к серверу" })).toBeVisible();
   await page.getByLabel("Адрес сервера").fill("https://pms.home:8443");
   await page.getByRole("button", { name: /Проверить сервер/ }).click();

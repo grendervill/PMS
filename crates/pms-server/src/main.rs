@@ -32,6 +32,19 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         config: PathBuf,
     },
+    /// Показать аккаунты: идентификатор, логин, квоту и занятое место.
+    Accounts {
+        #[arg(long, value_name = "PATH")]
+        config: PathBuf,
+    },
+    /// Удалить аккаунт вместе с данными (для уборки тестовых записей).
+    AccountRemove {
+        #[arg(long, value_name = "PATH")]
+        config: PathBuf,
+        /// account_id (32 hex).
+        #[arg(long)]
+        account: String,
+    },
     /// Изменить квоту аккаунта.
     QuotaSet {
         #[arg(long, value_name = "PATH")]
@@ -56,6 +69,8 @@ async fn main() -> ExitCode {
     match Cli::parse().command {
         Command::CheckConfig { config } => check_config(&config),
         Command::Run { config } => run_server(&config).await,
+        Command::Accounts { config } => accounts(&config),
+        Command::AccountRemove { config, account } => account_remove(&config, &account),
         Command::QuotaSet {
             config,
             account,
@@ -112,6 +127,73 @@ async fn run_server(path: &std::path::Path) -> ExitCode {
     server.shutdown();
     tracing::info!("остановка по сигналу");
     ExitCode::SUCCESS
+}
+
+fn accounts(path: &std::path::Path) -> ExitCode {
+    let config = match Config::load(path) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("конфиг не принят: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let store = match Store::open(&config.server.data_dir, config.quota.default_bytes) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("хранилище не открылось: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match store.list_accounts() {
+        Ok(rows) => {
+            for (account, login, used, quota) in rows {
+                println!(
+                    "{account}  {:<24}  {used}/{quota}",
+                    login.unwrap_or_else(|| "—".to_string())
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("не удалось прочитать аккаунты: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn account_remove(path: &std::path::Path, account: &str) -> ExitCode {
+    let config = match Config::load(path) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("конфиг не принят: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(account) = AccountId::from_hex(account) else {
+        eprintln!("account_id должен быть 32 hex-символа");
+        return ExitCode::FAILURE;
+    };
+    let store = match Store::open(&config.server.data_dir, config.quota.default_bytes) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("хранилище не открылось: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match store.delete_account(account) {
+        Ok(true) => {
+            println!("аккаунт {account} удалён");
+            ExitCode::SUCCESS
+        }
+        Ok(false) => {
+            eprintln!("аккаунт {account} не найден");
+            ExitCode::FAILURE
+        }
+        Err(error) => {
+            eprintln!("не удалось удалить: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn quota_set(path: &std::path::Path, account: &str, bytes: u64) -> ExitCode {

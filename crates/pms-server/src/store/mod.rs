@@ -35,6 +35,9 @@ pub struct AccountRecord {
     pub updated_at: String,
 }
 
+/// Строка для CLI: идентификатор, логин, занятое место, квота.
+pub type AccountRow = (AccountId, Option<String>, u64, u64);
+
 pub struct Store {
     root: PathBuf,
     default_quota: u64,
@@ -153,6 +156,33 @@ impl Store {
             Some(row) => Ok(Some(read_account(row, account)?)),
             None => Ok(None),
         }
+    }
+
+    /// Список аккаунтов для CLI: идентификатор, логин, занятое место, квота.
+    pub fn list_accounts(&self) -> Result<Vec<AccountRow>, StoreError> {
+        let connection = self.db()?;
+        let mut statement = connection
+            .prepare("SELECT account_id, login, used_bytes, quota_bytes FROM accounts ORDER BY created_at")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, i64>(2)? as u64,
+                    row.get::<_, i64>(3)? as u64,
+                ))
+            })
+            .map_err(db_error)?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (hex, login, used, quota) = row.map_err(db_error)?;
+            if let Some(account) = AccountId::from_hex(&hex) {
+                out.push((account, login, used, quota));
+            }
+        }
+        Ok(out)
     }
 
     /// Меняет квоту аккаунта. Админка не делается: квота правится CLI.
