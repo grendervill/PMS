@@ -54,3 +54,17 @@ describe("ServerSection", () => {
     expect(screen.getByText(/есть неотправленное/i)).toBeInTheDocument();
   });
 });
+
+describe("ServerSection without a session", () => {
+  it("asks for a login and offers one button", () => {
+    const onReauthenticate = vi.fn();
+    renderSection({
+      status: { kind: "needs-auth" },
+      onReauthenticate,
+    });
+
+    expect(screen.getByText("Требуется вход на сервер")).toBeInTheDocument();
+    screen.getByRole("button", { name: "Войти заново" }).click();
+    expect(onReauthenticate).toHaveBeenCalledOnce();
+  });
+});

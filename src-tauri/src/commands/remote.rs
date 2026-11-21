@@ -906,6 +906,30 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn restarting_the_app_requires_a_new_login() {
+        let fixture = fixture("").await;
+        let secret = passphrase("мастер-ключ");
+        let info = register(&fixture.state, &fixture.profile, &secret, None)
+            .await
+            .unwrap();
+        let account = AccountId::from_hex(&info.account_id).unwrap();
+        assert!(vault_meta(&fixture.state, account).await.is_ok());
+
+        // Перезапуск приложения: сессии в памяти больше нет, профиль остался.
+        let restarted = AppState::default();
+        restarted
+            .fs_scope
+            .attach(None, vec![fixture.dir.path().to_path_buf()]);
+        let error = vault_meta(&restarted, account).await.unwrap_err();
+        assert_eq!(error.code, "remote_unauthorized");
+
+        // Разблокировка сейфа мастер-ключом возвращает сессию.
+        let again = login(&restarted, &fixture.profile, &secret).await.unwrap();
+        assert_eq!(again.account_id, info.account_id);
+        assert!(vault_meta(&restarted, account).await.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn login_without_registration_looks_like_a_wrong_password() {
         let fixture = fixture("").await;
         let error = login(&fixture.state, &fixture.profile, &passphrase("никого нет"))

@@ -145,3 +145,39 @@ describe("sync controller", () => {
     sync.stop();
   });
 });
+
+describe("sync without a server session", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports needs-auth, stops the timer and ignores saves until re-auth", async () => {
+    const engine = engineStub({ kind: "needs-auth" });
+    const statuses: SyncStatus[] = [];
+    const sync = startSync(deps(engine, statuses));
+
+    await sync.syncNow();
+    expect(statuses.at(-1)).toEqual({ kind: "needs-auth" });
+
+    // Правки продолжают сохраняться локально, но сеть больше не дёргаем.
+    sync.markDirty();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(engine.sync).toHaveBeenCalledOnce();
+
+    engine.sync = vi.fn(
+      async (): Promise<Awaited<ReturnType<SyncEngine["sync"]>>> => ({
+        kind: "pushed",
+        version: 3,
+      }),
+    );
+    await sync.resumeAfterAuth();
+    expect(engine.sync).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toEqual({ kind: "idle" });
+
+    sync.stop();
+  });
+});
