@@ -1,0 +1,78 @@
+# Развёртывание сервера PMS на одном VPS.
+#
+#   cp .env.example .env      # домен/IP и режим сертификата
+#   docker compose up -d
+#
+# Режимы TLS:
+#   PMS_TLS=self-signed  — сервер сам держит TLS, сертификат выпускается при первом
+#                          старте (10 лет, SAN) и продлевается по cron.
+#   PMS_TLS=acme         — TLS терминирует Caddy (Let's Encrypt, автопродление);
+#                          сервер слушает только внутреннюю сеть compose.
+
+name: pms
+
+services:
+  pms-server:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: pms-server:${PMS_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PMS_TLS: ${PMS_TLS:-self-signed}
+      PMS_DOMAIN: ${PMS_DOMAIN:-pms.home}
+      PMS_IP: ${PMS_IP:-}
+    volumes:
+      - pms-data:/var/lib/pms
+      - pms-certs:/etc/pms
+    ports:
+      # В acme-режиме наружу смотрит только Caddy, порт сервера не публикуется.
+      - "${PMS_BIND:-0.0.0.0}:${PMS_PORT:-8443}:8443"
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "10001:10001"
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "openssl s_client -connect 127.0.0.1:8443 -servername ${PMS_DOMAIN:-pms.home} </dev/null 2>/dev/null | grep -q 'BEGIN CERTIFICATE'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Let's Encrypt: Caddy сам получает и продлевает сертификат.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["acme"]
+    restart: unless-stopped
+    depends_on:
+      - pms-server
+    environment:
+      PMS_DOMAIN: ${PMS_DOMAIN:-pms.home}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pms-data:
+  pms-certs:
+  caddy-data:
+  caddy-config:

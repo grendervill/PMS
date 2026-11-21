@@ -1,0 +1,15 @@
+# TLS терминирует Caddy; pms-server слушает 8443 во внутренней сети compose.
+{
+	email {$ACME_EMAIL}
+}
+
+{$PMS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy pms-server:8443 {
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
