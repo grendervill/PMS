@@ -28,7 +28,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 pms \
     && useradd --uid 10001 --gid pms --home-dir /var/lib/pms --no-create-home --shell /usr/sbin/nologin pms \
-    && mkdir -p /var/lib/pms /etc/pms \
+    && mkdir -p /var/lib/pms/certs /etc/pms \
     && chown -R pms:pms /var/lib/pms
 
 COPY --from=builder /src/target/server/pms-server /usr/local/bin/pms-server

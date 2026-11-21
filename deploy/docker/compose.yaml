@@ -24,8 +24,8 @@ services:
       PMS_DOMAIN: ${PMS_DOMAIN:-pms.home}
       PMS_IP: ${PMS_IP:-}
     volumes:
+      # Данные и сертификаты вместе: один том, принадлежащий пользователю сервиса.
       - pms-data:/var/lib/pms
-      - pms-certs:/etc/pms
     ports:
       # В acme-режиме наружу смотрит только Caddy, порт сервера не публикуется.
       - "${PMS_BIND:-0.0.0.0}:${PMS_PORT:-8443}:8443"
@@ -73,6 +73,5 @@ services:
 
 volumes:
   pms-data:
-  pms-certs:
   caddy-data:
   caddy-config:

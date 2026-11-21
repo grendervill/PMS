@@ -5,8 +5,11 @@
 # а сервер запускается с tls.required = false на внутреннем адресе.
 set -eu
 
-CERT=/etc/pms/server.crt
-KEY=/etc/pms/server.key
+# Сертификат лежит в каталоге данных: том принадлежит пользователю сервиса,
+# а /etc/pms — только конфиг из образа (только чтение).
+CERT=/var/lib/pms/certs/server.crt
+KEY=/var/lib/pms/certs/server.key
+mkdir -p /var/lib/pms/certs
 
 if [ "${PMS_TLS:-self-signed}" = "self-signed" ] && [ ! -s "$CERT" ]; then
     days="${PMS_CERT_DAYS:-3650}"
