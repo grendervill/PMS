@@ -19,7 +19,7 @@ token = ""
 
 [auth]
 token_ttl_hours = 12
-max_sessions_per_account = 5
+max_sessions_per_account = 10
 challenge_ttl_seconds = 60
 
 [limits]

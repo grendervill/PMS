@@ -23,6 +23,7 @@ vi.mock("./api", async (importOriginal) => {
       inspect: vi.fn(),
       create: vi.fn(),
       unlock: vi.fn(),
+      reload: vi.fn(),
       save: vi.fn(),
       rewrap: vi.fn(),
       lock: vi.fn(),
@@ -593,5 +594,46 @@ describe("vault store", () => {
 
     expect(await useVaultStore.getState().disableBiometric()).toBe(true);
     expect(isBiometricEnabled("vault-1")).toBe(false);
+  });
+});
+
+describe("reload from disk", () => {
+  beforeEach(() => {
+    useVaultStore.setState(initialVaultState);
+  });
+
+  it("applies a vault pulled by sync without restarting", async () => {
+    const data = {
+      schemaVersion: 1,
+      id: "11111111-1111-1111-1111-111111111111",
+      name: "Кэш",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      settings: {},
+      entries: [],
+    } as unknown as VaultData;
+
+    vi.spyOn(vaultApi, "reload").mockResolvedValue({ ...data, name: "С сервера" });
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/cache/p1",
+      data,
+    });
+
+    await expect(useVaultStore.getState().reloadFromDisk()).resolves.toBe(true);
+    expect(useVaultStore.getState().data?.name).toBe("С сервера");
+  });
+
+  it("keeps the vault when reload fails", async () => {
+    vi.spyOn(vaultApi, "reload").mockRejectedValue({ code: "storage", message: "нет" });
+    useVaultStore.setState({
+      status: "unlocked",
+      sessionId: "session-1",
+      vaultPath: "/cache/p1",
+      data: null,
+    });
+
+    await expect(useVaultStore.getState().reloadFromDisk()).resolves.toBe(false);
   });
 });

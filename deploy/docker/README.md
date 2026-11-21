@@ -54,6 +54,12 @@ TLS терминирует Caddy (`Caddyfile`, Let's Encrypt, автопродл
 контейнера, поэтому порт сервера наружу не публикуется: в `.env` поставьте
 `PMS_BIND=127.0.0.1`, а 80/443 держит Caddy.
 
+## Конфиг
+
+`server.toml` рядом с `compose.yaml` монтируется в `/etc/pms/server.toml` только
+на чтение. Правки применяются рестартом: `docker compose restart pms-server`.
+Квоты, лимиты и `tls.required` — здесь же.
+
 ## Данные
 
 Всё в томе `pms_pms-data` → `/var/lib/pms`:

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { remoteStorage } from "@/lib/storage";
 import { vaultApi } from "@/features/vault/api";
 import { activeProfile, type ServerProfile } from "@/features/storage/profiles";
-import { setVaultSavedListener, setVaultUnlockedListener } from "@/features/vault/store";
+import { setVaultSavedListener, setVaultUnlockedListener, useVaultStore } from "@/features/vault/store";
 import type { UnlockSecret } from "@/features/vault/types";
 import { toRemoteProfile } from "@/features/storage/profiles";
 import { startSync, type SyncController, type SyncStatus } from "./controller";
@@ -45,6 +45,20 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       storage: remoteStorage,
       engine,
       remote: vaultApi,
+      onPulled: async () => {
+        await useVaultStore.getState().reloadFromDisk();
+      },
+      onNeedsAuth: async () => {
+        const current = get().profile;
+        if (!current) return false;
+        try {
+          // Семя identity-ключа хранится в Rust; мастер-ключ не нужен.
+          await vaultApi.remoteRefresh(current.accountId);
+          return true;
+        } catch {
+          return false;
+        }
+      },
       onStatus: (status) => set({ status }),
     });
 

@@ -529,6 +529,11 @@ export const vaultApi = {
 
   // --- Серверный режим -----------------------------------------------------
 
+  /** Перечитывает сейф из папки в открытую сессию (после синхронизации). */
+  async reload(sessionId: string, folder: string): Promise<VaultData> {
+    return call<VaultData>("vault_reload", { sessionId, folder });
+  },
+
   async remoteProbe(profile: RemoteProfile): Promise<ServerProbe> {
     return call<ServerProbe>("remote_probe", { profile });
   },

@@ -432,6 +432,27 @@ pub async fn vault_remove_slot(
     .map_err(|error| ApiError::new("vault_remove_slot", error.to_string()))?
 }
 
+/// Перечитывает сейф из папки в текущую сессию (после синхронизации).
+#[tauri::command]
+pub async fn vault_reload(
+    session_id: Uuid,
+    folder: String,
+    state: State<'_, AppState>,
+) -> ApiResult<VaultData> {
+    let path = std::path::Path::new(&folder).join("pms.vault");
+    let resolved = state
+        .fs_scope
+        .resolve(&path.to_string_lossy(), Access::Read)?;
+    let bytes = tokio::fs::read(&resolved)
+        .await
+        .map_err(|error| ApiError::new("storage", error.to_string()))?;
+
+    let data = state.sessions.with_mut(session_id, |session| {
+        crate::core::vault::reload_vault(session, &bytes)
+    })?;
+    Ok(data)
+}
+
 #[tauri::command]
 pub fn vault_lock(session_id: Uuid, state: State<'_, AppState>) -> ApiResult<()> {
     state.sessions.lock(session_id)?;
