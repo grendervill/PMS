@@ -51,6 +51,8 @@ export type VaultActions = {
   init: () => Promise<void>;
   /** Запуск в серверном режиме: открывает кэш, а не последний локальный сейф. */
   initFromRemote: (cacheDir: string) => Promise<boolean>;
+  /** Подхватить версию, скачанную синхронизацией, без перезапуска приложения. */
+  reloadFromDisk: () => Promise<boolean>;
   createVault: (input: CreateVaultInput) => Promise<boolean>;
   openVault: (path: string) => Promise<boolean>;
   unlock: (secret: UnlockSecret) => Promise<boolean>;
@@ -171,6 +173,21 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
     if (recent.length > 0) {
       const first = recent[0];
       if (first) await get().openVault(first.path);
+    }
+  },
+
+  async reloadFromDisk() {
+    const { sessionId, vaultPath } = get();
+    if (!sessionId || !vaultPath) return false;
+
+    try {
+      const data = await vaultApi.reload(sessionId, vaultPath);
+      set({ data });
+      return true;
+    } catch {
+      // Если синхронизация скачала что-то несовместимое, сейф останется как был:
+      // следующая разблокировка покажет актуальную версию.
+      return false;
     }
   },
 

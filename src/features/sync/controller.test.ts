@@ -181,3 +181,50 @@ describe("sync without a server session", () => {
     sync.stop();
   });
 });
+
+describe("sync controller reactions", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks the owner to refresh the vault after a pull", async () => {
+    const engine = engineStub({ kind: "pulled", version: 4 });
+    const onPulled = vi.fn(async () => undefined);
+    const statuses: SyncStatus[] = [];
+    const sync = startSync({ ...deps(engine, statuses), onPulled });
+
+    await sync.syncNow();
+
+    expect(onPulled).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toEqual({ kind: "idle" });
+    sync.stop();
+  });
+
+  it("restores a displaced session without user input", async () => {
+    const engine = engineStub({ kind: "needs-auth" });
+    const onNeedsAuth = vi.fn(async () => true);
+    const statuses: SyncStatus[] = [];
+    const sync = startSync({ ...deps(engine, statuses), onNeedsAuth });
+
+    await sync.syncNow();
+
+    expect(onNeedsAuth).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toEqual({ kind: "idle" });
+    sync.stop();
+  });
+
+  it("falls back to needs-auth when the seed is gone", async () => {
+    const engine = engineStub({ kind: "needs-auth" });
+    const statuses: SyncStatus[] = [];
+    const sync = startSync({ ...deps(engine, statuses), onNeedsAuth: async () => false });
+
+    await sync.syncNow();
+
+    expect(statuses.at(-1)).toEqual({ kind: "needs-auth" });
+    sync.stop();
+  });
+});

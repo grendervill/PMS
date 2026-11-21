@@ -154,6 +154,27 @@ pub fn unlock_vault_with_key(
     unlock_parsed(parsed, *vault_key)
 }
 
+/// Перечитывает файл сейфа в уже открытую сессию.
+///
+/// Нужно синхронизации: файл в кэше заменяется скачанной версией, а открытое
+/// приложение должно увидеть новые записи без перезапуска. Ключ берётся из
+/// сессии, мастер-ключ не требуется.
+pub fn reload_vault(
+    session: &mut VaultSession,
+    file_bytes: &[u8],
+) -> Result<VaultData, VaultError> {
+    let key = *session.vault_key();
+    let (fresh, data) = unlock_vault_with_key(file_bytes, &key)?;
+    if fresh.header.vault_id != session.header.vault_id {
+        return Err(VaultError::VaultIdMismatch);
+    }
+
+    session.header = fresh.header;
+    session.plaintext_len = fresh.plaintext_len;
+    session.generation = session.generation.saturating_add(1);
+    Ok(data)
+}
+
 fn unlock_parsed(
     parsed: VaultFile,
     vault_key: [u8; 32],
@@ -898,5 +919,52 @@ mod tests {
         let saved = save_vault(&mut session, &data).unwrap();
         let (_, unlocked) = unlock_vault(&saved, &passphrase("correct horse")).unwrap();
         assert_eq!(unlocked.ssh_keys.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod reload_tests {
+    use super::*;
+    use crate::core::crypto::{KdfProfile, UnlockSecretInput};
+    use crate::core::models::CipherSuite;
+
+    fn config(cipher: CipherSuite) -> CreateVaultConfig {
+        CreateVaultConfig {
+            name: "Перезагрузка".to_string(),
+            kdf_profile: KdfProfile::Standard,
+            cipher,
+        }
+    }
+
+    fn passphrase() -> UnlockSecretInput {
+        UnlockSecretInput::Passphrase {
+            value: "correct horse".to_string(),
+        }
+    }
+
+    #[test]
+    fn reload_picks_up_changes_without_the_master_key() {
+        let (file, mut session, data) =
+            create_vault(&config(CipherSuite::XChaCha20Poly1305), &passphrase()).unwrap();
+        let mut changed = data.clone();
+        changed.name = "Другое имя".to_string();
+        let saved = save_vault(&mut session, &changed).unwrap();
+        assert_ne!(saved, file);
+
+        drop(session);
+        let (mut reopened, _) = unlock_vault(&file, &passphrase()).unwrap();
+        let reloaded = reload_vault(&mut reopened, &saved).unwrap();
+        assert_eq!(reloaded.name, "Другое имя");
+    }
+
+    #[test]
+    fn reload_refuses_a_foreign_vault() {
+        let (_, mut first, _) =
+            create_vault(&config(CipherSuite::Aes256Gcm), &passphrase()).unwrap();
+        let (other_file, _, _) =
+            create_vault(&config(CipherSuite::Aes256Gcm), &passphrase()).unwrap();
+
+        // Чужой файл отвергается: либо не тот ключ, либо не тот vault_id.
+        assert!(reload_vault(&mut first, &other_file).is_err());
     }
 }

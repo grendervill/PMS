@@ -65,7 +65,8 @@ pub mod testing {
     pub use crate::core::share;
     pub use crate::core::totp;
     pub use crate::core::vault::{
-        create_vault, save_vault, seal_document, unlock_vault, CreateVaultConfig, VaultSession,
+        create_vault, reload_vault, save_vault, seal_document, unlock_vault, CreateVaultConfig,
+        VaultSession,
     };
     pub use crate::core::vault_file::{
         parse_vault_file, serialize_vault_file, serialize_vault_parts,
@@ -148,6 +149,7 @@ pub fn configure_mock<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::B
         commands::vault::vault_inspect_raw,
         commands::vault::vault_remember_folder,
         commands::vault::keyfile_kind,
+        commands::vault::vault_reload,
         commands::vault::vault_lock,
         commands::generator::generate_password,
         commands::generator::generate_login,
@@ -216,6 +218,7 @@ pub fn run() {
             commands::vault::vault_save_to,
             commands::vault::vault_rewrap,
             commands::vault::vault_remove_slot,
+            commands::vault::vault_reload,
             commands::vault::vault_lock,
             commands::generator::generate_password,
             commands::generator::generate_login,

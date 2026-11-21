@@ -24,6 +24,13 @@ export type SyncController = {
 };
 
 type Options = {
+  /** Открытый сейф перечитывается, когда синхронизация скачала новую версию. */
+  onPulled?: () => void | Promise<void>;
+  /**
+   * Сессия пропала (истекла или её вытеснили логином с другого устройства).
+   * Движок замолкает, а вызывающий решает: войти заново или показать «нужен вход».
+   */
+  onNeedsAuth?: () => Promise<boolean>;
   accountId: string;
   cacheDir: string;
   storage: VaultStorage;
@@ -62,14 +69,29 @@ export function startSync(options: Options): SyncController {
         }
       }
 
+      if (outcome.kind === "pulled") {
+        // Файл в кэше заменён: открытое приложение должно увидеть новые записи.
+        try {
+          await options.onPulled?.();
+        } catch {
+          // Не удалось перечитать — при следующей разблокировке покажется.
+        }
+      }
+
       switch (outcome.kind) {
-        case "needs-auth":
-          // Без сессии сервера опрос бессмысленен: ждём разблокировки сейфа,
-          // после которой приложение входит заново.
+        case "needs-auth": {
+          // Пробуем войти сохранённым семенем: у вытесненной сессии оно обычно
+          // ещё есть, и приложение продолжает работать без перезапуска.
+          const restored = options.onNeedsAuth ? await options.onNeedsAuth() : false;
+          if (restored) {
+            report({ kind: "idle" });
+            break;
+          }
           paused = true;
           stopPeriod();
           report({ kind: "needs-auth" });
           break;
+        }
         case "conflict":
           report({ kind: "conflict", remoteVersion: outcome.remote.version });
           break;
