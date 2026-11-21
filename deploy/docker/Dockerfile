@@ -24,7 +24,7 @@ RUN cargo build --profile server -p pms-server --locked
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && apt-get install -y --no-install-recommends ca-certificates openssl sqlite3 tar gzip \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 pms \
     && useradd --uid 10001 --gid pms --home-dir /var/lib/pms --no-create-home --shell /usr/sbin/nologin pms \
