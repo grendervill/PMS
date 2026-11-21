@@ -23,9 +23,14 @@ docker exec "$container" sh -c \
 docker cp "$container:/var/lib/pms/.backup.sqlite" "$target/index-$stamp.sqlite"
 docker exec "$container" rm -f /var/lib/pms/.backup.sqlite
 
-docker exec "$container" tar -czf - -C /var/lib/pms accounts > "$target/accounts-$stamp.tar.gz"
+# Сертификаты и файлы SQLite не архивируем: первые перевыпускаются, вторые уже
+# сняты через .backup. Остальное — каталоги шардов с байтами аккаунтов.
+docker exec "$container" tar -czf - \
+    --exclude=certs --exclude='index.sqlite*' --exclude='.backup.sqlite' \
+    -C /var/lib/pms . > "$target/accounts-$stamp.tar.gz"
 
 [ -s "$target/accounts-$stamp.tar.gz" ] || { echo "пустой архив аккаунтов" >&2; exit 1; }
+tar -tzf "$target/accounts-$stamp.tar.gz" >/dev/null 2>&1 || { echo "архив не читается" >&2; exit 1; }
 [ -s "$target/index-$stamp.sqlite" ] || { echo "пустая база" >&2; exit 1; }
 
 echo "готово:"

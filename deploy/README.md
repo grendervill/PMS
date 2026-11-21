@@ -91,15 +91,17 @@ pms-server quota-set --config /etc/pms/server.toml --account <32 hex> --bytes 21
 
 ## 6. Бэкап
 
-Индекс и байты живут раздельно: `index.sqlite` (WAL) и каталоги `accounts/`.
+Индекс и байты живут раздельно: `index.sqlite` (WAL) и каталоги шардов
+`<первые 2 hex>/<account_id>/` с `vault.bin` и `blobs/`.
 
 ```bash
 sqlite3 /var/lib/pms/index.sqlite ".backup '/backup/pms-index.sqlite'"
-rsync -a --delete /var/lib/pms/accounts/ /backup/pms-accounts/
+rsync -a --delete --exclude certs --exclude 'index.sqlite*' /var/lib/pms/ /backup/pms-data/
 ```
 
 Без `index.sqlite` сервер при старте пересоберёт `used_bytes` по файлам, но список
-блобов и аккаунтов потеряется — поэтому индекс в бэкапе обязателен.
+аккаунтов, логины и сессии потеряются — поэтому индекс в бэкапе обязателен.
+Готовый скрипт для контейнера: `deploy/docker/backup.sh`.
 
 ## 7. Обновление
 
