@@ -26,6 +26,7 @@ pub const HEADER_PUBLIC_KEY: &str = "x-pms-public-key";
 pub const HEADER_DEVICE: &str = "x-pms-device-id";
 pub const HEADER_LOGIN: &str = "x-pms-login";
 pub const HEADER_SIGNATURE: &str = "x-pms-signature";
+pub const HEADER_TIMESTAMP: &str = "x-pms-timestamp";
 pub const HEADER_DIGEST: &str = "x-pms-digest";
 pub const HEADER_REGISTRATION_TOKEN: &str = "x-pms-registration-token";
 
@@ -132,6 +133,41 @@ pub(crate) fn body_reader(
     tokio_util::io::StreamReader::new(mapped)
 }
 
+/// Минимальная скорость приёма тела: ниже — запрос обрывается.
+const MIN_BYTES_PER_SEC: u64 = 512 * 1024;
+/// JSON-тела наших запросов крошечные; больше — уже подозрительно.
+const MAX_JSON_BYTES: usize = 16 * 1024;
+const JSON_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Бюджет на **весь** приём тела: базовый таймаут плюс время на передачу по
+/// минимальной скорости. Таймаут на кусок такой защиты не даёт: байт в минуту
+/// не нарушает его никогда.
+pub(crate) fn body_budget(limits: &crate::config::Limits, len: u64) -> std::time::Duration {
+    std::time::Duration::from_secs(limits.body_timeout_secs)
+        + std::time::Duration::from_secs(len / MIN_BYTES_PER_SEC)
+}
+
+/// Читает небольшое JSON-тело с общим дедлайном.
+pub(crate) async fn json_body<T: serde::de::DeserializeOwned>(
+    body: axum::body::Body,
+    len: u64,
+) -> Result<T, ApiError> {
+    if len as usize > MAX_JSON_BYTES {
+        return Err(ApiError::new(
+            ErrorCode::PayloadTooLarge,
+            "тело слишком большое",
+        ));
+    }
+
+    let read = tokio::time::timeout(JSON_DEADLINE, http_body_util::BodyExt::collect(body))
+        .await
+        .map_err(|_| ApiError::new(ErrorCode::Timeout, "тело запроса не пришло вовремя"))?
+        .map_err(|_| ApiError::new(ErrorCode::BadRequest, "тело запроса не прочитано"))?;
+
+    serde_json::from_slice(&read.to_bytes())
+        .map_err(|_| ApiError::new(ErrorCode::BadRequest, "тело не JSON"))
+}
+
 pub(crate) fn content_length(headers: &axum::http::HeaderMap) -> Option<u64> {
     headers
         .get(axum::http::header::CONTENT_LENGTH)
@@ -166,7 +202,8 @@ async fn check_protocol(request: Request, next: Next) -> Response {
         .headers()
         .get(HEADER_PROTOCOL)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == PROTOCOL_VERSION.to_string());
+        .and_then(|value| value.parse::<u32>().ok())
+        == Some(PROTOCOL_VERSION);
 
     if !allowed {
         return ApiError::new(
@@ -216,6 +253,13 @@ impl From<StoreError> for ApiError {
             StoreError::DigestMismatch => Self::new(ErrorCode::DigestMismatch, "BLAKE3 не совпал"),
             StoreError::BadBlobId => Self::new(ErrorCode::BadRequest, "неверный идентификатор"),
             StoreError::BadDigest => Self::new(ErrorCode::BadRequest, "неверный BLAKE3"),
+            StoreError::NoSpace { used, capacity } => {
+                tracing::warn!(used, capacity, "нет места под временные файлы");
+                Self::new(
+                    ErrorCode::Unavailable,
+                    "на сервере временно нет места, попробуйте позже",
+                )
+            }
             StoreError::Io(_) | StoreError::Db(_) | StoreError::Locked | StoreError::Corrupt(_) => {
                 tracing::error!(error = %error, "внутренняя ошибка хранилища");
                 Self::new(ErrorCode::Internal, "внутренняя ошибка сервера")
@@ -264,6 +308,7 @@ fn status_of(code: ErrorCode) -> axum::http::StatusCode {
         ErrorCode::UnsupportedProtocol => StatusCode::UPGRADE_REQUIRED,
         ErrorCode::QuotaExceeded | ErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+        ErrorCode::Timeout => StatusCode::REQUEST_TIMEOUT,
         ErrorCode::VaultMissing => StatusCode::NOT_FOUND,
         ErrorCode::LoginTaken => StatusCode::CONFLICT,
         ErrorCode::DigestMismatch => StatusCode::BAD_REQUEST,

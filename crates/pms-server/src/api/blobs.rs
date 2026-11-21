@@ -91,10 +91,12 @@ async fn upload(
         std::time::Duration::from_secs(state.config.limits.body_timeout_secs),
     ));
 
-    let info = state
-        .store
-        .put_blob(account, &blob_id, digest, reader, len)
-        .await?;
+    let info = tokio::time::timeout(
+        super::body_budget(&state.config.limits, len),
+        state.store.put_blob(account, &blob_id, digest, reader, len),
+    )
+    .await
+    .map_err(|_| ApiError::new(ErrorCode::Timeout, "тело вложения не пришло вовремя"))??;
     Ok((StatusCode::OK, Json(info)).into_response())
 }
 

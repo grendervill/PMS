@@ -85,7 +85,13 @@ pub async fn upload(
         std::time::Duration::from_secs(state.config.limits.body_timeout_secs),
     ));
 
-    let result = state.store.put_vault(account, expected, reader, len).await;
+    // Общий бюджет на приём тела, а не таймаут на кусок.
+    let result = tokio::time::timeout(
+        super::body_budget(&state.config.limits, len),
+        state.store.put_vault(account, expected, reader, len),
+    )
+    .await
+    .map_err(|_| ApiError::new(ErrorCode::Timeout, "тело сейфа не пришло вовремя"))?;
     let meta = match result {
         Ok(meta) => meta,
         Err(StoreError::Conflict(current)) => {

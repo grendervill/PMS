@@ -21,6 +21,8 @@ pub struct Auth {
     store: Arc<Store>,
     config: AuthConfig,
     limiter: RateLimiter,
+    /// Когда последний раз чистили просроченные сессии (unix seconds).
+    last_prune: std::sync::atomic::AtomicI64,
 }
 
 /// Выданный nonce. Живёт до первого использования.
@@ -71,6 +73,7 @@ impl Auth {
             store,
             config,
             limiter: RateLimiter::default(),
+            last_prune: std::sync::atomic::AtomicI64::new(0),
         }
     }
 
@@ -146,10 +149,44 @@ impl Auth {
             self.store.delete_session(&hash)?;
             return Err(AuthError::Unauthorized);
         }
+        self.prune_expired();
+
         Ok(Authenticated {
             account: session.account,
             device: session.device,
         })
+    }
+
+    /// Раз в минуту убираем просроченные сессии. Раньше это делалось на каждом
+    /// входе полным сканом таблицы — с ростом числа сессий вход деградировал.
+    fn prune_expired(&self) {
+        use std::sync::atomic::Ordering;
+        let now = unix_now();
+        let last = self.last_prune.load(Ordering::Relaxed);
+        if now - last < 60 {
+            return;
+        }
+        if self
+            .last_prune
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        if let Err(error) = self.store.delete_expired_sessions(now) {
+            tracing::warn!(%error, "не удалось почистить просроченные сессии");
+        }
+    }
+
+    /// Отзывает ровно этот токен (кнопка «Отключиться» на устройстве).
+    pub fn revoke(&self, token: &str) -> Result<bool, AuthError> {
+        if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Ok(false);
+        }
+        let hash = hash_token(token);
+        let existed = self.store.session(&hash)?.is_some();
+        self.store.delete_session(&hash)?;
+        Ok(existed)
     }
 
     pub fn revoke_all(&self, account: AccountId) -> Result<(), AuthError> {

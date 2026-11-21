@@ -16,6 +16,8 @@ pub struct Staged {
     temp: TempFile,
     len: u64,
     digest: String,
+    /// Держим резерв, пока тело лежит в `staging/`: освободится при удалении.
+    _reservation: super::Reservation,
 }
 
 impl Staged {
@@ -47,9 +49,11 @@ impl Store {
 
         let mut name = [0u8; 16];
         rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut name);
+        let reservation = self.reserve(len)?;
         let temp = TempFile::at(directory.join(hex::encode(name)));
 
-        let digest = super::hash_stream_to_file(temp.path(), &mut body, len).await?;
+        let policy = self.fsync_policy();
+        let digest = super::hash_stream_to_file(temp.path(), &mut body, len, policy).await?;
         let written = tokio::fs::metadata(temp.path())
             .await
             .map_err(io_error)?
@@ -61,6 +65,11 @@ impl Store {
             });
         }
 
-        Ok(Staged { temp, len, digest })
+        Ok(Staged {
+            temp,
+            len,
+            digest,
+            _reservation: reservation,
+        })
     }
 }

@@ -266,3 +266,61 @@ async fn expired_nonces_do_not_count_as_failed_attempts() {
     let token = login(&fixture);
     assert!(fixture.auth.authenticate(token.expose()).is_ok());
 }
+
+#[tokio::test]
+async fn revoking_a_token_invalidates_only_that_session() {
+    let fixture = setup();
+    let first = login(&fixture);
+    let second = login(&fixture);
+
+    assert!(fixture.auth.revoke(first.expose()).unwrap());
+    assert!(matches!(
+        fixture.auth.authenticate(first.expose()),
+        Err(AuthError::Unauthorized)
+    ));
+    assert!(fixture.auth.authenticate(second.expose()).is_ok());
+    assert!(fixture.auth.authenticate("00").is_err());
+}
+
+#[tokio::test]
+async fn one_nonce_per_account_and_eviction_follows_insert_order() {
+    let fixture = setup();
+
+    // Десять challenge подряд: активным остаётся только последний nonce.
+    let mut nonces = Vec::new();
+    for _ in 0..10 {
+        let challenge = fixture
+            .auth
+            .issue_challenge(fixture.account, fixture.device)
+            .unwrap();
+        nonces.push(challenge.nonce);
+    }
+
+    for nonce in &nonces[..9] {
+        let signature = sign(&fixture, *nonce);
+        let result = fixture.auth.verify(
+            fixture.account,
+            fixture.device,
+            nonce,
+            &signature,
+            &fixture.identity.public,
+        );
+        assert!(
+            matches!(result, Err(AuthError::Unauthorized)),
+            "старый nonce принят"
+        );
+    }
+
+    let last = *nonces.last().unwrap();
+    let signature = sign(&fixture, last);
+    assert!(fixture
+        .auth
+        .verify(
+            fixture.account,
+            fixture.device,
+            &last,
+            &signature,
+            &fixture.identity.public
+        )
+        .is_ok());
+}

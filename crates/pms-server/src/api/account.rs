@@ -8,7 +8,10 @@ use pms_proto::dto::{Deleted, Usage};
 use pms_proto::identity::verify_account_delete;
 use pms_proto::ErrorCode;
 
-use super::{hex_array, ApiError, AppState, Authed, HEADER_SIGNATURE};
+use super::{hex_array, ApiError, AppState, Authed, HEADER_SIGNATURE, HEADER_TIMESTAMP};
+
+/// Окно, в котором принимается подпись удаления.
+const DELETE_WINDOW_SECONDS: i64 = 120;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -31,11 +34,30 @@ async fn delete_account(
 ) -> Result<(StatusCode, Json<Deleted>), ApiError> {
     let signature: [u8; 64] = hex_array(&headers, HEADER_SIGNATURE)?;
 
+    // Подпись живёт в окне: иначе один подсмотренный запрос стирает аккаунт
+    // в любой момент времени.
+    let timestamp = super::header(&headers, HEADER_TIMESTAMP)?
+        .parse::<i64>()
+        .map_err(|_| ApiError::new(ErrorCode::BadRequest, "x-pms-timestamp не число"))?;
+    let now = chrono::Utc::now().timestamp();
+    if (now - timestamp).abs() > DELETE_WINDOW_SECONDS {
+        return Err(ApiError::new(
+            ErrorCode::Unauthorized,
+            "подпись удаления устарела",
+        ));
+    }
+
     let record = state
         .store
         .account(account)?
         .ok_or_else(|| ApiError::new(ErrorCode::NotFound, "аккаунта нет"))?;
-    if !verify_account_delete(&record.public_key, &account, &device, &signature) {
+    if timestamp <= record.last_delete_at {
+        return Err(ApiError::new(
+            ErrorCode::Unauthorized,
+            "подпись удаления уже использована",
+        ));
+    }
+    if !verify_account_delete(&record.public_key, &account, &device, timestamp, &signature) {
         return Err(ApiError::new(
             ErrorCode::Unauthorized,
             "подпись удаления не подходит",
@@ -43,9 +65,9 @@ async fn delete_account(
     }
 
     state.auth.revoke_all(account)?;
-    let store = std::sync::Arc::clone(&state.store);
-    tokio::task::spawn_blocking(move || store.delete_account(account))
-        .await
-        .map_err(|_| ApiError::new(ErrorCode::Internal, "удаление сорвалось"))??;
-    Ok((StatusCode::OK, Json(Deleted { deleted: true })))
+    state.store.touch_delete_mark(account, timestamp)?;
+    match state.store.delete_account(account).await {
+        Ok(_) => Ok((StatusCode::OK, Json(Deleted { deleted: true }))),
+        Err(error) => Err(error.into()),
+    }
 }

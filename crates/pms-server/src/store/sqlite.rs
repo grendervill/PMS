@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     vault_digest TEXT NOT NULL DEFAULT '',
     vault_size INTEGER NOT NULL DEFAULT 0,
     login TEXT,
+    last_delete_at INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_auth_at TEXT
@@ -48,6 +49,8 @@ CREATE TABLE IF NOT EXISTS nonces (
 
 CREATE INDEX IF NOT EXISTS blobs_by_account ON blobs(account_id);
 CREATE INDEX IF NOT EXISTS sessions_by_account ON sessions(account_id, expires_at);
+CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS nonces_by_expiry ON nonces(expires_at);
 "#;
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -72,9 +75,24 @@ fn migrate(connection: &Connection) -> rusqlite::Result<()> {
     if !has_login {
         connection.execute("ALTER TABLE accounts ADD COLUMN login TEXT", [])?;
     }
+    let has_delete_mark: bool = connection
+        .prepare("SELECT 1 FROM pragma_table_info('accounts') WHERE name = 'last_delete_at'")?
+        .exists([])?;
+    if !has_delete_mark {
+        connection.execute(
+            "ALTER TABLE accounts ADD COLUMN last_delete_at INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS accounts_by_login ON accounts(login)",
         [],
+    )?;
+    // Индексы по сроку: без них `DELETE … WHERE expires_at <= …` — полный скан
+    // на каждом входе и на каждом challenge.
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions(expires_at);
+         CREATE INDEX IF NOT EXISTS nonces_by_expiry ON nonces(expires_at);",
     )?;
     Ok(())
 }

@@ -311,10 +311,15 @@ pub fn verify_register(
 
 const ACCOUNT_DELETE_LABEL: &[u8] = b"PMS-ACCOUNT-DELETE-v1";
 
-pub fn account_delete_message(account: &AccountId, device: &DeviceId) -> [u8; 32] {
-    let mut message = [0u8; 32];
+/// `account (16) || device (16) || timestamp (8, LE)`.
+///
+/// Время в подписи закрывает переигровку: сервер принимает её только в окне
+/// и только один раз (по `last_delete_at`).
+pub fn account_delete_message(account: &AccountId, device: &DeviceId, timestamp: i64) -> [u8; 40] {
+    let mut message = [0u8; 40];
     message[..16].copy_from_slice(account.as_bytes());
-    message[16..].copy_from_slice(device.as_bytes());
+    message[16..32].copy_from_slice(device.as_bytes());
+    message[32..].copy_from_slice(&timestamp.to_le_bytes());
     message
 }
 
@@ -322,11 +327,12 @@ pub fn sign_account_delete(
     identity: &Identity,
     account: &AccountId,
     device: &DeviceId,
+    timestamp: i64,
 ) -> [u8; 64] {
     use ed25519_dalek::Signer;
-    let mut payload = Vec::with_capacity(ACCOUNT_DELETE_LABEL.len() + 32);
+    let mut payload = Vec::with_capacity(ACCOUNT_DELETE_LABEL.len() + 40);
     payload.extend_from_slice(ACCOUNT_DELETE_LABEL);
-    payload.extend_from_slice(&account_delete_message(account, device));
+    payload.extend_from_slice(&account_delete_message(account, device, timestamp));
     SigningKey::from_bytes(&identity.secret)
         .sign(&payload)
         .to_bytes()
@@ -336,15 +342,16 @@ pub fn verify_account_delete(
     public: &[u8; 32],
     account: &AccountId,
     device: &DeviceId,
+    timestamp: i64,
     signature: &[u8; 64],
 ) -> bool {
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
     let Ok(verifying_key) = VerifyingKey::from_bytes(public) else {
         return false;
     };
-    let mut payload = Vec::with_capacity(ACCOUNT_DELETE_LABEL.len() + 32);
+    let mut payload = Vec::with_capacity(ACCOUNT_DELETE_LABEL.len() + 40);
     payload.extend_from_slice(ACCOUNT_DELETE_LABEL);
-    payload.extend_from_slice(&account_delete_message(account, device));
+    payload.extend_from_slice(&account_delete_message(account, device, timestamp));
     verifying_key
         .verify(&payload, &Signature::from_bytes(signature))
         .is_ok()
@@ -509,18 +516,28 @@ mod tests {
         let identity = derive_identity(b"secret", "alice", &IdentityKdf::FAST_FOR_TESTS);
         let account = AccountId::from_public_key(&identity.public);
         let device = DeviceId::new([4u8; 16]);
-        let signature = sign_account_delete(&identity, &account, &device);
+        let timestamp = 1_764_000_000i64;
+        let signature = sign_account_delete(&identity, &account, &device, timestamp);
 
         assert!(verify_account_delete(
             &identity.public,
             &account,
             &device,
+            timestamp,
+            &signature
+        ));
+        assert!(!verify_account_delete(
+            &identity.public,
+            &account,
+            &device,
+            timestamp + 1,
             &signature
         ));
         assert!(!verify_account_delete(
             &identity.public,
             &account,
             &DeviceId::new([5u8; 16]),
+            timestamp,
             &signature
         ));
     }

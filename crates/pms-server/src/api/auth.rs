@@ -14,9 +14,9 @@ use pms_proto::identity::{normalize_login, verify_register, AccountId, DeviceId}
 use pms_proto::ErrorCode;
 
 use super::{
-    body_reader, content_length, header, hex_array, now_rfc3339, ApiError, AppState,
-    HEADER_ACCOUNT, HEADER_DEVICE, HEADER_LOGIN, HEADER_PUBLIC_KEY, HEADER_REGISTRATION_TOKEN,
-    HEADER_SIGNATURE,
+    body_budget, body_reader, content_length, header, hex_array, json_body, now_rfc3339, ApiError,
+    AppState, HEADER_ACCOUNT, HEADER_DEVICE, HEADER_LOGIN, HEADER_PUBLIC_KEY,
+    HEADER_REGISTRATION_TOKEN, HEADER_SIGNATURE,
 };
 use crate::store::vault::ExpectedVersion;
 
@@ -25,6 +25,22 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/accounts", post(register))
         .route("/v1/auth/challenge", post(challenge))
         .route("/v1/auth/verify", post(verify))
+        .route("/v1/auth/session/revoke", post(revoke))
+}
+
+/// Отзыв текущего токена: устройство выходит из аккаунта, не дожидаясь TTL.
+async fn revoke(State(state): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or_else(|| ApiError::new(ErrorCode::Unauthorized, "нужен Bearer-токен"))?
+        .trim();
+
+    match state.auth.revoke(token)? {
+        true => Ok(StatusCode::NO_CONTENT),
+        false => Err(ApiError::new(ErrorCode::Unauthorized, "сессия не найдена")),
+    }
 }
 
 fn unix_to_rfc3339(timestamp: i64) -> String {
@@ -35,36 +51,48 @@ fn unix_to_rfc3339(timestamp: i64) -> String {
 
 pub async fn challenge(
     State(state): State<AppState>,
-    Json(request): Json<ChallengeRequest>,
+    headers: HeaderMap,
+    body: Body,
 ) -> Result<Json<ChallengeResponse>, ApiError> {
+    let len = content_length(&headers).unwrap_or(0);
+    let request: ChallengeRequest = json_body(body, len).await?;
+
     let login = normalize_login(&request.login)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "недопустимый логин"))?;
     let device = DeviceId::from_hex(&request.device_id)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "device_id не hex"))?;
 
-    state.auth.rate_limiter().check(&login)?;
+    let account = state.store.account_by_login(&login)?;
+    // Лимитер и проверка — по аккаунту, а не по логину: именно под этим ключом
+    // записываются неудачные попытки. Иначе лимит на challenge не работает.
+    let limiter_key = account
+        .as_ref()
+        .map(|record| record.account_id.to_string())
+        .unwrap_or_else(|| format!("login:{login}"));
+    state.auth.rate_limiter().check(&limiter_key)?;
 
-    let Some(record) = state.store.account_by_login(&login)? else {
-        tracing::info!(login = %login, "challenge: логин не найден");
-        // Неизвестный логин и неверный пароль отвечают одинаково по форме.
-        return Err(ApiError::new(
-            ErrorCode::Unauthorized,
-            "неверный логин или пароль",
-        ));
-    };
+    // Неизвестный логин получает nonce от случайного аккаунта: ответ совпадает по
+    // форме с известным, перечислять логины нельзя. Подпись всё равно не сойдётся
+    // (в `verify` nonce не найдётся), а клиент увидит единый отказ.
+    let account_id = account
+        .map(|record| record.account_id)
+        .unwrap_or_else(|| AccountId::new(rand::random::<[u8; 16]>()));
 
-    let challenge = state.auth.issue_challenge(record.account_id, device)?;
+    let challenge = state.auth.issue_challenge(account_id, device)?;
     Ok(Json(ChallengeResponse {
         nonce: hex::encode(challenge.nonce),
         expires_at: unix_to_rfc3339(challenge.expires_at),
-        account_id: record.account_id.to_string(),
+        account_id: account_id.to_string(),
     }))
 }
 
 pub async fn verify(
     State(state): State<AppState>,
-    Json(request): Json<VerifyRequest>,
+    headers: HeaderMap,
+    body: Body,
 ) -> Result<Json<VerifyResponse>, ApiError> {
+    let len = content_length(&headers).unwrap_or(0);
+    let request: VerifyRequest = json_body(body, len).await?;
     let account = AccountId::from_hex(&request.account_id)
         .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, "account_id не hex"))?;
     let device = DeviceId::from_hex(&request.device_id)
@@ -173,7 +201,13 @@ pub async fn register(
         body,
         std::time::Duration::from_secs(state.config.limits.body_timeout_secs),
     ));
-    let staged = state.store.stage_upload(reader, len).await?;
+    // Дедлайн на весь приём, а не на кусок: иначе байт в минуту держит запрос вечно.
+    let staged = tokio::time::timeout(
+        body_budget(&state.config.limits, len),
+        state.store.stage_upload(reader, len),
+    )
+    .await
+    .map_err(|_| ApiError::new(ErrorCode::Timeout, "тело регистрации не пришло вовремя"))??;
 
     let digest = hex::decode(staged.digest())
         .ok()
@@ -219,7 +253,10 @@ pub async fn register(
     } else {
         let file = tokio::fs::File::open(staged.path())
             .await
-            .map_err(|error| ApiError::new(ErrorCode::Internal, error.to_string()))?;
+            .map_err(|error| {
+                tracing::warn!(error = %error, "регистрация: не удалось прочитать сейф");
+                ApiError::new(ErrorCode::Internal, "внутренняя ошибка сервера")
+            })?;
         match state
             .store
             .put_vault(account, ExpectedVersion::Any, file, staged.len())
@@ -229,7 +266,9 @@ pub async fn register(
             Err(error) => {
                 // Аккаунт без сейфа оставлять нельзя: повторная регистрация
                 // упрётся в 409, а входить будет некуда.
-                let _ = state.store.delete_account(account);
+                if let Err(cleanup) = state.store.delete_account(account).await {
+                    tracing::warn!(error = %cleanup, "регистрация: аккаунт не откатился");
+                }
                 return Err(error.into());
             }
         }

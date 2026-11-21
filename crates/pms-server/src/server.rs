@@ -50,6 +50,9 @@ pub async fn run(config: Config) -> Result<ServerHandle, ServerError> {
         &config.server.data_dir,
         config.quota.default_bytes,
     )?);
+    store.set_fsync(config.limits.fsync);
+    let flusher = store.spawn_flusher();
+    tracing::info!(policy = ?config.limits.fsync, "политика fsync");
     let quota_default = store.default_quota();
     let auth = Arc::new(Auth::new(Arc::clone(&store), config.auth.clone()));
     let state = AppState::new(store, auth, Arc::new(config.clone()));
@@ -64,6 +67,10 @@ pub async fn run(config: Config) -> Result<ServerHandle, ServerError> {
     listener.set_nonblocking(true).map_err(ServerError::Bind)?;
     let addr = listener.local_addr().map_err(ServerError::Bind)?;
 
+    // Дедлайны соединения: без них клиент, приславший половину заголовков,
+    // держит слот и файловый дескриптор бесконечно (slowloris).
+    let header_timeout = Duration::from_secs(config.limits.header_read_timeout_secs);
+
     let handle: Handle<SocketAddr> = Handle::new();
     let join = match tls_mode {
         TlsMode::Off => {
@@ -71,9 +78,14 @@ pub async fn run(config: Config) -> Result<ServerHandle, ServerError> {
                 listen = %addr,
                 "TLS выключен: трафик идёт открытым текстом"
             );
-            let server = axum_server::from_tcp(listener)
+            let mut server = axum_server::from_tcp(listener)
                 .map_err(ServerError::Bind)?
                 .handle(handle.clone());
+            server
+                .http_builder()
+                .http1()
+                .header_read_timeout(header_timeout);
+            let server = server.first_request_timeout(header_timeout);
             tokio::spawn(async move {
                 if let Err(error) = server.serve(app.into_make_service()).await {
                     tracing::error!(error = %error, "сервер остановлен с ошибкой");
@@ -83,9 +95,14 @@ pub async fn run(config: Config) -> Result<ServerHandle, ServerError> {
         TlsMode::Files { cert, key } => {
             let rustls_config = build_rustls(&cert, &key, &config.tls.min_version).await?;
             tracing::info!(listen = %addr, cert = %cert.display(), "TLS включён");
-            let server = axum_server::from_tcp_rustls(listener, rustls_config)
+            let mut server = axum_server::from_tcp_rustls(listener, rustls_config)
                 .map_err(ServerError::Bind)?
                 .handle(handle.clone());
+            server
+                .http_builder()
+                .http1()
+                .header_read_timeout(header_timeout);
+            let server = server.first_request_timeout(header_timeout);
             tokio::spawn(async move {
                 if let Err(error) = server.serve(app.into_make_service()).await {
                     tracing::error!(error = %error, "сервер остановлен с ошибкой");
@@ -93,6 +110,11 @@ pub async fn run(config: Config) -> Result<ServerHandle, ServerError> {
             })
         }
     };
+
+    // Флашер живёт столько же, сколько сервер.
+    tokio::spawn(async move {
+        let _ = flusher.await;
+    });
 
     Ok(ServerHandle {
         addr,

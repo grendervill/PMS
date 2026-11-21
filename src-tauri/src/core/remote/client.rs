@@ -16,6 +16,7 @@ pub const HEADER_DEVICE: &str = "x-pms-device-id";
 pub const HEADER_SIGNATURE: &str = "x-pms-signature";
 pub const HEADER_DIGEST: &str = "x-pms-digest";
 pub const HEADER_LOGIN: &str = "x-pms-login";
+pub const HEADER_TIMESTAMP: &str = "x-pms-timestamp";
 pub const HEADER_VAULT_VERSION: &str = "x-pms-vault-version";
 
 pub struct RemoteClient {
@@ -212,9 +213,9 @@ impl RemoteClient {
         // Сервер нашёл аккаунт по логину. Если он не совпал с выведенным из
         // логина и мастер-ключа — это другой пользователь или чужой сервер.
         if challenge.account_id != account.to_string() {
-            return Err(RemoteError::BadRequest(
-                "логин на сервере принадлежит другому ключу".to_string(),
-            ));
+            // Логина нет на сервере либо он принадлежит другому ключу. Для
+            // пользователя это одно и то же: неверный логин или мастер-ключ.
+            return Err(RemoteError::Unauthorized);
         }
 
         let nonce = decode_nonce(&challenge.nonce)?;

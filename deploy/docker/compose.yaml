@@ -36,6 +36,13 @@ services:
       - /tmp
     user: "10001:10001"
     mem_limit: 256m
+    # Файлы данных, сокеты и TLS-соединения: без явного лимита Docker даёт
+    # немного, и под нагрузкой кончаются дескрипторы.
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
+    stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true
     healthcheck:

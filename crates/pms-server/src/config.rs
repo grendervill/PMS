@@ -161,9 +161,25 @@ impl Default for Auth {
     }
 }
 
+/// Насколько дорого платить за долговечность каждой записи.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FsyncPolicy {
+    /// `sync_all` на каждый PUT: последняя запись не теряется даже при отключении питания.
+    #[default]
+    Always,
+    /// `sync_data`: данные на диске, метаданные файла — нет. Заметно дешевле.
+    Data,
+    /// Без синхронизации в запросе: фоновая задача сбрасывает раз в несколько
+    /// миллисекунд. Окно потери — эти миллисекунды, зато в разы быстрее.
+    Batch,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct Limits {
+    #[serde(default)]
+    pub fsync: FsyncPolicy,
     #[serde(default = "default_max_body")]
     pub max_body_bytes: u64,
     #[serde(default = "default_max_connections")]
@@ -178,7 +194,9 @@ fn default_max_body() -> u64 {
     DEFAULT_QUOTA_BYTES
 }
 fn default_max_connections() -> usize {
-    512
+    // 512 запросов в полёте — это ~170 МиБ; под лимитом контейнера 256 МиБ
+    // такой запас опасен, а реальным клиентам хватает десятков.
+    128
 }
 fn default_header_timeout() -> u64 {
     10
@@ -190,6 +208,7 @@ fn default_body_timeout() -> u64 {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            fsync: FsyncPolicy::Always,
             max_body_bytes: default_max_body(),
             max_connections: default_max_connections(),
             header_read_timeout_secs: default_header_timeout(),

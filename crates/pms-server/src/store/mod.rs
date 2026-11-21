@@ -33,14 +33,70 @@ pub struct AccountRecord {
     pub vault_digest: String,
     pub vault_size: u64,
     pub updated_at: String,
+    /// Когда аккаунт последний раз удаляли (0 — никогда): защита от повтора подписи.
+    pub last_delete_at: i64,
 }
 
 /// Строка для CLI: идентификатор, логин, занятое место, квота.
 pub type AccountRow = (AccountId, Option<String>, u64, u64);
 
+/// Сколько байт разрешено держать во временных файлах.
+///
+/// Квота аккаунта не видит `staging/`, поэтому без отдельного бюджета диск
+/// можно забить «на время» незавершёнными загрузками.
+pub struct StagingBudget {
+    used: std::sync::atomic::AtomicU64,
+}
+
+impl StagingBudget {
+    pub fn new() -> Self {
+        Self {
+            used: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn used(&self) -> u64 {
+        self.used.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Четверть свободного места, от 64 МиБ до 8 ГиБ.
+    pub fn capacity(root: &Path) -> u64 {
+        let free = free_bytes(root).unwrap_or(u64::MAX / 2);
+        (free / 4).clamp(64 * 1024 * 1024, 8 * 1024 * 1024 * 1024)
+    }
+}
+
+impl Default for StagingBudget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Резерв байт в staging; освобождается сам, даже при отмене запроса.
+pub struct Reservation {
+    budget: std::sync::Arc<StagingBudget>,
+    bytes: u64,
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.budget
+            .used
+            .fetch_sub(self.bytes, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 pub struct Store {
     root: PathBuf,
     default_quota: u64,
+    /// Счётчик вставок nonce: по нему решаем, когда делать глобальную чистку.
+    inserts: std::sync::atomic::AtomicU64,
+    /// Занятое место под временные файлы.
+    staging: std::sync::Arc<StagingBudget>,
+    /// Политика синхронизации и набор путей, ждущих `fsync` в режиме `batch`.
+    fsync: std::sync::atomic::AtomicU8,
+    dirty: Mutex<HashSet<PathBuf>>,
+    flush: tokio::sync::Notify,
     db: Mutex<Connection>,
     locks: Mutex<HashMap<AccountId, Arc<tokio::sync::Mutex<()>>>>,
 }
@@ -55,6 +111,11 @@ impl Store {
         let store = Self {
             root: root.to_path_buf(),
             default_quota,
+            inserts: std::sync::atomic::AtomicU64::new(0),
+            staging: std::sync::Arc::new(StagingBudget::new()),
+            fsync: std::sync::atomic::AtomicU8::new(crate::config::FsyncPolicy::Always as u8),
+            dirty: Mutex::new(HashSet::new()),
+            flush: tokio::sync::Notify::new(),
             db: Mutex::new(connection),
             locks: Mutex::new(HashMap::new()),
         };
@@ -147,7 +208,8 @@ impl Store {
         let mut statement = connection
             .prepare_cached(
                 "SELECT account_id, public_key, quota_bytes, used_bytes, vault_version, \
-                 vault_digest, vault_size, updated_at, login FROM accounts WHERE account_id = ?1",
+                 vault_digest, vault_size, updated_at, login, last_delete_at \
+                 FROM accounts WHERE account_id = ?1",
             )
             .map_err(db_error)?;
         let mut rows = statement
@@ -187,6 +249,81 @@ impl Store {
         Ok(out)
     }
 
+    /// Отмечает, когда аккаунт удаляли: защита от повторной подписи.
+    pub fn touch_delete_mark(&self, account: AccountId, timestamp: i64) -> Result<(), StoreError> {
+        self.db()?
+            .execute(
+                "UPDATE accounts SET last_delete_at = ?2 WHERE account_id = ?1",
+                rusqlite::params![account.to_string(), timestamp],
+            )
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    pub fn set_fsync(&self, policy: crate::config::FsyncPolicy) {
+        self.fsync
+            .store(policy as u8, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn fsync_policy(&self) -> crate::config::FsyncPolicy {
+        match self.fsync.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => crate::config::FsyncPolicy::Data,
+            2 => crate::config::FsyncPolicy::Batch,
+            _ => crate::config::FsyncPolicy::Always,
+        }
+    }
+
+    /// Запоминает путь для фонового `fsync` (режим `batch`).
+    pub(crate) fn mark_dirty(&self, path: PathBuf) {
+        if let Ok(mut dirty) = self.dirty.lock() {
+            dirty.insert(path);
+        }
+        self.flush.notify_one();
+    }
+
+    /// Фоновая задача режима `batch`: сбрасывает накопленные пути раз в 3 мс.
+    pub fn spawn_flusher(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let store = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                store.flush.notified().await;
+                tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+                let batch: Vec<PathBuf> = match store.dirty.lock() {
+                    Ok(mut dirty) => dirty.drain().collect(),
+                    Err(_) => continue,
+                };
+                for path in batch {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Ok(file) = std::fs::File::open(&path) {
+                            let _ = file.sync_data();
+                        }
+                    })
+                    .await;
+                }
+            }
+        })
+    }
+
+    pub fn staging(&self) -> &std::sync::Arc<StagingBudget> {
+        &self.staging
+    }
+
+    /// Резервирует место под тело до чтения первого байта.
+    pub fn reserve(&self, bytes: u64) -> Result<Reservation, StoreError> {
+        let capacity = StagingBudget::capacity(&self.root);
+        let used = self.staging.used();
+        if used.saturating_add(bytes) > capacity {
+            return Err(StoreError::NoSpace { used, capacity });
+        }
+        self.staging
+            .used
+            .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+        Ok(Reservation {
+            budget: std::sync::Arc::clone(&self.staging),
+            bytes,
+        })
+    }
+
     /// Меняет квоту аккаунта. Админка не делается: квота правится CLI.
     pub fn set_quota(&self, account: AccountId, quota_bytes: u64) -> Result<bool, StoreError> {
         let updated = self
@@ -200,7 +337,14 @@ impl Store {
     }
 
     /// Удаляет аккаунт целиком: каталог с байтами и все строки индекса.
-    pub fn delete_account(&self, account: AccountId) -> Result<bool, StoreError> {
+    /// Удаляет аккаунт целиком, не пересекаясь с записью в тот же аккаунт.
+    pub async fn delete_account(&self, account: AccountId) -> Result<bool, StoreError> {
+        let lock = self.account_lock(account);
+        let _guard = lock.lock().await;
+        self.delete_account_locked(account)
+    }
+
+    fn delete_account_locked(&self, account: AccountId) -> Result<bool, StoreError> {
         if self.account(account)?.is_none() {
             return Ok(false);
         }
@@ -208,7 +352,11 @@ impl Store {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                tracing::warn!(account = %account, %error, "не удалось удалить каталог аккаунта");
+                // Строки индекса не трогаем: обещать удаление, оставив байты,
+                // хуже, чем вернуть ошибку и попробовать снова.
+                return Err(StoreError::Io(format!(
+                    "не удалось удалить каталог аккаунта: {error}"
+                )));
             }
         }
 
@@ -349,6 +497,7 @@ fn read_account(row: &rusqlite::Row<'_>, account: AccountId) -> Result<AccountRe
         vault_digest: row.get(5).map_err(db_error)?,
         vault_size: row.get::<_, i64>(6).map_err(db_error)? as u64,
         updated_at: row.get(7).map_err(db_error)?,
+        last_delete_at: row.get(9).map_err(db_error)?,
     })
 }
 
@@ -375,6 +524,7 @@ pub(crate) async fn hash_stream_to_file<R: tokio::io::AsyncRead + Unpin>(
     path: &Path,
     body: &mut R,
     len: u64,
+    fsync: crate::config::FsyncPolicy,
 ) -> Result<String, StoreError> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -389,10 +539,12 @@ pub(crate) async fn hash_stream_to_file<R: tokio::io::AsyncRead + Unpin>(
     let mut file = options.open(path).await.map_err(io_error)?;
 
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; CHUNK];
+    // Буфер по размеру тела: для двухкилобайтного сейфа не нужен и не обнуляется
+    // 64 КиБ, а для крупного тела остаётся ровно один такой буфер.
+    let mut buffer = vec![0u8; CHUNK.min(len.max(1) as usize)];
     let mut remaining = len;
     while remaining > 0 {
-        let want = CHUNK.min(remaining as usize);
+        let want = buffer.len().min(remaining as usize);
         let read = body.read(&mut buffer[..want]).await.map_err(io_error)?;
         if read == 0 {
             return Err(StoreError::Truncated {
@@ -405,7 +557,12 @@ pub(crate) async fn hash_stream_to_file<R: tokio::io::AsyncRead + Unpin>(
         remaining -= read as u64;
     }
     file.flush().await.map_err(io_error)?;
-    file.sync_all().await.map_err(io_error)?;
+    match fsync {
+        crate::config::FsyncPolicy::Always => file.sync_all().await.map_err(io_error)?,
+        crate::config::FsyncPolicy::Data => file.sync_data().await.map_err(io_error)?,
+        // `batch`: сброс сделает фоновая задача после `rename`.
+        crate::config::FsyncPolicy::Batch => {}
+    }
     Ok(hasher.finalize().to_hex().to_string())
 }
 
@@ -441,6 +598,16 @@ pub enum StoreError {
     BadBlobId,
     #[error("недопустимый BLAKE3-дайджест")]
     BadDigest,
+    #[error("нет места под временные файлы: занято {used} из {capacity}")]
+    NoSpace { used: u64, capacity: u64 },
+}
+
+/// Свободное место на файловой системе каталога данных.
+pub fn free_bytes(path: &Path) -> Option<u64> {
+    use nix::sys::statvfs::statvfs;
+    statvfs(path)
+        .ok()
+        .map(|stats| u64::from(stats.blocks_available()) * stats.fragment_size())
 }
 
 #[cfg(test)]

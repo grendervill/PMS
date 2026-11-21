@@ -23,7 +23,8 @@ max_sessions_per_account = 10
 challenge_ttl_seconds = 60
 
 [limits]
+fsync = "data"
 max_body_bytes = 1073741824
-max_connections = 512
+max_connections = 128
 header_read_timeout_secs = 10
 body_timeout_secs = 300

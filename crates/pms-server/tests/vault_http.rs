@@ -125,7 +125,7 @@ async fn challenge_then_verify_yields_working_token() {
 }
 
 #[tokio::test]
-async fn challenge_for_unknown_account_is_unauthorized() {
+async fn challenge_for_unknown_account_looks_the_same() {
     let server = TestServer::start("").await;
     let account = Account::new();
 
@@ -141,8 +141,11 @@ async fn challenge_for_unknown_account_is_unauthorized() {
         .await
         .unwrap();
 
-    // Неизвестный логин неотличим от неверного пароля: без перечисления.
-    assert_eq!(response.status(), 401);
+    // Неизвестный логин получает такой же nonce, как известный: перечислять
+    // логины по коду ответа нельзя.
+    assert_eq!(response.status(), 200);
+    let challenge: pms_proto::dto::ChallengeResponse = response.json().await.unwrap();
+    assert_eq!(challenge.nonce.len(), 64);
 }
 
 #[tokio::test]

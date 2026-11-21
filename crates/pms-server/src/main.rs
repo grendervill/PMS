@@ -70,7 +70,7 @@ async fn main() -> ExitCode {
         Command::CheckConfig { config } => check_config(&config),
         Command::Run { config } => run_server(&config).await,
         Command::Accounts { config } => accounts(&config),
-        Command::AccountRemove { config, account } => account_remove(&config, &account),
+        Command::AccountRemove { config, account } => account_remove(&config, &account).await,
         Command::QuotaSet {
             config,
             account,
@@ -161,7 +161,7 @@ fn accounts(path: &std::path::Path) -> ExitCode {
     }
 }
 
-fn account_remove(path: &std::path::Path, account: &str) -> ExitCode {
+async fn account_remove(path: &std::path::Path, account: &str) -> ExitCode {
     let config = match Config::load(path) {
         Ok(config) => config,
         Err(error) => {
@@ -180,7 +180,7 @@ fn account_remove(path: &std::path::Path, account: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match store.delete_account(account) {
+    match store.delete_account(account).await {
         Ok(true) => {
             println!("аккаунт {account} удалён");
             ExitCode::SUCCESS

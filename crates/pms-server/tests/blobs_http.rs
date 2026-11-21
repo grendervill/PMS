@@ -232,7 +232,13 @@ async fn usage_matches_uploaded_sizes() {
 async fn delete_account_removes_files_and_sessions() {
     let server = TestServer::start("").await;
     let account = registered(&server, b"vault").await;
-    let signature = sign_account_delete(&account.identity, &account.account, &account.device);
+    let timestamp = chrono::Utc::now().timestamp();
+    let signature = sign_account_delete(
+        &account.identity,
+        &account.account,
+        &account.device,
+        timestamp,
+    );
 
     let deleted = server
         .client
@@ -240,6 +246,7 @@ async fn delete_account_removes_files_and_sessions() {
         .header("x-pms-protocol", "1")
         .bearer_auth(&account.token)
         .header("x-pms-signature", hex::encode(signature))
+        .header("x-pms-timestamp", timestamp.to_string())
         .send()
         .await
         .unwrap();
@@ -268,10 +275,48 @@ async fn delete_account_without_valid_signature_is_refused() {
         .header("x-pms-protocol", "1")
         .bearer_auth(&account.token)
         .header("x-pms-signature", hex::encode([0u8; 64]))
+        .header(
+            "x-pms-timestamp",
+            chrono::Utc::now().timestamp().to_string(),
+        )
         .send()
         .await
         .unwrap();
 
     assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+    assert!(server.store.account(account.account).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn delete_signature_outside_the_time_window_is_refused() {
+    let server = TestServer::start("").await;
+    let account = registered(&server, b"vault").await;
+
+    for offset in [-600i64, 600] {
+        let timestamp = chrono::Utc::now().timestamp() + offset;
+        let signature = sign_account_delete(
+            &account.identity,
+            &account.account,
+            &account.device,
+            timestamp,
+        );
+
+        let response = server
+            .client
+            .delete(server.url("/v1/account"))
+            .header("x-pms-protocol", "1")
+            .bearer_auth(&account.token)
+            .header("x-pms-signature", hex::encode(signature))
+            .header("x-pms-timestamp", timestamp.to_string())
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "подпись со сдвигом {offset} с должна быть отклонена"
+        );
+    }
     assert!(server.store.account(account.account).unwrap().is_some());
 }

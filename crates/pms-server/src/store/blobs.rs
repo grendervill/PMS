@@ -50,8 +50,10 @@ impl Store {
         let temp_path = blob_temp_path(self.root(), account, blob_id);
         let final_path = paths::blob_path(self.root(), account, blob_id);
 
+        let _reservation = self.reserve(len)?;
         let guard = TempFile::at(temp_path.clone());
-        let written = super::hash_stream_to_file(&temp_path, &mut body, len).await?;
+        let policy = self.fsync_policy();
+        let written = super::hash_stream_to_file(&temp_path, &mut body, len, policy).await?;
         if written != digest {
             return Err(StoreError::DigestMismatch);
         }

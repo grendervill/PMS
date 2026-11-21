@@ -29,19 +29,35 @@ impl Store {
         expires_at: i64,
     ) -> Result<(), StoreError> {
         let connection = self.db()?;
+        let account_hex = account.to_string();
+        // Один активный nonce на аккаунт: вход — двухшаговый, старая попытка
+        // всё равно не нужна, а таблица перестаёт расти.
+        connection
+            .execute(
+                "DELETE FROM nonces WHERE account_id = ?1",
+                rusqlite::params![&account_hex],
+            )
+            .map_err(db_error)?;
         connection
             .execute(
                 "INSERT INTO nonces (account_id, nonce, expires_at) VALUES (?1, ?2, ?3)",
-                rusqlite::params![account.to_string(), nonce.to_vec(), expires_at],
+                rusqlite::params![account_hex, nonce.to_vec(), expires_at],
             )
             .map_err(db_error)?;
-        // Просроченные nonce иначе копятся вечно: challenge выдаётся без пароля.
-        connection
-            .execute(
-                "DELETE FROM nonces WHERE expires_at <= ?1",
-                rusqlite::params![chrono::Utc::now().timestamp()],
-            )
-            .map_err(db_error)?;
+
+        // Глобальную чистку делаем не на каждой вставке: иначе это лишний
+        // write-запрос (и полный скан до появления индекса) на каждый challenge.
+        let count = self
+            .inserts
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count.is_multiple_of(64) {
+            connection
+                .execute(
+                    "DELETE FROM nonces WHERE expires_at <= ?1",
+                    rusqlite::params![chrono::Utc::now().timestamp()],
+                )
+                .map_err(db_error)?;
+        }
         Ok(())
     }
 
@@ -102,18 +118,14 @@ impl Store {
                 ],
             )
             .map_err(db_error)?;
+        // Вытесняем по порядку вставки (`rowid`), а не по `expires_at`: при двух
+        // входах в одну секунду старая сортировка выбирала устройство случайно.
         transaction
             .execute(
                 "DELETE FROM sessions WHERE token_hash IN (\
                    SELECT token_hash FROM sessions WHERE account_id = ?1 \
-                   ORDER BY expires_at DESC LIMIT -1 OFFSET ?2)",
+                   ORDER BY rowid DESC LIMIT -1 OFFSET ?2)",
                 rusqlite::params![account.to_string(), max_sessions as i64],
-            )
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "DELETE FROM sessions WHERE expires_at <= ?1",
-                rusqlite::params![chrono::Utc::now().timestamp()],
             )
             .map_err(db_error)?;
         transaction.commit().map_err(db_error)?;
@@ -144,6 +156,16 @@ impl Store {
             device,
             expires_at,
         }))
+    }
+
+    /// Удаляет все просроченные сессии (вызывается редко, по таймеру).
+    pub fn delete_expired_sessions(&self, now: i64) -> Result<usize, StoreError> {
+        self.db()?
+            .execute(
+                "DELETE FROM sessions WHERE expires_at <= ?1",
+                rusqlite::params![now],
+            )
+            .map_err(db_error)
     }
 
     pub fn delete_session(&self, token_hash: &[u8; 32]) -> Result<(), StoreError> {

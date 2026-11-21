@@ -8,7 +8,7 @@ use pms_proto::PROTOCOL_VERSION;
 
 use super::client::{
     error_from_response, unreachable, RemoteClient, HEADER_DIGEST, HEADER_PROTOCOL,
-    HEADER_SIGNATURE,
+    HEADER_SIGNATURE, HEADER_TIMESTAMP,
 };
 use super::temp::TempFile;
 use super::RemoteError;
@@ -198,7 +198,9 @@ impl RemoteClient {
         device: DeviceId,
     ) -> Result<(), RemoteError> {
         let account = pms_proto::identity::AccountId::from_public_key(&identity.public);
-        let signature = sign_account_delete(identity, &account, &device);
+        // Время в подписи: сервер принимает её только в окне и только один раз.
+        let timestamp = chrono::Utc::now().timestamp();
+        let signature = sign_account_delete(identity, &account, &device, timestamp);
 
         let response = self
             .http()
@@ -206,6 +208,7 @@ impl RemoteClient {
             .header(HEADER_PROTOCOL, PROTOCOL_VERSION.to_string())
             .bearer_auth(token)
             .header(HEADER_SIGNATURE, hex::encode(signature))
+            .header(HEADER_TIMESTAMP, timestamp.to_string())
             .send()
             .await
             .map_err(unreachable)?;

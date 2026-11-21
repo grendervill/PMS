@@ -75,13 +75,19 @@ impl Store {
         let temp_path = paths::vault_tmp_path(self.root(), account);
         let final_path = paths::vault_path(self.root(), account);
 
+        // Место под тело резервируем до записи и держим до `rename`.
+        let _reservation = self.reserve(len)?;
         let guard = TempFile::at(temp_path.clone());
-        let digest = super::hash_stream_to_file(&temp_path, &mut body, len).await?;
+        let policy = self.fsync_policy();
+        let digest = super::hash_stream_to_file(&temp_path, &mut body, len, policy).await?;
         tokio::fs::rename(&temp_path, &final_path)
             .await
             .map_err(io_error)?;
         // Файл уже переименован: guard при выходе временного пути не найдёт.
         drop(guard);
+        if policy == crate::config::FsyncPolicy::Batch {
+            self.mark_dirty(final_path.clone());
+        }
 
         let version = current + 1;
         let updated_at = now();
