@@ -1,4 +1,5 @@
 use pms_proto::identity::AccountId;
+
 use pms_server::store::{paths, Store};
 
 #[cfg(unix)]
@@ -87,4 +88,40 @@ fn blob_ids_are_validated() {
     assert!(!paths::is_blob_id("../../etc/passwd"));
     assert!(!paths::is_blob_id("0b7c1d2e-3f40-4516-8798-a9bacbdcedf"));
     assert!(!paths::is_blob_id("0B7C1D2E-3F40-4516-8798-A9BACBDCEDFE"));
+}
+
+#[test]
+fn recount_restores_a_stale_digest_from_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let account = AccountId::new([0x71; 16]);
+    {
+        let store = Store::open(dir.path(), 4096).unwrap();
+        store
+            .create_account(account, [7u8; 32], 4096, "alice")
+            .unwrap();
+    }
+
+    // Имитация сбоя: файл записан, индекс считает его прежним.
+    let path = paths::vault_path(dir.path(), account);
+    std::fs::write(&path, b"fresh-bytes").unwrap();
+    {
+        let store = Store::open(dir.path(), 4096).unwrap();
+        store
+            .db_for_tests()
+            .execute(
+                "UPDATE accounts SET vault_version = 1, vault_size = 4, vault_digest = 'deadbeef' \
+                 WHERE account_id = ?1",
+                rusqlite::params![account.to_string()],
+            )
+            .unwrap();
+    }
+
+    let store = Store::open(dir.path(), 4096).unwrap();
+    let record = store.account(account).unwrap().unwrap();
+    assert_eq!(record.vault_size, 11);
+    assert_eq!(
+        record.vault_digest,
+        blake3::hash(b"fresh-bytes").to_hex().to_string()
+    );
+    assert_eq!(record.last_delete_at, 0);
 }

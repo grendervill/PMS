@@ -123,6 +123,24 @@ async fn run_server(path: &std::path::Path) -> ExitCode {
     };
 
     tracing::info!(addr = %server.addr(), "pms-server слушает");
+    // systemd и docker останавливают сервис SIGTERM: без этого обработчика
+    // процесс убивался бы без graceful shutdown и оставлял временные файлы.
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = terminate.recv() => {}
+                }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
     server.shutdown();
     tracing::info!("остановка по сигналу");

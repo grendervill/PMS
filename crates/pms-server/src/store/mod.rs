@@ -119,6 +119,7 @@ impl Store {
             db: Mutex::new(connection),
             locks: Mutex::new(HashMap::new()),
         };
+        store.prune_staging()?;
         store.recount()?;
         Ok(store)
     }
@@ -304,6 +305,12 @@ impl Store {
         })
     }
 
+    /// Доступ к индексу для интеграционных тестов восстановления.
+    #[doc(hidden)]
+    pub fn db_for_tests(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.db().expect("индекс")
+    }
+
     pub fn staging(&self) -> &std::sync::Arc<StagingBudget> {
         &self.staging
     }
@@ -380,6 +387,20 @@ impl Store {
         Ok(true)
     }
 
+    /// Убирает временные файлы прошлых запусков: после SIGKILL `Drop` не сработал.
+    fn prune_staging(&self) -> Result<(), StoreError> {
+        let directory = self.root.join("staging");
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            return Ok(());
+        };
+        for entry in entries.flatten() {
+            if entry.path().is_file() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        Ok(())
+    }
+
     /// Пересчитывает занятое место по файловой системе и убирает из индекса
     /// блобы, чьих файлов больше нет. Вызывается при старте: после сбоя индекс
     /// мог разойтись с диском, и квота должна опираться на реальность.
@@ -403,7 +424,8 @@ impl Store {
         };
 
         for account in accounts {
-            let vault_size = std::fs::metadata(paths::vault_path(&self.root, account))
+            let vault_path = paths::vault_path(&self.root, account);
+            let vault_size = std::fs::metadata(&vault_path)
                 .map(|meta| meta.len())
                 .unwrap_or(0);
 
@@ -460,16 +482,44 @@ impl Store {
                 }
             }
 
+            // Файл — истина. Если после сбоя индекс отстал, дайджест в нём
+            // не совпадёт с байтами, и клиент не сможет скачать сейф.
+            let indexed: (i64, String) = connection
+                .query_row(
+                    "SELECT vault_size, vault_digest FROM accounts WHERE account_id = ?1",
+                    rusqlite::params![account.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(db_error)?;
+            let fingerprint = if vault_size > 0
+                && (indexed.0 as u64 != vault_size || indexed.1.is_empty())
+            {
+                match hash_file(&vault_path) {
+                    Ok(digest) => {
+                        tracing::info!(account = %account, "recount: дайджест сейфа восстановлен по файлу");
+                        Some(digest)
+                    }
+                    Err(error) => {
+                        tracing::warn!(account = %account, %error, "recount: не удалось пересчитать дайджест");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
             connection
                 .execute(
                     "UPDATE accounts SET used_bytes = ?2, vault_size = ?3, \
                      vault_version = CASE WHEN ?3 = 0 THEN 0 ELSE vault_version END, \
-                     vault_digest = CASE WHEN ?3 = 0 THEN '' ELSE vault_digest END \
+                     vault_digest = CASE WHEN ?3 = 0 THEN '' \
+                         WHEN ?4 IS NOT NULL THEN ?4 ELSE vault_digest END \
                      WHERE account_id = ?1",
                     rusqlite::params![
                         account.to_string(),
                         (vault_size + blobs_total) as i64,
-                        vault_size as i64
+                        vault_size as i64,
+                        fingerprint
                     ],
                 )
                 .map_err(db_error)?;
@@ -600,6 +650,12 @@ pub enum StoreError {
     BadDigest,
     #[error("нет места под временные файлы: занято {used} из {capacity}")]
     NoSpace { used: u64, capacity: u64 },
+}
+
+/// BLAKE3 файла целиком (только для восстановления индекса при старте).
+fn hash_file(path: &Path) -> Result<String, StoreError> {
+    let bytes = std::fs::read(path).map_err(io_error)?;
+    Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 
 /// Свободное место на файловой системе каталога данных.
