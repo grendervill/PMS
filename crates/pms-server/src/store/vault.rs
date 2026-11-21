@@ -89,19 +89,21 @@ impl Store {
             .used_bytes
             .saturating_sub(record.vault_size)
             .saturating_add(len);
+        let account_hex = account.to_string();
         self.db()?
-            .execute(
+            .prepare_cached(
                 "UPDATE accounts SET vault_version = ?2, vault_digest = ?3, vault_size = ?4, \
                  used_bytes = ?5, updated_at = ?6 WHERE account_id = ?1",
-                rusqlite::params![
-                    account.to_string(),
-                    version as i64,
-                    digest,
-                    len as i64,
-                    used as i64,
-                    updated_at
-                ],
             )
+            .map_err(db_error)?
+            .execute(rusqlite::params![
+                account_hex,
+                version as i64,
+                digest,
+                len as i64,
+                used as i64,
+                updated_at
+            ])
             .map_err(db_error)?;
 
         Ok(VaultMeta {

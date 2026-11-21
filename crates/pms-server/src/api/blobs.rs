@@ -38,7 +38,7 @@ async fn download(
     };
     state.store.bump_blob_use(account, &blob_id)?;
 
-    let body = Body::from_stream(ReaderStream::new(file));
+    let body = Body::from_stream(ReaderStream::with_capacity(file, 64 * 1024));
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")

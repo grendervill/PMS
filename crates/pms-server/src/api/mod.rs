@@ -139,8 +139,18 @@ pub(crate) fn content_length(headers: &axum::http::HeaderMap) -> Option<u64> {
         .and_then(|value| value.parse::<u64>().ok())
 }
 
+/// Тело собирается один раз при первом обращении: у проверки живости не должно
+/// быть ни сериализации, ни аллокаций на запрос.
+fn healthz_body() -> &'static str {
+    static BODY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BODY.get_or_init(|| format!("{{\"status\":\"ok\",\"protocol\":{PROTOCOL_VERSION}}}"))
+}
+
 async fn healthz() -> impl IntoResponse {
-    Json(serde_json::json!({ "status": "ok", "protocol": PROTOCOL_VERSION }))
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        healthz_body(),
+    )
 }
 
 async fn not_found() -> ApiError {

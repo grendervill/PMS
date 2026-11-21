@@ -47,7 +47,7 @@ pub async fn download(
         .map(|metadata| metadata.len())
         .unwrap_or(meta.size);
 
-    let body = Body::from_stream(ReaderStream::new(file));
+    let body = Body::from_stream(ReaderStream::with_capacity(file, 64 * 1024));
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")

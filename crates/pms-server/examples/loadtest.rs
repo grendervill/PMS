@@ -27,6 +27,8 @@ struct Options {
     pushes: usize,
     concurrency: usize,
     prefix: String,
+    /// Держать нагрузку столько секунд вместо фиксированного числа сохранений.
+    duration: Option<u64>,
 }
 
 fn parse_args() -> Options {
@@ -36,6 +38,7 @@ fn parse_args() -> Options {
         pushes: 10,
         concurrency: 8,
         prefix: "load".to_string(),
+        duration: None,
     };
 
     let mut args = std::env::args().skip(1);
@@ -47,6 +50,7 @@ fn parse_args() -> Options {
             "--pushes" => options.pushes = value().parse().expect("число сохранений"),
             "--concurrency" => options.concurrency = value().parse().expect("параллелизм"),
             "--prefix" => options.prefix = value(),
+            "--duration" => options.duration = Some(value().parse().expect("секунды")),
             other => panic!("неизвестный флаг {other}"),
         }
     }
@@ -237,6 +241,9 @@ async fn main() {
         let push_errors = Arc::clone(&push_errors);
         let next = Arc::clone(&next);
         let pushes = options.pushes;
+        let deadline = options
+            .duration
+            .map(|secs| Instant::now() + Duration::from_secs(secs));
         tasks.push(tokio::spawn(async move {
             loop {
                 let index = next.fetch_add(1, Ordering::Relaxed);
@@ -244,7 +251,15 @@ async fn main() {
                     break;
                 }
                 let user = &users[index];
-                for round in 0..pushes {
+                let mut round: usize = 0;
+                loop {
+                    if let Some(deadline) = deadline {
+                        if Instant::now() >= deadline {
+                            break;
+                        }
+                    } else if round >= pushes {
+                        break;
+                    }
                     let body = format!("{}|round-{round}|{}", user.login, "x".repeat(2048));
                     let started = Instant::now();
                     let response = http
@@ -257,6 +272,7 @@ async fn main() {
                         .send()
                         .await;
 
+                    round += 1;
                     match response {
                         Ok(response) if response.status().is_success() => {
                             latencies
