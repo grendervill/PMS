@@ -447,12 +447,10 @@ pub async fn vault_reload(
         .await
         .map_err(|error| ApiError::new("storage", error.to_string()))?;
 
-    state
-        .sessions
-        .with_mut(session_id, |session| {
-            Ok(crate::core::vault::reload_vault(session, &bytes)?)
-        })
-        .map_err(ApiError::from)
+    let data = state.sessions.with_mut(session_id, |session| {
+        crate::core::vault::reload_vault(session, &bytes)
+    })?;
+    Ok(data)
 }
 
 #[tauri::command]

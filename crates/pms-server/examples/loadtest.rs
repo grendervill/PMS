@@ -251,14 +251,8 @@ async fn main() {
                         .put(format!("{base}/v1/vault"))
                         .header("x-pms-protocol", "1")
                         .bearer_auth(&user.token)
-                        .header(
-                            "if-match",
-                            if round == 0 {
-                                "*".to_string()
-                            } else {
-                                (round).to_string()
-                            },
-                        )
+                        // После регистрации с телом сейфа версия уже 1.
+                        .header("if-match", (round + 1).to_string())
                         .body(body.into_bytes())
                         .send()
                         .await;
@@ -272,9 +266,9 @@ async fn main() {
                         }
                         Ok(response) => {
                             push_errors.fetch_add(1, Ordering::Relaxed);
-                            if round == 0 {
-                                eprintln!("{}: PUT {}", user.login, response.status());
-                            }
+                            let status = response.status();
+                            let body = response.text().await.unwrap_or_default();
+                            eprintln!("{} round {round}: PUT {status} {body}", user.login);
                         }
                         Err(error) => {
                             push_errors.fetch_add(1, Ordering::Relaxed);
