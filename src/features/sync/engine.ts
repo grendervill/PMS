@@ -26,6 +26,7 @@ export type SyncOutcome =
   | { kind: "pulled"; version: number }
   | { kind: "pushed"; version: number }
   | { kind: "conflict"; remote: ServerVaultMeta }
+  | { kind: "needs-auth" }
   | { kind: "offline"; message: string }
   | { kind: "error"; message: string };
 
@@ -56,6 +57,11 @@ function isOffline(error: unknown): boolean {
   return code === "remote_unreachable" || code === "remote_tls";
 }
 
+/** Сессии на сервере нет: после перезапуска приложения её надо получить заново. */
+function isUnauthorized(error: unknown): boolean {
+  return errorCode(error) === "remote_unauthorized";
+}
+
 export function createSyncEngine(deps: SyncDeps): SyncEngine {
   const { accountId, cacheDir, storage, remote } = deps;
   const now = () => (deps.now ? deps.now() : new Date()).toISOString();
@@ -73,6 +79,7 @@ export function createSyncEngine(deps: SyncDeps): SyncEngine {
       return await remote.remoteVaultMeta(accountId);
     } catch (error) {
       if (isOffline(error)) return { error: { kind: "offline", message: errorMessage(error) } };
+      if (isUnauthorized(error)) return { error: { kind: "needs-auth" } };
       return { error: { kind: "error", message: errorMessage(error) } };
     }
   }
@@ -100,6 +107,10 @@ export function createSyncEngine(deps: SyncDeps): SyncEngine {
         }
         void remoteVersion;
       }
+      if (isUnauthorized(error)) {
+        await save({ ...state, lastError: "нужен вход на сервер" });
+        return { kind: "needs-auth" } as const;
+      }
       if (isOffline(error)) {
         await save({ ...state, lastError: errorMessage(error) });
         return { kind: "offline", message: errorMessage(error) } as const;
@@ -120,6 +131,7 @@ export function createSyncEngine(deps: SyncDeps): SyncEngine {
       });
       return { kind: "pulled", version: meta.version } as const;
     } catch (error) {
+      if (isUnauthorized(error)) return { kind: "needs-auth" } as const;
       if (isOffline(error)) return { kind: "offline", message: errorMessage(error) } as const;
       const failed = { ...state, lastError: errorMessage(error) };
       await save(failed);
@@ -145,7 +157,10 @@ export function createSyncEngine(deps: SyncDeps): SyncEngine {
       if (isFailure(meta)) {
         // Ошибку связи фиксируем в состоянии: интерфейс покажет её, а `dirty`
         // останется, чтобы изменения не потерялись.
-        await save({ ...state, lastError: meta.error.kind === "offline" ? meta.error.message : null });
+        await save({
+          ...state,
+          lastError: meta.error.kind === "offline" ? meta.error.message : state.lastError,
+        });
         return meta.error;
       }
 

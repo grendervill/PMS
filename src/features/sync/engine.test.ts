@@ -198,3 +198,17 @@ describe("sync engine", () => {
     expect(remote.push).toHaveBeenCalledWith("ab".repeat(16), "/cache/p1", null);
   });
 });
+
+describe("sync engine without a session", () => {
+  it("asks for a login instead of a generic error", async () => {
+    const storage = memoryStorage(new Uint8Array([1]));
+    const remote = remoteStub({
+      remoteVaultMeta: vi.fn(async () => {
+        throw { code: "remote_unauthorized", message: "нужен вход" };
+      }),
+    });
+
+    const outcome = await engineWith(remote, storage).sync();
+    expect(outcome).toEqual({ kind: "needs-auth" });
+  });
+});

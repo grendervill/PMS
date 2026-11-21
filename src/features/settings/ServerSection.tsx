@@ -12,6 +12,7 @@ type Props = {
   onSyncNow: () => void;
   onDisconnect: () => void;
   onDeleteAccount: () => void;
+  onReauthenticate?: () => void;
 };
 
 function bytes(value: number): string {
@@ -30,6 +31,8 @@ function statusText(status: SyncStatus): { text: string; tone: string } {
       return { text: `Офлайн: ${status.message}`, tone: "text-[var(--warning)]" };
     case "conflict":
       return { text: "Конфликт версий", tone: "text-[var(--danger)]" };
+    case "needs-auth":
+      return { text: "Требуется вход на сервер", tone: "text-[var(--warning)]" };
     case "error":
       return { text: `Ошибка: ${status.message}`, tone: "text-[var(--danger)]" };
     default:
@@ -45,6 +48,7 @@ export function ServerSection({
   onSyncNow,
   onDisconnect,
   onDeleteAccount,
+  onReauthenticate,
 }: Props) {
   const used = usage?.used ?? 0;
   const quota = usage?.quota ?? 0;
@@ -103,6 +107,9 @@ export function ServerSection({
         </div>
 
         <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-3.5">
+          {status.kind === "needs-auth" && onReauthenticate ? (
+            <Button onClick={onReauthenticate}>Войти заново</Button>
+          ) : null}
           <Button variant="secondary" onClick={onSyncNow}>
             <RefreshCw size={15} />
             Синхронизировать сейчас

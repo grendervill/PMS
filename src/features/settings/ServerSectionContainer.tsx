@@ -18,10 +18,14 @@ export function ServerSectionContainer() {
   const status = useSyncStore((state) => state.status);
   const syncNow = useSyncStore((state) => state.syncNow);
   const stop = useSyncStore((state) => state.stop);
+  const reauthenticate = useSyncStore((state) => state.reauthenticate);
 
   const [usage, setUsage] = useState<ServerUsage | null>(null);
   const [stale, setStale] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthSecret, setReauthSecret] = useState("");
+  const [reauthError, setReauthError] = useState<string | null>(null);
   const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +96,52 @@ export function ServerSectionContainer() {
         onSyncNow={() => void syncNow().then(refreshUsage)}
         onDisconnect={() => void disconnect()}
         onDeleteAccount={() => setDeleteOpen(true)}
+        onReauthenticate={() => setReauthOpen(true)}
       />
+
+      <Modal
+        open={reauthOpen}
+        onOpenChange={setReauthOpen}
+        title="Вход на сервер"
+        description="Сессия сервера живёт только в памяти приложения. После перезапуска нужен мастер-пароль — тот же, что открывает сейф."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setReauthOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => {
+                setReauthError(null);
+                void reauthenticate({ kind: "passphrase", value: reauthSecret }).then((ok) => {
+                  if (ok) {
+                    setReauthOpen(false);
+                    setReauthSecret("");
+                  } else {
+                    setReauthError("Не удалось войти: проверьте мастер-пароль");
+                  }
+                });
+              }}
+              disabled={reauthSecret.length === 0}
+            >
+              Войти
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-3">
+          <SecretInput
+            value={reauthSecret}
+            onChange={(event) => setReauthSecret(event.target.value)}
+            placeholder="Пароль-фраза"
+            aria-label="Пароль-фраза"
+          />
+          {reauthError ? (
+            <p role="alert" className="text-[11.5px] text-[var(--danger)]">
+              {reauthError}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
 
       <Modal
         open={deleteOpen}

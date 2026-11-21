@@ -549,6 +549,10 @@ export const vaultApi = {
     return call<ServerLogin>("remote_register", { profile, secret, vaultFolder });
   },
 
+  async remoteLoginBiometric(profile: RemoteProfile): Promise<ServerLogin> {
+    return call<ServerLogin>("remote_login_biometric", { profile });
+  },
+
   async remoteRefresh(accountId: string): Promise<ServerLogin> {
     return call<ServerLogin>("remote_refresh", { accountId });
   },

@@ -146,6 +146,19 @@ export function setVaultSavedListener(listener: (() => void) | null): void {
   savedListener = listener;
 }
 
+/**
+ * Хук «сейф разблокирован». Серверный режим подписывается, чтобы заново
+ * авторизоваться: сессия сервера живёт только в памяти Rust и после перезапуска
+ * приложения её нет. `null` — разблокировали биометрией, мастер-ключа нет.
+ */
+let unlockedListener: ((secret: UnlockSecret | null) => void) | null = null;
+
+export function setVaultUnlockedListener(
+  listener: ((secret: UnlockSecret | null) => void) | null,
+): void {
+  unlockedListener = listener;
+}
+
 export const useVaultStore = create<VaultStore>((set, get) => ({
   ...initialVaultState,
 
@@ -289,6 +302,7 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
       });
       await createBackup(path, unlocked.data.settings).catch(() => false);
       await cleanupBackups(path, unlocked.data.settings.backupRetentionDays).catch(() => 0);
+      unlockedListener?.(secret);
       return true;
     } catch (error) {
       set({
@@ -326,6 +340,8 @@ export const useVaultStore = create<VaultStore>((set, get) => ({
         busy: false,
         error: null,
       });
+      // Биометрия несёт семя identity-ключа (payload v2), мастер-ключа нет.
+      unlockedListener?.(null);
       return { ok: true };
     } catch (error) {
       set({

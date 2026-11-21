@@ -11,11 +11,13 @@ export type SyncStatus =
   | { kind: "dirty" }
   | { kind: "offline"; message: string }
   | { kind: "conflict"; remoteVersion: number }
+  | { kind: "needs-auth" }
   | { kind: "error"; message: string };
 
 export type SyncController = {
   stop(): void;
   markDirty(): void;
+  resumeAfterAuth(): Promise<SyncOutcome | null>;
   syncNow(): Promise<SyncOutcome | null>;
   resolveKeepMine(): Promise<SyncOutcome>;
   resolveTakeTheirs(): Promise<SyncOutcome>;
@@ -38,6 +40,7 @@ type Options = {
 export function startSync(options: Options): SyncController {
   const { accountId, cacheDir, storage, engine, remote, onStatus } = options;
   let stopped = false;
+  let paused = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let running: Promise<SyncOutcome | null> | null = null;
 
@@ -60,6 +63,13 @@ export function startSync(options: Options): SyncController {
       }
 
       switch (outcome.kind) {
+        case "needs-auth":
+          // Без сессии сервера опрос бессмысленен: ждём разблокировки сейфа,
+          // после которой приложение входит заново.
+          paused = true;
+          stopPeriod();
+          report({ kind: "needs-auth" });
+          break;
         case "conflict":
           report({ kind: "conflict", remoteVersion: outcome.remote.version });
           break;
@@ -80,6 +90,7 @@ export function startSync(options: Options): SyncController {
   }
 
   const onFocus = () => {
+    if (paused) return;
     void run();
   };
 
@@ -120,6 +131,9 @@ export function startSync(options: Options): SyncController {
     markDirty() {
       if (stopped) return;
       void engine.markDirty();
+      // Без сессии сервера не долбим сеть: изменения подхватит первая
+      // синхронизация после повторного входа.
+      if (paused) return;
       report({ kind: "dirty" });
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
@@ -133,6 +147,12 @@ export function startSync(options: Options): SyncController {
         clearTimeout(timer);
         timer = null;
       }
+      return run();
+    },
+
+    async resumeAfterAuth() {
+      paused = false;
+      startPeriod();
       return run();
     },
 
