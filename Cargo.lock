@@ -4528,6 +4528,7 @@ dependencies = [
  "clap",
  "futures-util",
  "hex",
+ "http-body-util",
  "mimalloc",
  "pms-proto",
  "rand 0.8.8",

@@ -121,7 +121,7 @@ impl Store {
         let account = {
             let connection = self.db()?;
             let mut statement = connection
-                .prepare("SELECT account_id FROM accounts WHERE login = ?1")
+                .prepare_cached("SELECT account_id FROM accounts WHERE login = ?1")
                 .map_err(db_error)?;
             let mut rows = statement
                 .query(rusqlite::params![login.to_ascii_lowercase()])
@@ -142,8 +142,10 @@ impl Store {
 
     pub fn account(&self, account: AccountId) -> Result<Option<AccountRecord>, StoreError> {
         let connection = self.db()?;
+        // `prepare_cached`: компиляция запроса переиспользуется между вызовами,
+        // иначе на каждый запрос уходит несколько аллокаций SQLite.
         let mut statement = connection
-            .prepare(
+            .prepare_cached(
                 "SELECT account_id, public_key, quota_bytes, used_bytes, vault_version, \
                  vault_digest, vault_size, updated_at, login FROM accounts WHERE account_id = ?1",
             )
