@@ -7,13 +7,12 @@ type CertMode = "acme" | "self-signed";
 
 // Пока нет готового образа (план 6), это ровно те шаги, что описаны в
 // deploy/README.md и проверены на тестовой VM.
-const INSTALL = `apt-get install -y build-essential cmake curl
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-git clone https://github.com/grendervill/PMS && cd PMS
-cargo build --profile server -p pms-server
-install -m 0755 target/server/pms-server /usr/local/bin/pms-server
+const INSTALL = `git clone https://github.com/grendervill/PMS && cd PMS/deploy/docker
+cp .env.example .env      # домен или IP, режим TLS
+docker compose up -d --build
 
-pms-server check-config --config /etc/pms/server.toml`;
+docker compose exec -T pms-server sh -c \
+  'openssl s_client -connect 127.0.0.1:8443 </dev/null 2>/dev/null | head -3'`;
 
 const SELF_SIGNED = `openssl req -x509 -newkey rsa:3072 -sha256 -days 3650 -nodes \\
   -keyout /etc/pms/server.key -out /etc/pms/server.crt \\
@@ -70,9 +69,8 @@ export function ServerSetupScreen({
 
         <h1 className="pms-display text-[34px] leading-[1.1] tracking-tight">Развёртывание сервера</h1>
         <p className="mt-3 max-w-lg text-[13.5px] leading-relaxed text-[var(--muted)]">
-          Сборка и установка на своём VPS. Конфиг и systemd-юнит лежат в
-          <span className="pms-mono text-[11.5px] text-[var(--text-soft)]">deploy/</span>; образ и
-          compose появятся отдельным этапом.
+          Один VPS, образ и compose. Данные и сертификаты — в томе, TLS обязателен:
+          без сертификата контейнер не стартует. Нужен установленный Docker.
         </p>
 
         <section className="mt-8 border-t border-[var(--border)] pt-6">

@@ -95,7 +95,7 @@ Bluetooth-обнаружение также требует отдельного 
 - дизайн: `docs/superpowers/specs/2026-11-18-server-sync-design.md`
 - планы: `docs/superpowers/plans/2026-11-18-server-sync-0*.md`
 - развёртывание вручную: `deploy/README.md`
-- Docker Compose: запланирован, `docs/superpowers/plans/2026-11-18-server-sync-06-docker.md`
+- Docker Compose (образ, TLS, бэкап): `deploy/docker/README.md`
 - Логин на сервере и мастер настройки: запланированы, `docs/superpowers/plans/2026-11-19-server-setup-wizard.md`
 - SSL при развёртывании (Let's Encrypt через Caddy или самоподписанный на 10 лет, оба с
   автопродлением): `docs/superpowers/plans/2026-11-18-server-sync-06-docker.md`
