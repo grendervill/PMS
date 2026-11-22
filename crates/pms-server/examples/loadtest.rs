@@ -31,6 +31,10 @@ struct Options {
     duration: Option<u64>,
     /// Читать сейфы вместо записи (проверка пути чтения).
     reads: bool,
+    /// Смешанный профиль: сохранения, чтения, вложения и повторные входы.
+    mix: bool,
+    /// Не регистрировать: входить в уже существующие аккаунты (для очень больших C).
+    login_only: bool,
 }
 
 fn parse_args() -> Options {
@@ -42,6 +46,8 @@ fn parse_args() -> Options {
         prefix: "load".to_string(),
         duration: None,
         reads: false,
+        mix: false,
+        login_only: false,
     };
 
     let mut args = std::env::args().skip(1);
@@ -55,6 +61,8 @@ fn parse_args() -> Options {
             "--prefix" => options.prefix = value(),
             "--duration" => options.duration = Some(value().parse().expect("секунды")),
             "--reads" => options.reads = true,
+            "--mix" => options.mix = true,
+            "--login-only" => options.login_only = true,
             other => panic!("неизвестный флаг {other}"),
         }
     }
@@ -64,6 +72,9 @@ fn parse_args() -> Options {
 struct User {
     login: String,
     token: String,
+    identity: Arc<pms_proto::identity::Identity>,
+    account: AccountId,
+    device: DeviceId,
 }
 
 async fn register(
@@ -71,6 +82,7 @@ async fn register(
     base: &str,
     login: &str,
     device: DeviceId,
+    skip_register: bool,
 ) -> Result<User, String> {
     // Параметры KDF в нагрузочном тесте быстрые: сервер их не проверяет, а Argon2id
     // по 128 МиБ на 120 пользователей — это тест памяти ноутбука, не сервера.
@@ -84,6 +96,17 @@ async fn register(
     let vault = format!("vault-{login}").into_bytes();
     let digest = *blake3::hash(&vault).as_bytes();
     let signature = sign_register(&identity, &account, &device, &digest);
+
+    if skip_register {
+        let token = login_user(http, base, login, &identity, account, device).await?;
+        return Ok(User {
+            login: login.to_string(),
+            token,
+            identity,
+            account,
+            device,
+        });
+    }
 
     let response = http
         .post(format!("{base}/v1/accounts"))
@@ -111,6 +134,9 @@ async fn register(
     Ok(User {
         login: login.to_string(),
         token,
+        identity: Arc::clone(&identity),
+        account,
+        device,
     })
 }
 
@@ -205,7 +231,7 @@ async fn main() {
                 }
                 let login = format!("{prefix}{index:03}");
                 let device = DeviceId::new([(index % 250 + 1) as u8; 16]);
-                match register(&http, &base, &login, device).await {
+                match register(&http, &base, &login, device, options.login_only).await {
                     Ok(user) => created.push(user),
                     Err(error) => {
                         errors.fetch_add(1, Ordering::Relaxed);
@@ -255,6 +281,192 @@ async fn main() {
                     break;
                 }
                 let user = &users[index];
+                if options.mix {
+                    let mut versions: std::collections::HashMap<usize, u64> =
+                        std::collections::HashMap::new();
+                    let mut live_blobs: std::collections::HashMap<usize, Vec<String>> =
+                        std::collections::HashMap::new();
+                    // Повторный вход выдаёт новый токен и вытесняет старые сессии,
+                    // поэтому внутри воркера держим актуальный.
+                    let mut token = user.token.clone();
+
+                    // Стартовая версия сейфа: нужна для If-Match, если аккаунт уже
+                    // существовал до прогона (--login-only).
+                    if let Ok(response) = http
+                        .get(format!("{base}/v1/vault/meta"))
+                        .header("x-pms-protocol", "1")
+                        .bearer_auth(&token)
+                        .send()
+                        .await
+                    {
+                        let from_header = response
+                            .headers()
+                            .get("x-pms-vault-version")
+                            .and_then(|value| value.to_str().ok())
+                            .and_then(|value| value.parse::<u64>().ok());
+                        let from_body = response
+                            .text()
+                            .await
+                            .ok()
+                            .and_then(|text| {
+                                serde_json::from_str::<pms_proto::dto::VaultMeta>(&text).ok()
+                            })
+                            .map(|meta| meta.version);
+                        if let Some(version) = from_header.or(from_body) {
+                            versions.insert(index, version);
+                        }
+                    }
+                    loop {
+                        if let Some(deadline) = deadline {
+                            if Instant::now() >= deadline {
+                                break;
+                            }
+                        }
+
+                        let roll: f64 = rand::random();
+                        let started = Instant::now();
+                        let mut ok = false;
+
+                        if roll < 0.55 {
+                            let version = *versions.entry(index).or_insert(1);
+                            let body = format!("{}|v{}|{}", user.login, version, "x".repeat(2048));
+                            match http
+                                .put(format!("{base}/v1/vault"))
+                                .header("x-pms-protocol", "1")
+                                .bearer_auth(&token)
+                                .header("if-match", version.to_string())
+                                .header("content-length", body.len().to_string())
+                                .body(body)
+                                .send()
+                                .await
+                            {
+                                Ok(response) if response.status().is_success() => {
+                                    ok = true;
+                                    *versions.entry(index).or_insert(1) += 1;
+                                }
+                                Ok(response) => {
+                                    eprintln!("{}: PUT {}", user.login, response.status())
+                                }
+                                Err(error) => eprintln!("{}: {error}", user.login),
+                            }
+                        } else if roll < 0.73 {
+                            match http
+                                .get(format!("{base}/v1/vault"))
+                                .header("x-pms-protocol", "1")
+                                .bearer_auth(&token)
+                                .send()
+                                .await
+                            {
+                                Ok(response) if response.status().is_success() => {
+                                    ok = response.bytes().await.is_ok();
+                                }
+                                Ok(response) => {
+                                    eprintln!("{}: GET vault {}", user.login, response.status())
+                                }
+                                Err(error) => eprintln!("{}: {error}", user.login),
+                            }
+                        } else if roll < 0.88 {
+                            // вложение 16 КиБ, как типичный скан/скриншот
+                            let blob_id = format!(
+                                "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                                rand::random::<u32>(),
+                                rand::random::<u16>(),
+                                rand::random::<u16>(),
+                                rand::random::<u16>(),
+                                rand::random::<u64>() & 0xffff_ffff_ffff
+                            );
+                            let bytes = vec![0x5Au8; 16 * 1024];
+                            let digest = blake3::hash(&bytes).to_hex().to_string();
+                            match http
+                                .put(format!("{base}/v1/blobs/{blob_id}"))
+                                .header("x-pms-protocol", "1")
+                                .bearer_auth(&token)
+                                .header("x-pms-digest", digest)
+                                .header("content-length", bytes.len().to_string())
+                                .body(bytes)
+                                .send()
+                                .await
+                            {
+                                Ok(response) if response.status().is_success() => {
+                                    ok = true;
+                                    live_blobs.entry(index).or_default().push(blob_id);
+                                }
+                                Ok(response) => {
+                                    eprintln!("{}: PUT blob {}", user.login, response.status())
+                                }
+                                Err(error) => eprintln!("{}: {error}", user.login),
+                            }
+                        } else if roll < 0.95 {
+                            // удалить ранее загруженное вложение (или список, если пусто)
+                            let blob_id = live_blobs.get_mut(&index).and_then(|ids| ids.pop());
+                            match blob_id {
+                                Some(blob_id) => match http
+                                    .delete(format!("{base}/v1/blobs/{blob_id}"))
+                                    .header("x-pms-protocol", "1")
+                                    .bearer_auth(&token)
+                                    .send()
+                                    .await
+                                {
+                                    Ok(response) if response.status().is_success() => ok = true,
+                                    Ok(response) => {
+                                        eprintln!(
+                                            "{}: DELETE blob {}",
+                                            user.login,
+                                            response.status()
+                                        )
+                                    }
+                                    Err(error) => eprintln!("{}: {error}", user.login),
+                                },
+                                None => match http
+                                    .get(format!("{base}/v1/blobs"))
+                                    .header("x-pms-protocol", "1")
+                                    .bearer_auth(&token)
+                                    .send()
+                                    .await
+                                {
+                                    Ok(response) if response.status().is_success() => ok = true,
+                                    Ok(response) => {
+                                        eprintln!(
+                                            "{}: list blobs {}",
+                                            user.login,
+                                            response.status()
+                                        )
+                                    }
+                                    Err(error) => eprintln!("{}: {error}", user.login),
+                                },
+                            }
+                        } else {
+                            // повторный вход: challenge + verify (Ed25519)
+                            match login_user(
+                                &http,
+                                &base,
+                                &user.login,
+                                &user.identity,
+                                user.account,
+                                user.device,
+                            )
+                            .await
+                            {
+                                Ok(new_token) => {
+                                    token = new_token;
+                                    ok = true;
+                                }
+                                Err(error) => eprintln!("{}: login {error}", user.login),
+                            }
+                        }
+
+                        if ok {
+                            latencies
+                                .lock()
+                                .expect("latencies")
+                                .push(started.elapsed().as_millis());
+                        } else {
+                            push_errors.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    continue;
+                }
+
                 if options.reads {
                     loop {
                         if let Some(deadline) = deadline {
