@@ -35,13 +35,13 @@ impl Store {
             .ok_or_else(|| StoreError::Corrupt("аккаунт исчез".to_string()))?;
         let existing = self.blob_info(account, blob_id)?;
 
-        // Тот же блоб с тем же содержимым: не пишем, но отмечаем использование.
+        // Тот же блоб с тем же содержимым: не пишем и не трогаем индекс, если
+        // отметка использования ещё свежая (иначе каждая повторная загрузка и
+        // каждое скачивание генерируют запись в WAL).
         if let Some(info) = &existing {
             if info.digest == digest && info.size == len && len > 0 {
                 self.bump_blob_use(account, blob_id)?;
-                return self
-                    .blob_info(account, blob_id)?
-                    .ok_or_else(|| StoreError::Corrupt("блоб исчез".to_string()));
+                return Ok(info.clone());
             }
         }
 
@@ -198,15 +198,26 @@ impl Store {
         Ok(true)
     }
 
+    /// Обновляет отметку использования, но не чаще раза в час: иначе скачивание
+    /// одного и того же вложения пишет в WAL на каждый GET.
     pub fn bump_blob_use(&self, account: AccountId, blob_id: &str) -> Result<(), StoreError> {
         if !is_blob_id(blob_id) {
             return Err(StoreError::BadBlobId);
         }
+        let threshold = (chrono::Utc::now() - chrono::Duration::hours(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         self.db()?
-            .execute(
-                "UPDATE blobs SET last_used_at = ?3 WHERE account_id = ?1 AND blob_id = ?2",
-                rusqlite::params![account.to_string(), blob_id, now()],
+            .prepare_cached(
+                "UPDATE blobs SET last_used_at = ?3 \
+                 WHERE account_id = ?1 AND blob_id = ?2 AND last_used_at < ?4",
             )
+            .map_err(db_error)?
+            .execute(rusqlite::params![
+                account.to_string(),
+                blob_id,
+                now(),
+                threshold
+            ])
             .map_err(db_error)?;
         Ok(())
     }

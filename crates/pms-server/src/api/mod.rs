@@ -338,7 +338,13 @@ impl axum::extract::FromRequestParts<AppState> for Authed {
             .and_then(|value| value.strip_prefix("Bearer "))
             .ok_or_else(|| ApiError::new(ErrorCode::Unauthorized, "нужен Bearer-токен"))?;
 
-        let session = state.auth.authenticate(token.trim())?;
+        // Проверка токена ходит в SQLite: уводим её с воркера, чтобы запросы
+        // других пользователей не ждали чужой индекс.
+        let auth = std::sync::Arc::clone(&state.auth);
+        let presented = token.trim().to_string();
+        let session = tokio::task::spawn_blocking(move || auth.authenticate(&presented))
+            .await
+            .map_err(|_| ApiError::new(ErrorCode::Internal, "внутренняя ошибка сервера"))??;
         Ok(Self {
             account: session.account,
             device: session.device,

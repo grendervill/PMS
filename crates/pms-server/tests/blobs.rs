@@ -91,11 +91,23 @@ async fn read_back_and_bump_last_used() {
         .unwrap();
 
     let before = store.blob_info(account, BLOB_ID).unwrap().unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // Свежую отметку не переписываем: иначе каждое скачивание пишет в WAL.
     store.bump_blob_use(account, BLOB_ID).unwrap();
     let after = store.blob_info(account, BLOB_ID).unwrap().unwrap();
-    assert_ne!(before.last_used_at, after.last_used_at);
-    assert_eq!(before.created_at, after.created_at);
+    assert_eq!(before.last_used_at, after.last_used_at);
+
+    // А старую — обновляем.
+    store
+        .db_for_tests()
+        .execute(
+            "UPDATE blobs SET last_used_at = '2020-01-01T00:00:00Z' WHERE blob_id = ?1",
+            rusqlite::params![BLOB_ID],
+        )
+        .unwrap();
+    store.bump_blob_use(account, BLOB_ID).unwrap();
+    let refreshed = store.blob_info(account, BLOB_ID).unwrap().unwrap();
+    assert_ne!(refreshed.last_used_at, "2020-01-01T00:00:00Z");
+    assert_eq!(before.created_at, refreshed.created_at);
 
     let (info, mut file) = store.get_blob(account, BLOB_ID).await.unwrap().unwrap();
     let mut read = Vec::new();

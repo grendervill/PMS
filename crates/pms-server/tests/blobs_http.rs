@@ -136,7 +136,7 @@ async fn blob_put_with_wrong_digest_is_400_and_leaves_nothing() {
 }
 
 #[tokio::test]
-async fn head_blob_bumps_last_used_at() {
+async fn head_blob_does_not_rewrite_a_fresh_mark() {
     let server = TestServer::start("").await;
     let account = registered(&server, b"vault").await;
     let bytes = b"attachment".to_vec();
@@ -176,7 +176,9 @@ async fn head_blob_bumps_last_used_at() {
         .await
         .unwrap();
     assert_eq!(list.len(), 1);
-    assert_ne!(list[0].created_at, list[0].last_used_at);
+    // Отметка свежая, поэтому HEAD её не переписывает: чтения не должны
+    // генерировать запись в WAL на каждый запрос.
+    assert_eq!(list[0].created_at, list[0].last_used_at);
 
     let downloaded = server
         .client

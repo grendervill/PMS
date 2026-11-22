@@ -201,12 +201,16 @@ export function QrScannerDialog({
             </div>
           </div>
         ) : (
-          <div className="relative aspect-[4/5] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-black sm:aspect-video">
+          <div className="relative aspect-[4/5] max-h-[58vh] w-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-black sm:aspect-video sm:max-h-none">
+            {/* Видео заполняет весь контейнер: раньше оно было 16:9 внутри
+                рамки 4:5, и нижняя половина оставалась чёрной — наводить
+                камеру в пустоту было бессмысленно. */}
             <video
               ref={videoRef}
               muted
               playsInline
-              className="aspect-video w-full object-cover"
+              autoPlay
+              className="absolute inset-0 size-full object-cover"
             />
             {!cameraReady ? (
               <div className="absolute inset-0 grid place-items-center text-[11px] text-[var(--muted)]">
