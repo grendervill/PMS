@@ -133,34 +133,36 @@ impl Store {
         if !is_blob_id(blob_id) {
             return Err(StoreError::BadBlobId);
         }
-        let connection = self.db()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT blob_id, size, digest, created_at, last_used_at FROM blobs \
-                 WHERE account_id = ?1 AND blob_id = ?2",
-            )
-            .map_err(db_error)?;
-        let mut rows = statement
-            .query(rusqlite::params![account.to_string(), blob_id])
-            .map_err(db_error)?;
-        match rows.next().map_err(db_error)? {
-            Some(row) => Ok(Some(read_blob(row).map_err(db_error)?)),
-            None => Ok(None),
-        }
+        self.with_read(|connection| {
+            let mut statement = connection
+                .prepare_cached(
+                    "SELECT blob_id, size, digest, created_at, last_used_at FROM blobs \
+                     WHERE account_id = ?1 AND blob_id = ?2",
+                )
+                .map_err(db_error)?;
+            let mut rows = statement
+                .query(rusqlite::params![account.to_string(), blob_id])
+                .map_err(db_error)?;
+            match rows.next().map_err(db_error)? {
+                Some(row) => Ok(Some(read_blob(row).map_err(db_error)?)),
+                None => Ok(None),
+            }
+        })
     }
 
     pub fn list_blobs(&self, account: AccountId) -> Result<Vec<BlobInfo>, StoreError> {
-        let connection = self.db()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT blob_id, size, digest, created_at, last_used_at FROM blobs \
-                 WHERE account_id = ?1 ORDER BY created_at",
-            )
-            .map_err(db_error)?;
-        let rows = statement
-            .query_map(rusqlite::params![account.to_string()], read_blob)
-            .map_err(db_error)?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_error)
+        self.with_read(|connection| {
+            let mut statement = connection
+                .prepare_cached(
+                    "SELECT blob_id, size, digest, created_at, last_used_at FROM blobs \
+                     WHERE account_id = ?1 ORDER BY created_at",
+                )
+                .map_err(db_error)?;
+            let rows = statement
+                .query_map(rusqlite::params![account.to_string()], read_blob)
+                .map_err(db_error)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_error)
+        })
     }
 
     /// Удаляет блоб и возвращает признак того, что файл был.
@@ -226,14 +228,15 @@ impl Store {
         let record = self
             .account(account)?
             .ok_or_else(|| StoreError::Corrupt("аккаунт исчез".to_string()))?;
-        let connection = self.db()?;
-        let (blobs_bytes, blob_count): (i64, i64) = connection
-            .query_row(
-                "SELECT COALESCE(SUM(size), 0), COUNT(*) FROM blobs WHERE account_id = ?1",
-                rusqlite::params![account.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(db_error)?;
+        let (blobs_bytes, blob_count): (i64, i64) = self.with_read(|connection| {
+            connection
+                .query_row(
+                    "SELECT COALESCE(SUM(size), 0), COUNT(*) FROM blobs WHERE account_id = ?1",
+                    rusqlite::params![account.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(db_error)
+        })?;
 
         Ok(Usage {
             used: record.used_bytes,

@@ -98,6 +98,9 @@ pub struct Store {
     dirty: Mutex<HashSet<PathBuf>>,
     flush: tokio::sync::Notify,
     db: Mutex<Connection>,
+    /// Пул соединений только для чтения. WAL разрешает читателей параллельно
+    /// писателю: без пула любой SELECT ждал бы глобальный мьютекс писателя.
+    reads: Mutex<Vec<Connection>>,
     locks: Mutex<HashMap<AccountId, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -117,6 +120,7 @@ impl Store {
             dirty: Mutex::new(HashSet::new()),
             flush: tokio::sync::Notify::new(),
             db: Mutex::new(connection),
+            reads: Mutex::new(Vec::new()),
             locks: Mutex::new(HashMap::new()),
         };
         store.prune_staging()?;
@@ -131,6 +135,33 @@ impl Store {
     /// Квота для новых аккаунтов, если для конкретного не задана иная.
     pub fn default_quota(&self) -> u64 {
         self.default_quota
+    }
+
+    /// Выполняет чтение на отдельном соединении из пула.
+    ///
+    /// Читатели не ждут писателя и друг друга. Пул маленький: больше четырёх
+    /// параллельных читателей на аккаунт не бывает.
+    pub(crate) fn with_read<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let mut pooled = self.reads.lock().map_err(|_| StoreError::Locked)?;
+        let connection = match pooled.pop() {
+            Some(connection) => connection,
+            None if pooled.capacity() == 0 && pooled.is_empty() => {
+                sqlite::open_read(&paths::db_path(&self.root)).map_err(db_error)?
+            }
+            None => sqlite::open_read(&paths::db_path(&self.root)).map_err(db_error)?,
+        };
+        drop(pooled);
+
+        let result = f(&connection);
+        if let Ok(mut pooled) = self.reads.lock() {
+            if pooled.len() < 4 {
+                pooled.push(connection);
+            }
+        }
+        result
     }
 
     fn db(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
@@ -203,24 +234,23 @@ impl Store {
     }
 
     pub fn account(&self, account: AccountId) -> Result<Option<AccountRecord>, StoreError> {
-        let connection = self.db()?;
-        // `prepare_cached`: компиляция запроса переиспользуется между вызовами,
-        // иначе на каждый запрос уходит несколько аллокаций SQLite.
-        let mut statement = connection
-            .prepare_cached(
-                "SELECT account_id, public_key, quota_bytes, used_bytes, vault_version, \
-                 vault_digest, vault_size, updated_at, login, last_delete_at \
-                 FROM accounts WHERE account_id = ?1",
-            )
-            .map_err(db_error)?;
-        let mut rows = statement
-            .query(rusqlite::params![account.to_string()])
-            .map_err(db_error)?;
+        self.with_read(|connection| {
+            let mut statement = connection
+                .prepare_cached(
+                    "SELECT account_id, public_key, quota_bytes, used_bytes, vault_version, \
+                     vault_digest, vault_size, updated_at, login, last_delete_at \
+                     FROM accounts WHERE account_id = ?1",
+                )
+                .map_err(db_error)?;
+            let mut rows = statement
+                .query(rusqlite::params![account.to_string()])
+                .map_err(db_error)?;
 
-        match rows.next().map_err(db_error)? {
-            Some(row) => Ok(Some(read_account(row, account)?)),
-            None => Ok(None),
-        }
+            match rows.next().map_err(db_error)? {
+                Some(row) => Ok(Some(read_account(row, account)?)),
+                None => Ok(None),
+            }
+        })
     }
 
     /// Список аккаунтов для CLI: идентификатор, логин, занятое место, квота.
@@ -352,6 +382,9 @@ impl Store {
     }
 
     fn delete_account_locked(&self, account: AccountId) -> Result<bool, StoreError> {
+        if let Ok(mut locks) = self.locks.lock() {
+            locks.remove(&account);
+        }
         if self.account(account)?.is_none() {
             return Ok(false);
         }
@@ -430,7 +463,6 @@ impl Store {
                 .unwrap_or(0);
 
             let mut present = HashSet::new();
-            let mut blobs_total = 0u64;
             if let Ok(entries) = std::fs::read_dir(paths::blobs_dir(&self.root, account)) {
                 for entry in entries.flatten() {
                     let Ok(meta) = entry.metadata() else {
@@ -445,7 +477,6 @@ impl Store {
                         let _ = std::fs::remove_file(entry.path());
                         continue;
                     }
-                    blobs_total += meta.len();
                     present.insert(name);
                 }
             }
@@ -459,7 +490,9 @@ impl Store {
             }
 
             let connection = self.db()?;
-            let known: Vec<String> = {
+            // Файлы без строки в индексе — мусор от сбоя между rename и INSERT:
+            // иначе они навсегда занимают квоту (и считаются дважды).
+            let known_before: HashSet<String> = {
                 let mut statement = connection
                     .prepare("SELECT blob_id FROM blobs WHERE account_id = ?1")
                     .map_err(db_error)?;
@@ -468,10 +501,29 @@ impl Store {
                         row.get::<_, String>(0)
                     })
                     .map_err(db_error)?;
-                rows.collect::<rusqlite::Result<Vec<_>>>()
+                rows.collect::<rusqlite::Result<HashSet<_>>>()
                     .map_err(db_error)?
             };
-            for blob_id in known {
+            for name in present.difference(&known_before) {
+                if is_blob_id(name) {
+                    let _ = std::fs::remove_file(paths::blob_path(&self.root, account, name));
+                    tracing::info!(account = %account, blob_id = %name, "recount: удалён осиротевший блоб");
+                }
+            }
+            let present: HashSet<String> = present
+                .into_iter()
+                .filter(|name| known_before.contains(name))
+                .collect();
+            let blobs_total: u64 = present
+                .iter()
+                .filter_map(|name| {
+                    std::fs::metadata(paths::blob_path(&self.root, account, name))
+                        .ok()
+                        .map(|meta| meta.len())
+                })
+                .sum();
+            // Строки без файлов: удаляем, чтобы не обещать клиенту то, чего нет.
+            for blob_id in known_before {
                 if !present.contains(&blob_id) {
                     connection
                         .execute(

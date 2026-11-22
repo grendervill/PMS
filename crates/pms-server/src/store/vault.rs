@@ -120,6 +120,88 @@ impl Store {
         })
     }
 
+    /// Принимает сейф, который уже лежит в `staging/` (регистрация).
+    ///
+    /// Хеш и тело уже посчитаны при приёме: остаётся переименовать файл и
+    /// обновить индекс. Раньше регистрация писала сейф и считала BLAKE3 дважды.
+    pub async fn put_vault_from_staged(
+        &self,
+        account: AccountId,
+        expected: ExpectedVersion,
+        staged: &crate::store::staging::Staged,
+    ) -> Result<VaultMeta, StoreError> {
+        let len = staged.len();
+        let digest = staged.digest().to_string();
+
+        let lock = self.account_lock(account);
+        let _guard = lock.lock().await;
+
+        let record = self
+            .account(account)?
+            .ok_or_else(|| StoreError::Corrupt("аккаунт исчез".to_string()))?;
+
+        let current = record.vault_version;
+        match expected {
+            ExpectedVersion::Any => {}
+            ExpectedVersion::Version(version) if version == current => {}
+            ExpectedVersion::Version(version) if version < current => {
+                return Err(StoreError::Conflict(meta_of(&record).unwrap_or(
+                    VaultMeta {
+                        version: current,
+                        size: record.vault_size,
+                        digest: record.vault_digest.clone(),
+                        updated_at: record.updated_at.clone(),
+                    },
+                )));
+            }
+            ExpectedVersion::Version(_) => return Err(StoreError::PreconditionFailed),
+        }
+
+        let after_write = record
+            .used_bytes
+            .saturating_sub(record.vault_size)
+            .saturating_add(len);
+        if after_write > record.quota_bytes {
+            return Err(StoreError::QuotaExceeded {
+                used: record.used_bytes,
+                quota: record.quota_bytes,
+            });
+        }
+
+        let final_path = paths::vault_path(self.root(), account);
+        tokio::fs::rename(staged.path(), &final_path)
+            .await
+            .map_err(io_error)?;
+        if self.fsync_policy() == crate::config::FsyncPolicy::Batch {
+            self.mark_dirty(final_path);
+        }
+
+        let version = current + 1;
+        let updated_at = now();
+        self.db()?
+            .prepare_cached(
+                "UPDATE accounts SET vault_version = ?2, vault_digest = ?3, vault_size = ?4, \
+                 used_bytes = ?5, updated_at = ?6 WHERE account_id = ?1",
+            )
+            .map_err(db_error)?
+            .execute(rusqlite::params![
+                account.to_string(),
+                version as i64,
+                digest,
+                len as i64,
+                after_write as i64,
+                updated_at
+            ])
+            .map_err(db_error)?;
+
+        Ok(VaultMeta {
+            version,
+            size: len,
+            digest,
+            updated_at,
+        })
+    }
+
     /// Открывает файл сейфа для потоковой отдачи. Содержимое в память не читается.
     pub async fn open_vault(
         &self,

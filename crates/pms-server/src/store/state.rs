@@ -133,29 +133,32 @@ impl Store {
     }
 
     pub fn session(&self, token_hash: &[u8; 32]) -> Result<Option<SessionRecord>, StoreError> {
-        let connection = self.db()?;
-        let mut statement = connection
-            .prepare("SELECT account_id, device_id, expires_at FROM sessions WHERE token_hash = ?1")
-            .map_err(db_error)?;
-        let mut rows = statement
-            .query(rusqlite::params![token_hash.to_vec()])
-            .map_err(db_error)?;
-        let Some(row) = rows.next().map_err(db_error)? else {
-            return Ok(None);
-        };
-        let account_hex: String = row.get(0).map_err(db_error)?;
-        let device_hex: String = row.get(1).map_err(db_error)?;
-        let expires_at: i64 = row.get(2).map_err(db_error)?;
+        self.with_read(|connection| {
+            let mut statement = connection
+                .prepare_cached(
+                    "SELECT account_id, device_id, expires_at FROM sessions WHERE token_hash = ?1",
+                )
+                .map_err(db_error)?;
+            let mut rows = statement
+                .query(rusqlite::params![token_hash.to_vec()])
+                .map_err(db_error)?;
+            let Some(row) = rows.next().map_err(db_error)? else {
+                return Ok(None);
+            };
+            let account_hex: String = row.get(0).map_err(db_error)?;
+            let device_hex: String = row.get(1).map_err(db_error)?;
+            let expires_at: i64 = row.get(2).map_err(db_error)?;
 
-        let account = AccountId::from_hex(&account_hex)
-            .ok_or_else(|| StoreError::Corrupt("account_id в сессии".to_string()))?;
-        let device = DeviceId::from_hex(&device_hex)
-            .ok_or_else(|| StoreError::Corrupt("device_id в сессии".to_string()))?;
-        Ok(Some(SessionRecord {
-            account,
-            device,
-            expires_at,
-        }))
+            let account = AccountId::from_hex(&account_hex)
+                .ok_or_else(|| StoreError::Corrupt("account_id в сессии".to_string()))?;
+            let device = DeviceId::from_hex(&device_hex)
+                .ok_or_else(|| StoreError::Corrupt("device_id в сессии".to_string()))?;
+            Ok(Some(SessionRecord {
+                account,
+                device,
+                expires_at,
+            }))
+        })
     }
 
     /// Удаляет все просроченные сессии (вызывается редко, по таймеру).

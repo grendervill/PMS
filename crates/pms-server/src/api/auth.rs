@@ -251,15 +251,10 @@ pub async fn register(
             updated_at: now_rfc3339(),
         }
     } else {
-        let file = tokio::fs::File::open(staged.path())
-            .await
-            .map_err(|error| {
-                tracing::warn!(error = %error, "регистрация: не удалось прочитать сейф");
-                ApiError::new(ErrorCode::Internal, "внутренняя ошибка сервера")
-            })?;
+        // Файл уже принят в `staging/`: переименовываем, не читая заново.
         match state
             .store
-            .put_vault(account, ExpectedVersion::Any, file, staged.len())
+            .put_vault_from_staged(account, ExpectedVersion::Any, &staged)
             .await
         {
             Ok(meta) => meta,

@@ -149,7 +149,7 @@ async fn build_rustls(
         .map_err(|error| ServerError::Tls(error.to_string()))?
         .ok_or_else(|| ServerError::Tls("в файле ключа нет PEM-ключа".to_string()))?;
 
-    let server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
+    let mut server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),
     ))
     .with_protocol_versions(versions)
@@ -157,6 +157,13 @@ async fn build_rustls(
     .with_no_client_auth()
     .with_single_cert(certs, key)
     .map_err(|error| ServerError::Tls(error.to_string()))?;
+
+    // Тикеты сессии: телефон после паузы возобновляет соединение без полного
+    // рукопожатия с сертификатом RSA-3072.
+    match rustls::crypto::aws_lc_rs::Ticketer::new() {
+        Ok(ticketer) => server_config.ticketer = ticketer,
+        Err(error) => tracing::warn!(%error, "TLS-тикеты недоступны, рукопожатие каждый раз"),
+    }
 
     Ok(RustlsConfig::from_config(Arc::new(server_config)))
 }

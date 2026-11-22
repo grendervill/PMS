@@ -53,6 +53,17 @@ CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS nonces_by_expiry ON nonces(expires_at);
 "#;
 
+/// Соединение только для чтения: схему не создаёт и не мигрирует.
+pub fn open_read(path: &Path) -> rusqlite::Result<Connection> {
+    let connection = Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    connection.pragma_update(None, "query_only", true)?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    Ok(connection)
+}
+
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     let connection = Connection::open(path)?;
     connection.pragma_update(None, "journal_mode", "WAL")?;

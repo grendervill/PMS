@@ -58,8 +58,8 @@ fn account_record_round_trips() {
     assert_eq!(record.vault_version, 0);
 }
 
-#[test]
-fn reopen_recounts_used_bytes_from_disk() {
+#[tokio::test]
+async fn reopen_counts_files_and_drops_orphans() {
     let dir = tempfile::tempdir().unwrap();
     let account = AccountId::new([4u8; 16]);
     {
@@ -69,16 +69,31 @@ fn reopen_recounts_used_bytes_from_disk() {
             .unwrap();
     }
 
+    // Настоящие данные: сейф и блоб, записанный через стор.
     std::fs::write(paths::vault_path(dir.path(), account), vec![0u8; 100]).unwrap();
-    std::fs::write(
-        paths::blobs_dir(dir.path(), account).join("0b7c1d2e-3f40-4516-8798-a9bacbdcedfe"),
-        vec![0u8; 50],
-    )
-    .unwrap();
+    let body = vec![0u8; 50];
+    let digest = blake3::hash(&body).to_hex().to_string();
+    let store = Store::open(dir.path(), 4096).unwrap();
+    store
+        .put_blob(
+            account,
+            "0b7c1d2e-3f40-4516-8798-a9bacbdcedfe",
+            &digest,
+            body.as_slice(),
+            body.len() as u64,
+        )
+        .await
+        .unwrap();
+    drop(store);
+
+    // Осиротевший файл от сбоя: строки в индексе нет, квоту занимать не должен.
+    let orphan = paths::blobs_dir(dir.path(), account).join("0b7c1d2e-3f40-4516-8798-a9bacbdcedff");
+    std::fs::write(&orphan, vec![0u8; 300]).unwrap();
 
     let store = Store::open(dir.path(), 4096).unwrap();
     let record = store.account(account).unwrap().unwrap();
-    assert_eq!(record.used_bytes, 150);
+    assert_eq!(record.used_bytes, 150, "сейф 100 + блоб 50");
+    assert!(!orphan.exists(), "осиротевший файл должен быть удалён");
 }
 
 #[test]
