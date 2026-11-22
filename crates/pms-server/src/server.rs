@@ -141,13 +141,13 @@ async fn build_rustls(
         .install_default()
         .ok();
 
-    let mut certs = Vec::new();
-    for item in rustls_pemfile::certs(&mut std::io::Cursor::new(cert_pem.as_slice())) {
-        certs.push(item.map_err(|error| ServerError::Tls(error.to_string()))?);
-    }
-    let key = rustls_pemfile::private_key(&mut std::io::Cursor::new(key_pem.as_slice()))
-        .map_err(|error| ServerError::Tls(error.to_string()))?
-        .ok_or_else(|| ServerError::Tls("в файле ключа нет PEM-ключа".to_string()))?;
+    use rustls_pki_types::pem::PemObject;
+
+    let certs = rustls_pki_types::CertificateDer::pem_slice_iter(cert_pem.as_slice())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ServerError::Tls(error.to_string()))?;
+    let key = rustls_pki_types::PrivateKeyDer::from_pem_slice(key_pem.as_slice())
+        .map_err(|error| ServerError::Tls(error.to_string()))?;
 
     let mut server_config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),

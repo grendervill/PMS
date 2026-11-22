@@ -3,6 +3,7 @@ name = "pms-server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 description = "PMS sync server: sealed vault and blob storage with quotas"
 
 [[bin]]
@@ -10,16 +11,16 @@ name = "pms-server"
 path = "src/main.rs"
 
 [dependencies]
-pms-proto = { path = "../pms-proto" }
+pms-proto = { path = "../pms-proto", version = "0.1.0" }
 axum = { version = "0.8", features = ["http1", "http2", "json", "tokio"] }
 axum-server = { version = "0.9", features = ["tls-rustls"] }
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
-rustls-pemfile = "2"
+rustls-pki-types = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = { version = "0.1", features = ["time"] }
 futures-util = "0.3"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

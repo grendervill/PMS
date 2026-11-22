@@ -2,6 +2,7 @@
 name = "pms"
 version = "0.5.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 rust-version = "1.90"
 
 [lib]
@@ -62,7 +63,7 @@ quick-xml = "0.41"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "stream", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 x509-parser = "0.18"
-pms-proto = { path = "../crates/pms-proto" }
+pms-proto = { path = "../crates/pms-proto", version = "0.1.0" }
 blake3 = "1"
 tokio = { version = "1", features = ["fs", "io-util", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
@@ -90,7 +91,7 @@ objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSResponder",
 objc2-foundation = { version = "0.3.2", features = ["NSData", "NSString", "NSError"] }
 
 [dev-dependencies]
-pms-server = { path = "../crates/pms-server" }
+pms-server = { path = "../crates/pms-server", version = "0.1.0" }
 rcgen = "0.13"
 tokio = { version = "1", features = ["full"] }
 # `test` brings `tauri::test::{mock_builder, get_ipc_response}` so the command

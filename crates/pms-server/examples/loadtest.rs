@@ -29,6 +29,8 @@ struct Options {
     prefix: String,
     /// Держать нагрузку столько секунд вместо фиксированного числа сохранений.
     duration: Option<u64>,
+    /// Читать сейфы вместо записи (проверка пути чтения).
+    reads: bool,
 }
 
 fn parse_args() -> Options {
@@ -39,6 +41,7 @@ fn parse_args() -> Options {
         concurrency: 8,
         prefix: "load".to_string(),
         duration: None,
+        reads: false,
     };
 
     let mut args = std::env::args().skip(1);
@@ -51,6 +54,7 @@ fn parse_args() -> Options {
             "--concurrency" => options.concurrency = value().parse().expect("параллелизм"),
             "--prefix" => options.prefix = value(),
             "--duration" => options.duration = Some(value().parse().expect("секунды")),
+            "--reads" => options.reads = true,
             other => panic!("неизвестный флаг {other}"),
         }
     }
@@ -251,6 +255,41 @@ async fn main() {
                     break;
                 }
                 let user = &users[index];
+                if options.reads {
+                    loop {
+                        if let Some(deadline) = deadline {
+                            if Instant::now() >= deadline {
+                                break;
+                            }
+                        }
+                        let started = Instant::now();
+                        let response = http
+                            .get(format!("{base}/v1/vault"))
+                            .header("x-pms-protocol", "1")
+                            .bearer_auth(&user.token)
+                            .send()
+                            .await;
+                        match response {
+                            Ok(response) if response.status().is_success() => {
+                                let _ = response.bytes().await;
+                                latencies
+                                    .lock()
+                                    .expect("latencies")
+                                    .push(started.elapsed().as_millis());
+                            }
+                            Ok(response) => {
+                                push_errors.fetch_add(1, Ordering::Relaxed);
+                                eprintln!("{}: GET {}", user.login, response.status());
+                            }
+                            Err(error) => {
+                                push_errors.fetch_add(1, Ordering::Relaxed);
+                                eprintln!("{}: {error}", user.login);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 let mut round: usize = 0;
                 loop {
                     if let Some(deadline) = deadline {

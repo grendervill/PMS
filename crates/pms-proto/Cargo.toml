@@ -3,6 +3,7 @@ name = "pms-proto"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 description = "Shared PMS wire protocol: identity keys, DTOs, error codes"
 
 [dependencies]

@@ -44,16 +44,17 @@ jobs:
         run: pnpm audit --prod --audit-level=high
 
       - name: Formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+        run: cargo fmt --all --check
 
       - name: Install audit tooling
-        run: cargo install cargo-audit cargo-deny --locked
+        run: cargo install cargo-deny --locked
 
-      - name: Rust advisories
-        working-directory: src-tauri
-        run: cargo audit
-
+      # `cargo deny check advisories` читает тот же RustSec-каталог, но, в отличие
+      # от `cargo audit`, понимает обоснованные игноры из deny.toml — один список
+      # вместо двух, которые расходятся.
       - name: Dependency policy
+        # deny.toml лежит в src-tauri; сам lock — в корне воркспейса, и cargo-deny
+        # находит его через `cargo metadata`, так что текущий каталог только за конфигом.
         working-directory: src-tauri
         run: cargo deny check advisories bans sources licenses
 
@@ -143,7 +144,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          base="src-tauri/target/${{ matrix.target }}/release/bundle"
+          base="target/${{ matrix.target }}/release/bundle"
           find "$base" -maxdepth 3 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) -exec cp -v {} release-assets/ \;
           ls -lh release-assets
 

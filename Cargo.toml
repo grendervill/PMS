@@ -6,6 +6,7 @@ members = ["src-tauri", "crates/pms-proto", "crates/pms-server"]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.90"
+license = "GPL-3.0-or-later"
 
 # Сервер собирается отдельным профилем, чтобы жирный LTO не замедлял
 # релизные сборки приложения (macOS/Windows/Linux/Android в CI).

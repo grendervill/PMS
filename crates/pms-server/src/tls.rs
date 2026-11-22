@@ -1,7 +1,6 @@
 //! Режимы TLS. Встроенного ACME нет: сертификат берётся файлами, автовыпуск —
 //! задача reverse proxy или certbot.
 
-use std::io::Cursor;
 use std::path::PathBuf;
 
 use crate::config::{Config, ConfigError, TlsModeName};
@@ -53,10 +52,11 @@ fn read(path: &std::path::Path) -> Result<Vec<u8>, ConfigError> {
 }
 
 fn verify_certificate_chain(path: &std::path::Path) -> Result<(), ConfigError> {
+    use rustls_pki_types::pem::PemObject;
+
     let bytes = read(path)?;
-    let mut cursor = Cursor::new(bytes.as_slice());
     let mut found = false;
-    for item in rustls_pemfile::certs(&mut cursor) {
+    for item in rustls_pki_types::CertificateDer::pem_slice_iter(bytes.as_slice()) {
         if item.is_err() {
             return Err(ConfigError::MissingCertificate(format!(
                 "{} не похож на PEM-сертификат",
@@ -75,13 +75,10 @@ fn verify_certificate_chain(path: &std::path::Path) -> Result<(), ConfigError> {
 }
 
 fn verify_private_key(path: &std::path::Path) -> Result<(), ConfigError> {
+    use rustls_pki_types::pem::PemObject;
+
     let bytes = read(path)?;
-    let mut cursor = Cursor::new(bytes.as_slice());
-    match rustls_pemfile::private_key(&mut cursor) {
-        Ok(Some(_)) => Ok(()),
-        _ => Err(ConfigError::MissingCertificate(format!(
-            "в {} нет PEM-ключа",
-            path.display()
-        ))),
-    }
+    rustls_pki_types::PrivateKeyDer::from_pem_slice(bytes.as_slice())
+        .map(|_| ())
+        .map_err(|_| ConfigError::MissingCertificate(format!("в {} нет PEM-ключа", path.display())))
 }
